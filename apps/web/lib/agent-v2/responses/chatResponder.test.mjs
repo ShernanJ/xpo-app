@@ -26,9 +26,13 @@ const baseProfileReplyContext = {
   strongestPost: null,
 };
 
-test("deterministic chat replies stay minimal for greetings and capability chat", async () => {
+test("deterministic chat replies greet back on simple social turns", async () => {
   const greetingReply = await getDeterministicChatReply({
-    userMessage: "hi how are you",
+    userMessage: "hi",
+    recentHistory: "",
+  });
+  const vibeReply = await getDeterministicChatReply({
+    userMessage: "vibing",
     recentHistory: "",
   });
   const capabilityReply = await getDeterministicChatReply({
@@ -36,7 +40,15 @@ test("deterministic chat replies stay minimal for greetings and capability chat"
     recentHistory: "",
   });
 
-  assert.equal(greetingReply, null);
+  assert.equal(
+    greetingReply,
+    "Hi. What are we working on today: a post, a thread, or a quick profile audit?",
+  );
+  assert.equal(
+    vibeReply,
+    "Sounds good. What are we working on today: a post, a thread, or a quick profile audit?",
+  );
+  assert.equal(greetingReply === greetingReply?.toLowerCase(), false);
   assert.equal(capabilityReply, null);
 });
 

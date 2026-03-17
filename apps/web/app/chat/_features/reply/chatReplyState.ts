@@ -1,6 +1,7 @@
 import type { SelectedAngleFormatHint } from "../../../../lib/agent-v2/contracts/turnContract.ts";
 import type { ChatStreamEvent, ChatStreamProgressEventData } from "../../../../lib/chat/chatStream.ts";
 import { sanitizeChatStreamProgressEventData } from "../../../../lib/chat/chatStream.ts";
+import type { ChatMediaAttachmentRef, ImageTurnContext } from "../../../../lib/chat/chatMedia.ts";
 
 export type ChatResultOutputShape =
   | "coach_question"
@@ -69,6 +70,7 @@ export interface ChatReplyResultLike<
   previousVersionSnapshot?: TPreviousVersion | null;
   revisionChainId?: string;
   supportAsset: string | null;
+  mediaAttachments?: ChatMediaAttachmentRef[];
   autoSavedSourceMaterials?: {
     count: number;
     assets: Array<{
@@ -83,6 +85,7 @@ export interface ChatReplyResultLike<
   replyParse?: TReplyParse | null;
   contextPacket?: TContextPacket | null;
   profileAnalysisArtifact?: unknown | null;
+  imageTurnContext?: ImageTurnContext | null;
   newThreadId?: string;
   turnId?: string;
   messageId?: string;
@@ -119,6 +122,7 @@ export interface AssistantChatMessageLike<
   previousVersionSnapshot: TPreviousVersion | null;
   revisionChainId?: string;
   supportAsset: string | null;
+  mediaAttachments?: ChatMediaAttachmentRef[];
   autoSavedSourceMaterials?: {
     count: number;
     assets: Array<{
@@ -133,6 +137,7 @@ export interface AssistantChatMessageLike<
   replyParse: TReplyParse | null;
   contextPacket: TContextPacket | null;
   profileAnalysisArtifact?: unknown | null;
+  imageTurnContext?: ImageTurnContext | null;
   feedbackValue: null;
   quickReplies?: TQuickReply[];
 }
@@ -449,6 +454,7 @@ export function buildAssistantMessageFromChatResult<
     previousVersionSnapshot: args.result.previousVersionSnapshot ?? null,
     revisionChainId: args.result.revisionChainId,
     supportAsset: args.result.supportAsset,
+    mediaAttachments: args.result.mediaAttachments,
     autoSavedSourceMaterials: args.result.autoSavedSourceMaterials ?? null,
     outputShape: args.result.outputShape,
     surfaceMode: args.result.surfaceMode,
@@ -456,6 +462,7 @@ export function buildAssistantMessageFromChatResult<
     replyParse: args.result.replyParse ?? null,
     contextPacket: args.result.contextPacket ?? null,
     profileAnalysisArtifact: args.result.profileAnalysisArtifact ?? null,
+    imageTurnContext: args.result.imageTurnContext ?? null,
     feedbackValue: null,
     quickReplies,
   };

@@ -136,3 +136,42 @@ test("scrolls the selected expanded thread post into view when focused", async (
 
   expect(scrollIntoViewMock).toHaveBeenCalled();
 });
+
+test("renders the attached image under the draft preview text", () => {
+  render(
+    <InlineDraftPreviewCard
+      identity={{
+        avatarUrl: null,
+        displayName: "Stanley",
+        username: "stanley",
+      }}
+      previewState={{
+        ...previewState,
+        previewMediaAttachments: [
+          {
+            assetId: "chat-media-1",
+            kind: "image",
+            src: "/api/creator/v2/chat/media/chat-media-1",
+            previewSrc: "/api/creator/v2/chat/media/chat-media-1?variant=preview",
+            mimeType: "image/png",
+            width: 1280,
+            height: 720,
+            name: "draft.png",
+          },
+        ],
+      }}
+      isVerifiedAccount={false}
+      isMainChatLocked={false}
+      hasCopiedDraft={false}
+      revealClassName=""
+      shouldAnimateLines={false}
+      onOpenDraftEditor={vi.fn()}
+      onRequestRevision={vi.fn()}
+      onToggleExpanded={vi.fn()}
+      onCopy={vi.fn()}
+      onShare={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByAltText("draft.png")).toBeVisible();
+});

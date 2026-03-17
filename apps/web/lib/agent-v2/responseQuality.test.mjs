@@ -977,10 +977,16 @@ test("bare post draft ideation reply names post directions clearly", () => {
     primaryAngleChipMode: true,
   });
 
-  assert.equal(reply.toLowerCase().includes("post directions"), true);
-  assert.equal(/pick one and i'll draft it|which one should i draft first|if one works, i'll draft it/i.test(reply), true);
-  assert.equal(reply.toLowerCase().includes("which specific"), false);
-  assert.equal(reply.toLowerCase().includes("example angle"), false);
+  assert.equal(reply.includes("post directions"), true);
+  assert.equal(reply === reply.toLowerCase(), false);
+  assert.equal(
+    /pick the one you want|choose one and i'll turn it into a draft|if one clicks, i'll write it out/i.test(
+      reply,
+    ),
+    true,
+  );
+  assert.equal(reply.toLowerCase().includes("three post directions"), false);
+  assert.equal(reply.toLowerCase().includes("pick one and i'll draft it"), false);
 });
 
 test("bare thread draft ideation reply names thread directions clearly", () => {
@@ -989,9 +995,33 @@ test("bare thread draft ideation reply names thread directions clearly", () => {
     close: "which angle do you want to flesh out first?",
     userMessage: "write a thread",
     styleCard: null,
+    primaryAngleChipMode: true,
   });
 
-  assert.equal(reply.toLowerCase().includes("thread directions"), true);
+  assert.equal(reply.includes("thread directions"), true);
+  assert.equal(reply === reply.toLowerCase(), false);
+});
+
+test("bare ideation shell copy stays sentence-cased even when the style card prefers lowercase", () => {
+  const reply = buildIdeationReply({
+    intro: "based on what i know, there are a few lanes this could take.",
+    close: "which angle do you want to flesh out first?",
+    userMessage: "write a post",
+    styleCard: {
+      ...baseStyleCard,
+      customGuidelines: [],
+      formattingRules: ["all lowercase"],
+      sentenceOpenings: [],
+      sentenceClosers: [],
+      emojiPatterns: [],
+      slangAndVocabulary: [],
+      antiExamples: [],
+    },
+    primaryAngleChipMode: true,
+  });
+
+  assert.equal(reply.includes("post directions"), true);
+  assert.equal(reply === reply.toLowerCase(), false);
 });
 
 test("correction repair catches fabrication pushback phrasing", () => {

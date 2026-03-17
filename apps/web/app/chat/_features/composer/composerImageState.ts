@@ -2,6 +2,10 @@
 
 import type { ChatQuickReply } from "../chat-page/chatPageTypes";
 import type { ComposerImageAttachment } from "./composerTypes";
+import {
+  buildImageIdeationQuickReplies as buildSharedImageIdeationQuickReplies,
+  buildImagePostSupportAsset as buildSharedImagePostSupportAsset,
+} from "@/lib/chat/imageTurnShared";
 
 const MB = 1024 * 1024;
 
@@ -103,39 +107,79 @@ export function revokeComposerImageAttachment(
   URL.revokeObjectURL(attachment.objectUrl);
 }
 
-export function buildImagePostSupportAsset(
-  visualContext: ImagePostVisualContext,
-): string {
-  const lines = [
-    `Image anchor: ${visualContext.primary_subject} in ${visualContext.setting}.`,
-    `Mood: ${visualContext.lighting_and_mood}.`,
-    visualContext.any_readable_text
-      ? `Readable text: ${visualContext.any_readable_text}.`
-      : null,
-    visualContext.key_details.length > 0
-      ? `Key details: ${visualContext.key_details.slice(0, 4).join(", ")}.`
-      : null,
-  ].filter((line): line is string => Boolean(line));
+export async function readComposerImagePreviewPayload(file: File): Promise<{
+  previewDataUrl: string | null;
+  width: number | null;
+  height: number | null;
+}> {
+  if (!file.type.toLowerCase().startsWith("image/")) {
+    return {
+      previewDataUrl: null,
+      width: null,
+      height: null,
+    };
+  }
 
-  return lines.join("\n");
+  try {
+    const sourceDataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          resolve(reader.result);
+        } else {
+          reject(new Error("Invalid image data"));
+        }
+      };
+      reader.onerror = () => reject(reader.error ?? new Error("Failed to read image"));
+      reader.readAsDataURL(file);
+    });
+
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const nextImage = new window.Image();
+      nextImage.onload = () => resolve(nextImage);
+      nextImage.onerror = () => reject(new Error("Failed to decode image"));
+      nextImage.src = sourceDataUrl;
+    });
+
+    const maxDimension = 320;
+    const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return {
+        previewDataUrl: null,
+        width: image.width,
+        height: image.height,
+      };
+    }
+
+    context.drawImage(image, 0, 0, width, height);
+    return {
+      previewDataUrl: canvas.toDataURL("image/jpeg", 0.78),
+      width: image.width,
+      height: image.height,
+    };
+  } catch {
+    return {
+      previewDataUrl: null,
+      width: null,
+      height: null,
+    };
+  }
 }
+
+export const buildImagePostSupportAsset = buildSharedImagePostSupportAsset;
 
 export function buildImageIdeationQuickReplies(args: {
   angles: readonly string[];
   supportAsset: string;
+  imageAssetId?: string;
 }): ChatQuickReply[] {
-  return args.angles
-    .map((angle) => angle.trim())
-    .filter(Boolean)
-    .slice(0, 3)
-    .map((angle) => ({
-      kind: "ideation_angle" as const,
-      value: angle,
-      label: angle,
-      angle,
-      formatHint: "post" as const,
-      supportAsset: args.supportAsset,
-    }));
+  return buildSharedImageIdeationQuickReplies(args) as ChatQuickReply[];
 }
 
 function buildLocalImageId(prefix: string): string {

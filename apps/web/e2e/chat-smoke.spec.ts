@@ -15,7 +15,7 @@ test("authenticated chat bootstraps cleanly and sends one reply without endpoint
     chat: 0,
     context: 0,
     contract: 0,
-    imagePosts: 0,
+    imageTurns: 0,
     lastChatRequestBody: null,
     preferences: 0,
     profileScrape: 0,
@@ -82,7 +82,7 @@ test("slash thread mode sends draft intent with thread formatting", async ({ pag
     chat: 0,
     context: 0,
     contract: 0,
-    imagePosts: 0,
+    imageTurns: 0,
     lastChatRequestBody: null,
     preferences: 0,
     profileScrape: 0,
@@ -107,7 +107,10 @@ test("slash thread mode sends draft intent with thread formatting", async ({ pag
 
   await page.goto(`/chat?xHandle=${CHAT_SMOKE_HANDLE}`);
 
+  await expect(page).toHaveURL(new RegExp(`/chat\\?xHandle=${CHAT_SMOKE_HANDLE}$`));
   const visibleComposer = page.getByRole("textbox", { name: "Chat composer" }).first();
+  await expect.poll(() => counts.context).toBeGreaterThan(0);
+  await expect.poll(() => counts.contract).toBeGreaterThan(0);
   await expect(visibleComposer).toBeVisible();
 
   await visibleComposer.fill("/thread break down creator systems into 5 posts");
@@ -125,13 +128,13 @@ test("slash thread mode sends draft intent with thread formatting", async ({ pag
   });
 });
 
-test("image attachments route through the image-post workflow", async ({ page }) => {
+test("image attachments send through the staged image-in-chat flow", async ({ page }) => {
   const counts: ChatSmokeRequestCounts = {
     billing: 0,
     chat: 0,
     context: 0,
     contract: 0,
-    imagePosts: 0,
+    imageTurns: 0,
     lastChatRequestBody: null,
     preferences: 0,
     profileScrape: 0,
@@ -156,20 +159,33 @@ test("image attachments route through the image-post workflow", async ({ page })
 
   await page.goto(`/chat?xHandle=${CHAT_SMOKE_HANDLE}`);
 
+  await expect(page).toHaveURL(new RegExp(`/chat\\?xHandle=${CHAT_SMOKE_HANDLE}$`));
   const visibleComposer = page.getByRole("textbox", { name: "Chat composer" }).first();
+  await expect.poll(() => counts.context).toBeGreaterThan(0);
+  await expect.poll(() => counts.contract).toBeGreaterThan(0);
   await expect(visibleComposer).toBeVisible();
 
-  await visibleComposer.fill("write me a post using this image");
   await page.locator('input[type="file"]').setInputFiles({
     name: "draft.png",
     mimeType: "image/png",
     buffer: Buffer.from("fixture-image"),
   });
 
+  await page.waitForTimeout(250);
+  expect(counts.imageTurns).toBe(0);
+
+  await page.locator('button[aria-label="Send message"]:visible').first().click();
+
+  await expect(page.getByAltText("draft.png")).toBeVisible();
   await expect(
-    page.getByText("Pulled 3 post directions from the image. Pick one and I'll draft it."),
+    page.getByText("Did you want to write a post on this image?"),
   ).toBeVisible();
 
-  expect(counts.imagePosts).toBe(1);
+  await page.getByRole("button", { name: "yes, write a post" }).click();
+  await expect(
+    page.getByText("I pulled a few post directions from the image. Choose one and I'll turn it into a draft."),
+  ).toBeVisible();
+
+  expect(counts.imageTurns).toBe(2);
   expect(counts.chat).toBe(0);
 });

@@ -7,6 +7,7 @@ import {
   isBareDraftRequest,
   isBareIdeationRequest,
 } from "../core/conversationHeuristics.ts";
+import { looksLikeSimpleSocialTurn } from "../core/simpleSocialTurn.ts";
 
 const TURN_CONTEXT_HYDRATION_GROUP_ID = "turn_context_hydration";
 
@@ -28,6 +29,42 @@ export async function hydrateTurnContextWorkers(
   args: TurnContextHydrationRequest,
 ): Promise<TurnContextHydrationResult> {
   const normalizedUserMessage = args.userMessage.trim();
+  if (looksLikeSimpleSocialTurn(normalizedUserMessage)) {
+    return {
+      styleCard: null,
+      anchors: {
+        topicAnchors: [],
+        laneAnchors: [],
+        formatAnchors: [],
+        rankedAnchors: [],
+      },
+      workerExecutions: [
+        buildRuntimeWorkerExecution({
+          worker: "load_style_profile",
+          capability: "shared",
+          phase: "context_load",
+          mode: "parallel",
+          status: "skipped",
+          groupId: TURN_CONTEXT_HYDRATION_GROUP_ID,
+          details: {
+            reason: "simple_social_turn",
+          },
+        }),
+        buildRuntimeWorkerExecution({
+          worker: "retrieve_anchors",
+          capability: "shared",
+          phase: "context_load",
+          mode: "parallel",
+          status: "skipped",
+          groupId: TURN_CONTEXT_HYDRATION_GROUP_ID,
+          details: {
+            reason: "simple_social_turn",
+          },
+        }),
+      ],
+    };
+  }
+
   const normalizedTopicSummary = args.topicSummary?.trim() || "";
   const shouldIgnoreRawUserMessage =
     !normalizedUserMessage ||

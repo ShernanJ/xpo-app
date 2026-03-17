@@ -15,6 +15,7 @@ import type {
   RuntimeResolutionSource,
 } from "./runtimeContracts.ts";
 import { isBareDraftRequest } from "../core/conversationHeuristics.ts";
+import { looksLikeSimpleSocialTurn } from "../core/simpleSocialTurn.ts";
 
 export interface RuntimeActionResolution {
   workflow: AgentRuntimeWorkflow;
@@ -164,6 +165,18 @@ export async function resolveRuntimeAction(args: {
       decision: buildStructuredDecision({
         action: "plan",
         rationale: "deterministic bare draft ideation",
+      }),
+    };
+  }
+
+  if (!args.explicitIntent && looksLikeSimpleSocialTurn(args.userMessage)) {
+    return {
+      workflow: "answer_question",
+      classifiedIntent: "answer_question",
+      source: "structured_turn",
+      decision: buildStructuredDecision({
+        action: "answer",
+        rationale: "deterministic simple social turn",
       }),
     };
   }

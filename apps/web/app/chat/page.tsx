@@ -35,12 +35,10 @@ import {
 } from "./_features/composer/chatComposerState";
 import { useComposerPlaceholderState } from "./_features/composer/composerPlaceholderState";
 import {
-  buildImageIdeationQuickReplies,
-  buildImagePostSupportAsset,
   createComposerImageAttachment,
+  readComposerImagePreviewPayload,
   revokeComposerImageAttachment,
   validateComposerImageFile,
-  type ImagePostRouteSuccessData,
 } from "./_features/composer/composerImageState";
 import type {
   ChatComposerMode,
@@ -116,6 +114,7 @@ import { useGrowthGuideState } from "./_features/growth-guide/useGrowthGuideStat
 import { useAnalysisState } from "./_features/analysis/useAnalysisState";
 import { resolveDraftEditorIdentity } from "./_features/draft-editor/draftEditorViewState";
 import { ChatOverlaysController } from "./_features/workspace-chrome/ChatOverlaysController";
+import { parseImagePostConfirmationDecision } from "@/lib/chat/imageTurnText";
 
 const monetizationEnabled = isMonetizationEnabled();
 
@@ -166,6 +165,8 @@ function ChatPageContent() {
     setSidebarOpen,
     sidebarSearchQuery,
     setSidebarSearchQuery,
+    earlierThreadsExpanded,
+    expandEarlierThreads,
     openSidebar,
     closeSidebar,
     accountMenuOpen,
@@ -1334,7 +1335,16 @@ function ChatPageContent() {
     return createdThreadId;
   }, [activeThreadId, applyCreatedThreadWorkspaceUpdate, fetchWorkspace]);
 
-  const submitImageAttachmentPrompt = useCallback(async () => {
+  const latestPendingImageTurnMessage = useMemo(() => {
+    const latestAssistantMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "assistant");
+    return latestAssistantMessage?.imageTurnContext?.awaitingConfirmation
+      ? latestAssistantMessage
+      : null;
+  }, [messages]);
+
+  const submitImageAttachmentTurn = useCallback(async () => {
     if (!composerImageAttachment) {
       return;
     }
@@ -1346,7 +1356,6 @@ function ChatPageContent() {
       return;
     }
 
-    const displayUserMessage = draftInput.trim() || "write me a post using this image";
     const idea = draftInput.trim() || null;
 
     try {
@@ -1356,60 +1365,54 @@ function ChatPageContent() {
 
       setIsSending(true);
       const threadId = await ensureActiveComposerThreadId();
+      const previewPayload = await readComposerImagePreviewPayload(
+        composerImageAttachment.file,
+      );
       const formData = new FormData();
+      formData.append("threadId", threadId);
       formData.append("image", composerImageAttachment.file);
       if (idea) {
         formData.append("idea", idea);
       }
+      if (previewPayload.previewDataUrl) {
+        formData.append("previewDataUrl", previewPayload.previewDataUrl);
+      }
+      if (typeof previewPayload.width === "number") {
+        formData.append("width", String(previewPayload.width));
+      }
+      if (typeof previewPayload.height === "number") {
+        formData.append("height", String(previewPayload.height));
+      }
 
-      const response = await fetchWorkspace("/api/creator/v2/image-posts", {
+      const response = await fetchWorkspace("/api/creator/v2/chat/image-turns", {
         method: "POST",
         body: formData,
       });
       const data = (await response.json().catch(() => null)) as
         | {
             ok?: boolean;
-            data?: ImagePostRouteSuccessData;
+            data?: {
+              threadId?: string;
+              userMessage?: ChatMessage;
+              assistantMessage?: ChatMessage;
+            };
             errors?: Array<{ message?: string }>;
           }
         | null;
 
-      if (!response.ok || !data?.ok || !data.data) {
+      if (
+        !response.ok ||
+        !data?.ok ||
+        !data.data?.userMessage ||
+        !data.data?.assistantMessage
+      ) {
         throw new Error(data?.errors?.[0]?.message || "Image analysis failed.");
       }
 
-      const createdAt = new Date().toISOString();
-      const supportAsset = buildImagePostSupportAsset(data.data.visualContext);
-      const quickReplies = buildImageIdeationQuickReplies({
-        angles: data.data.angles,
-        supportAsset,
-      });
-      const angles = quickReplies.map((quickReply) => ({
-        title: quickReply.angle || quickReply.label,
-      }));
-
       setMessages((current) => [
         ...current,
-        {
-          id: `user-image-${Date.now().toString(36)}`,
-          threadId,
-          role: "user",
-          content: displayUserMessage,
-          createdAt,
-        },
-        {
-          id: `assistant-image-${Date.now().toString(36)}`,
-          threadId,
-          role: "assistant",
-          content: "Pulled 3 post directions from the image. Pick one and I'll draft it.",
-          createdAt,
-          angles,
-          quickReplies,
-          ideationFormatHint: "post",
-          supportAsset,
-          outputShape: "ideation_angles",
-          feedbackValue: null,
-        },
+        data.data!.userMessage!,
+        data.data!.assistantMessage!,
       ]);
       scrollThreadToBottom();
       clearComposerImageAttachment();
@@ -1433,21 +1436,76 @@ function ChatPageContent() {
     scrollThreadToBottom,
   ]);
 
-  const autoSubmittedComposerImageIdRef = useRef<string | null>(null);
+  const submitImageConfirmationTurn = useCallback(
+    async (args: {
+      assistantMessageId: string;
+      decision: "confirm" | "decline";
+      displayUserMessage: string;
+    }) => {
+      try {
+        setComposerInlineNotice(null);
+        setErrorMessage(null);
+        setIsSending(true);
+        const threadId =
+          latestPendingImageTurnMessage?.threadId || activeThreadId || "";
+        if (!threadId) {
+          throw new Error("Open the thread before continuing this image flow.");
+        }
 
-  useEffect(() => {
-    if (!composerImageAttachment) {
-      autoSubmittedComposerImageIdRef.current = null;
-      return;
-    }
+        const response = await fetchWorkspace("/api/creator/v2/chat/image-turns", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            threadId,
+            assistantMessageId: args.assistantMessageId,
+            decision: args.decision,
+            displayUserMessage: args.displayUserMessage,
+          }),
+        });
+        const data = (await response.json().catch(() => null)) as
+          | {
+              ok?: boolean;
+              data?: {
+                userMessage?: ChatMessage;
+                assistantMessage?: ChatMessage;
+              };
+              errors?: Array<{ message?: string }>;
+            }
+          | null;
 
-    if (autoSubmittedComposerImageIdRef.current === composerImageAttachment.id) {
-      return;
-    }
+        if (
+          !response.ok ||
+          !data?.ok ||
+          !data.data?.userMessage ||
+          !data.data?.assistantMessage
+        ) {
+          throw new Error(data?.errors?.[0]?.message || "Image confirmation failed.");
+        }
 
-    autoSubmittedComposerImageIdRef.current = composerImageAttachment.id;
-    void submitImageAttachmentPrompt();
-  }, [composerImageAttachment, submitImageAttachmentPrompt]);
+        setMessages((current) => [
+          ...current,
+          data.data!.userMessage!,
+          data.data!.assistantMessage!,
+        ]);
+        scrollThreadToBottom();
+        setDraftInput("");
+      } catch (error) {
+        setComposerInlineNotice(
+          error instanceof Error ? error.message : "Image confirmation failed.",
+        );
+      } finally {
+        setIsSending(false);
+      }
+    },
+    [
+      activeThreadId,
+      fetchWorkspace,
+      latestPendingImageTurnMessage?.threadId,
+      scrollThreadToBottom,
+    ],
+  );
 
   const submitMainComposer = useCallback(async () => {
     if (editingUserMessageId) {
@@ -1456,7 +1514,21 @@ function ChatPageContent() {
     }
 
     if (composerImageAttachment) {
-      await submitImageAttachmentPrompt();
+      await submitImageAttachmentTurn();
+      return;
+    }
+
+    const trimmedPrompt = draftInput.trim();
+    const imageDecision =
+      latestPendingImageTurnMessage && trimmedPrompt
+        ? parseImagePostConfirmationDecision(trimmedPrompt)
+        : null;
+    if (latestPendingImageTurnMessage && imageDecision) {
+      await submitImageConfirmationTurn({
+        assistantMessageId: latestPendingImageTurnMessage.id,
+        decision: imageDecision,
+        displayUserMessage: trimmedPrompt,
+      });
       return;
     }
 
@@ -1475,9 +1547,11 @@ function ChatPageContent() {
     composerMode,
     draftInput,
     editingUserMessageId,
+    latestPendingImageTurnMessage,
     rewindAndResendEditedMessage,
     submitComposerPrompt,
-    submitImageAttachmentPrompt,
+    submitImageAttachmentTurn,
+    submitImageConfirmationTurn,
   ]);
 
   const handleComposerSubmit = useCallback(
@@ -1596,7 +1670,8 @@ function ChatPageContent() {
     !contract ||
     !activeStrategyInputs ||
     !activeToneInputs;
-  const isSubmitDisabled = isComposerDisabled || !draftInput.trim();
+  const isSubmitDisabled =
+    isComposerDisabled || (!draftInput.trim() && !composerImageAttachment);
   const canRunReplyActions =
     !isMainChatLocked && Boolean(activeStrategyInputs && activeToneInputs);
   const contextIdentity = {
@@ -1607,6 +1682,31 @@ function ChatPageContent() {
       "user",
     avatarUrl: context?.avatarUrl || null,
   };
+  const handleMessageQuickReplySelect = useCallback(
+    async (quickReply: ChatQuickReply) => {
+      if (quickReply.kind === "image_post_confirmation") {
+        const decision =
+          quickReply.decision ?? parseImagePostConfirmationDecision(quickReply.value);
+        if (!latestPendingImageTurnMessage || !decision) {
+          return;
+        }
+
+        await submitImageConfirmationTurn({
+          assistantMessageId: latestPendingImageTurnMessage.id,
+          decision,
+          displayUserMessage: quickReply.label,
+        });
+        return;
+      }
+
+      await handleQuickReplySelect(quickReply);
+    },
+    [
+      handleQuickReplySelect,
+      latestPendingImageTurnMessage,
+      submitImageConfirmationTurn,
+    ],
+  );
 
   return (
     <main className="relative h-screen overflow-hidden bg-[#050505] text-white">
@@ -1625,6 +1725,8 @@ function ChatPageContent() {
           sidebarOpen,
           sidebarSearchQuery,
           setSidebarSearchQuery,
+          earlierThreadsExpanded,
+          expandEarlierThreads,
           closeSidebar,
           openSidebar,
           handleNewChat,
@@ -1790,7 +1892,7 @@ function ChatPageContent() {
               void submitAssistantMessageFeedback(messageId, value);
             }}
             onQuickReplySelect={(quickReply) => {
-              void handleQuickReplySelect(quickReply as ChatQuickReply);
+              void handleMessageQuickReplySelect(quickReply as ChatQuickReply);
             }}
             onAngleSelect={(title, selectedAngleFormatHint) => {
               void handleAngleSelect(title, selectedAngleFormatHint);

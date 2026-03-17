@@ -6,6 +6,10 @@ import type { DraftArtifactDetails } from "@/lib/onboarding/draftArtifacts";
 import type { ProfileAnalysisArtifact } from "@/lib/chat/profileAnalysisArtifact";
 import type { AgentProgressRun } from "@/lib/chat/agentProgress";
 import type { SelectedAngleFormatHint } from "../../../../lib/agent-v2/contracts/turnContract.ts";
+import type {
+  ChatMediaAttachmentRef,
+  ImageTurnContext,
+} from "@/lib/chat/chatMedia";
 
 export interface CreatorChatSuccess {
   ok: true;
@@ -33,6 +37,7 @@ export interface CreatorChatSuccess {
     previousVersionSnapshot?: DraftVersionSnapshot | null;
     revisionChainId?: string;
     supportAsset: string | null;
+    mediaAttachments?: ChatMediaAttachmentRef[];
     groundingSources?: DraftArtifact["groundingSources"];
     autoSavedSourceMaterials?: {
       count: number;
@@ -246,6 +251,7 @@ export interface ChatMessage {
   previousVersionSnapshot?: DraftVersionSnapshot | null;
   revisionChainId?: string;
   supportAsset?: string | null;
+  mediaAttachments?: ChatMediaAttachmentRef[];
   groundingSources?: DraftArtifact["groundingSources"];
   autoSavedSourceMaterials?: {
     count: number;
@@ -270,6 +276,7 @@ export interface ChatMessage {
     summary: string;
   } | null;
   profileAnalysisArtifact?: ProfileAnalysisArtifact | null;
+  imageTurnContext?: ImageTurnContext | null;
   feedbackValue?: MessageFeedbackValue | null;
   isStreaming?: boolean;
   agentProgress?: AgentProgressRun | null;
@@ -297,7 +304,8 @@ export interface ChatQuickReply {
     | "example_reply"
     | "planner_action"
     | "clarification_choice"
-    | "ideation_angle";
+    | "ideation_angle"
+    | "image_post_confirmation";
   value: string;
   label: string;
   suggestedFocus?: ChatContentFocus;
@@ -306,4 +314,6 @@ export interface ChatQuickReply {
   angle?: string;
   formatHint?: SelectedAngleFormatHint;
   supportAsset?: string;
+  imageAssetId?: string;
+  decision?: "confirm" | "decline";
 }

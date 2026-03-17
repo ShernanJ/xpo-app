@@ -10,6 +10,7 @@ import {
   getThreadFramingStyleLabel,
   type InlineDraftPreviewState,
 } from "./chatDraftPreviewState";
+import { ChatMediaAttachments } from "../shared/ChatMediaAttachments";
 
 const DRAFT_REVEAL_LINE_STAGGER_MS = 70;
 
@@ -92,6 +93,7 @@ export function InlineDraftPreviewCard(props: InlineDraftPreviewCardProps) {
   } = props;
   const {
     threadPreviewPosts,
+    previewMediaAttachments = [],
     previewDraft,
     isThreadPreview,
     threadFramingStyle,
@@ -287,6 +289,13 @@ export function InlineDraftPreviewCard(props: InlineDraftPreviewCardProps) {
                               animate={shouldAnimateLines}
                               baseDelayMs={postIndex * 60}
                             />
+                            {postIndex === 0 ? (
+                              <ChatMediaAttachments
+                                attachments={previewMediaAttachments}
+                                variant="draft"
+                                onlyFirst
+                              />
+                            ) : null}
                           </button>
                         </div>
                       );
@@ -383,6 +392,13 @@ export function InlineDraftPreviewCard(props: InlineDraftPreviewCardProps) {
                             animate={shouldAnimateLines}
                             baseDelayMs={postIndex * 60}
                           />
+                          {postIndex === 0 ? (
+                            <ChatMediaAttachments
+                              attachments={previewMediaAttachments}
+                              variant="draft"
+                              onlyFirst
+                            />
+                          ) : null}
                           <div className="mt-3 flex items-center gap-1.5 text-[11px] text-zinc-500">
                             <span>Just now</span>
                             <span>·</span>
@@ -412,6 +428,11 @@ export function InlineDraftPreviewCard(props: InlineDraftPreviewCardProps) {
                 text={previewDraft}
                 className="whitespace-pre-wrap text-[15px] leading-6 text-zinc-100"
                 animate={shouldAnimateLines}
+              />
+              <ChatMediaAttachments
+                attachments={previewMediaAttachments}
+                variant="draft"
+                onlyFirst
               />
             </button>
           )}

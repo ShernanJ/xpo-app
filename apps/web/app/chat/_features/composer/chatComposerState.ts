@@ -6,13 +6,16 @@ export interface ComposerQuickReplyLike<TFocus extends string> {
     | "example_reply"
     | "planner_action"
     | "clarification_choice"
-    | "ideation_angle";
+    | "ideation_angle"
+    | "image_post_confirmation";
   value: string;
   label: string;
   suggestedFocus?: TFocus;
   angle?: string;
   formatHint?: "post" | "thread";
   supportAsset?: string;
+  imageAssetId?: string;
+  decision?: "confirm" | "decline";
 }
 
 export type ComposerQuickReplyUpdate<TFocus extends string> =

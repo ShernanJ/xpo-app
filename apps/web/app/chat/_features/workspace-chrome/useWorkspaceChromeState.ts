@@ -27,6 +27,7 @@ export function useWorkspaceChromeState(
   } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarSearchQuery, setSidebarSearchQuery] = useState("");
+  const [earlierThreadsExpanded, setEarlierThreadsExpanded] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [accountMenuVisible, setAccountMenuVisible] = useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
@@ -55,6 +56,10 @@ export function useWorkspaceChromeState(
 
   const closeSidebar = useCallback(() => {
     setSidebarOpen(false);
+  }, []);
+
+  const expandEarlierThreads = useCallback(() => {
+    setEarlierThreadsExpanded(true);
   }, []);
 
   const closeAccountMenu = useCallback(() => {
@@ -180,6 +185,8 @@ export function useWorkspaceChromeState(
     setSidebarOpen,
     sidebarSearchQuery,
     setSidebarSearchQuery,
+    earlierThreadsExpanded,
+    expandEarlierThreads,
     openSidebar,
     closeSidebar,
     accountMenuOpen,

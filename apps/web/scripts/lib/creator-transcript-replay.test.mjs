@@ -22,6 +22,8 @@ test("replay fixture list exposes checked-in transcript ids", () => {
   assert.equal(fixtures.some((fixture) => fixture.id === "opaque-entity-one-question"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "pending-plan-draft-command"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "thread-playbook-direct-draft"), true);
+  assert.equal(fixtures.some((fixture) => fixture.id === "vitddnv-social-greeting"), true);
+  assert.equal(fixtures.some((fixture) => fixture.id === "vitddnv-bare-post-ideation"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "draft-revision-meaning-loop"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "profile-summary-uses-synced-context"), true);
   assert.equal(fixtures.some((fixture) => fixture.id === "profile-strongest-post-follow-up"), true);
@@ -199,6 +201,29 @@ test("transcript replay keeps direct thread asks in thread mode and lands on a k
   );
 });
 
+test("transcript replay greets back immediately for a fresh @vitddnv social turn", async () => {
+  const fixture = findReplayFixture(
+    CREATOR_TRANSCRIPT_FIXTURES,
+    "vitddnv-social-greeting",
+  );
+  assert.ok(fixture);
+
+  const result = await replayTranscriptFixture(fixture, {
+    async controlTurn() {
+      throw new Error("controller should not run for simple social turns");
+    },
+  });
+
+  assert.equal(result.turns.length, 1);
+  assert.equal(result.turns[0]?.output.mode, "coach");
+  assert.equal(
+    result.turns[0]?.output.response,
+    "Hi. What are we working on today: a post, a thread, or a quick profile audit?",
+  );
+  assert.equal(result.turns[0]?.output.response.toLowerCase().includes("what type of post"), false);
+  assert.equal(result.finalMemory.topicSummary, null);
+});
+
 test("transcript replay turns a pending-plan draft command straight into a draft", async () => {
   const fixture = findReplayFixture(
     CREATOR_TRANSCRIPT_FIXTURES,
@@ -367,6 +392,43 @@ test("transcript replay keeps bare draft asks in ideation mode even when draft c
   assert.equal(result.turns[0]?.output.outputShape, "ideation_angles");
   assert.equal((result.turns[0]?.output.data?.quickReplies || []).length > 0, true);
   assert.equal(result.turns[0]?.output.response.includes("- **Bottom line:**"), false);
+});
+
+test("transcript replay keeps @vitddnv bare post asks in ideation with humanized shell copy", async () => {
+  const fixture = findReplayFixture(
+    CREATOR_TRANSCRIPT_FIXTURES,
+    "vitddnv-bare-post-ideation",
+  );
+  assert.ok(fixture);
+
+  const result = await replayTranscriptFixture(fixture, {
+    async generateIdeasMenu() {
+      return {
+        intro: "here are 3 grounded post directions.",
+        angles: [
+          "The hiring filter that kept the team lean",
+          "Why ownership mattered more than pedigree",
+          "What changed once hiring stopped optimizing for polish",
+        ],
+        close: "pick one and i'll draft it.",
+      };
+    },
+  });
+
+  assert.equal(result.turns.length, 1);
+  assert.equal(result.turns[0]?.output.mode, "ideate");
+  assert.equal(result.turns[0]?.output.outputShape, "ideation_angles");
+  assert.equal(result.turns[0]?.output.response.includes("post directions"), true);
+  assert.equal(
+    result.turns[0]?.output.response === result.turns[0]?.output.response?.toLowerCase(),
+    false,
+  );
+  assert.equal(
+    /i pulled three post directions|pick one and i'll draft it/i.test(
+      result.turns[0]?.output.response || "",
+    ),
+    false,
+  );
 });
 
 test("transcript replay asks one useful question for a vague product draft ask, then drafts after the answer", async () => {

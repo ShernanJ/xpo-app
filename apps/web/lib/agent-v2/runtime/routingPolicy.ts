@@ -12,6 +12,7 @@ import type { V2ChatIntent } from "../contracts/chat.ts";
 import { resolveRuntimeAction } from "./resolveRuntimeAction.ts";
 import { summarizeRuntimeWorkerExecutions } from "./runtimeTrace.ts";
 import { isBareDraftRequest } from "../core/conversationHeuristics.ts";
+import { looksLikeSimpleSocialTurn } from "../core/simpleSocialTurn.ts";
 
 export interface RoutingPolicyResult {
   isFastReply: boolean;
@@ -154,6 +155,7 @@ export async function resolveRoutingPolicy(
   routingTrace.classifiedIntent = classifiedIntent;
   routingTrace.resolvedMode = mode;
   const shouldForceDraftIdeation = !explicitIntent && isBareDraftRequest(userMessage);
+  const isSimpleSocialTurn = !explicitIntent && looksLikeSimpleSocialTurn(userMessage);
 
   if (
     !shouldForceDraftIdeation &&
@@ -198,8 +200,10 @@ export async function resolveRoutingPolicy(
       const finalMemoryRecord = await services.updateConversationMemory({
         runId,
         threadId,
-        conversationState:
-          currentMemory.pendingPlan && currentMemory.conversationState === "plan_pending_approval"
+        conversationState: isSimpleSocialTurn
+          ? currentMemory.conversationState
+          : currentMemory.pendingPlan &&
+              currentMemory.conversationState === "plan_pending_approval"
             ? "plan_pending_approval"
             : currentMemory.conversationState === "draft_ready"
               ? "draft_ready"

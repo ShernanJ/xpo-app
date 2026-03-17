@@ -76,7 +76,8 @@ export interface CreatorChatQuickReply {
   | "example_reply"
   | "planner_action"
   | "clarification_choice"
-  | "ideation_angle";
+  | "ideation_angle"
+  | "image_post_confirmation";
   value: string;
   label: string;
   suggestedFocus?: string;
@@ -85,6 +86,8 @@ export interface CreatorChatQuickReply {
   angle?: string;
   formatHint?: "post" | "thread";
   supportAsset?: string;
+  imageAssetId?: string;
+  decision?: "confirm" | "decline";
 }
 
 export interface ClarificationState {

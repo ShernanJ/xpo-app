@@ -1,4 +1,5 @@
 import type { VoiceStyleCard } from "../core/styleProfile";
+import { buildDirectionHandoffCopy } from "./ideationShellCopy.ts";
 
 interface BuildIdeationReplyArgs {
   intro?: string | null;
@@ -385,15 +386,11 @@ export function buildIdeationReply(args: BuildIdeationReplyArgs): string {
   const artifact = inferRequestedArtifact(args.userMessage);
 
   if (args.primaryAngleChipMode) {
-    const lead =
-      artifact === "thread"
-        ? "i pulled three thread directions."
-        : artifact === "post"
-          ? "i pulled three post directions."
-          : "i pulled three directions.";
-    const closeLine = pickCasualClose({ seed, concise, warm });
-
-    return applyCase(`${lead}\n\n${closeLine}`, lowercase);
+    return buildDirectionHandoffCopy({
+      source: "bare_ideation",
+      artifact: artifact || "direction",
+      seed,
+    });
   }
 
   const fallbackClose = pickCasualClose({ seed, concise, warm });

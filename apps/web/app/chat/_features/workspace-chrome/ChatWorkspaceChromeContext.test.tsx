@@ -1,4 +1,4 @@
-import type { ImgHTMLAttributes } from "react";
+import { useState, type ImgHTMLAttributes } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
@@ -13,6 +13,13 @@ vi.mock("next/image", () => ({
   // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
   default: (props: ImgHTMLAttributes<HTMLImageElement>) => <img {...props} />,
 }));
+
+function buildRelativeThreadDate(dayOffset: number): string {
+  const date = new Date();
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() + dayOffset);
+  return date.toISOString();
+}
 
 function buildWorkspaceChromeProps(
   overrides: Partial<ChatWorkspaceChromeProviderProps> = {},
@@ -31,6 +38,8 @@ function buildWorkspaceChromeProps(
     sidebarOpen: true,
     sidebarSearchQuery: "",
     setSidebarSearchQuery: vi.fn(),
+    earlierThreadsExpanded: false,
+    expandEarlierThreads: vi.fn(),
     closeSidebar: vi.fn(),
     openSidebar: vi.fn(),
     handleNewChat: vi.fn(),
@@ -38,7 +47,7 @@ function buildWorkspaceChromeProps(
       {
         id: "thread-1",
         title: "Thread one",
-        updatedAt: "2026-03-15T12:00:00.000Z",
+        updatedAt: buildRelativeThreadDate(0),
       },
     ],
     hasWorkspace: true,
@@ -213,4 +222,120 @@ test("renders header and sidebar inside the workspace chrome provider boundary",
 
   expect(screen.getByRole("button", { name: "Toggle sidebar" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Open account menu" })).toBeVisible();
+});
+
+test("renders Today and Earlier sections and expands the collapsed Earlier list", async () => {
+  const user = userEvent.setup();
+  const hiddenEarlierLabel = "March 12 review";
+  const hiddenEarlierDate = buildRelativeThreadDate(-4);
+
+  function StatefulSidebar() {
+    const [sidebarSearchQuery, setSidebarSearchQuery] = useState("");
+    const [earlierThreadsExpanded, setEarlierThreadsExpanded] = useState(false);
+
+    return (
+      <ChatWorkspaceChromeProvider
+        {...buildWorkspaceChromeProps({
+          sidebarSearchQuery,
+          setSidebarSearchQuery,
+          earlierThreadsExpanded,
+          expandEarlierThreads: () => setEarlierThreadsExpanded(true),
+          accountMenuOpen: false,
+          accountMenuVisible: false,
+          menuOpenThreadId: null,
+          hoveredThreadId: null,
+          rateLimitsMenuOpen: false,
+          activeThreadId: "thread-6",
+          chatThreads: [
+            {
+              id: "thread-1",
+              title: "Today sprint",
+              updatedAt: buildRelativeThreadDate(0),
+            },
+            {
+              id: "thread-2",
+              title: "Yesterday summary",
+              updatedAt: buildRelativeThreadDate(-1),
+            },
+            {
+              id: "thread-3",
+              title: "March 14 review",
+              updatedAt: buildRelativeThreadDate(-2),
+            },
+            {
+              id: "thread-4",
+              title: "March 13 review",
+              updatedAt: buildRelativeThreadDate(-3),
+            },
+            {
+              id: "thread-5",
+              title: hiddenEarlierLabel,
+              updatedAt: hiddenEarlierDate,
+            },
+            {
+              id: "thread-6",
+              title: "March 11 review",
+              updatedAt: buildRelativeThreadDate(-5),
+            },
+          ],
+        })}
+      >
+        <ChatSidebar />
+      </ChatWorkspaceChromeProvider>
+    );
+  }
+
+  render(<StatefulSidebar />);
+
+  expect(screen.getByText("Today")).toBeVisible();
+  expect(screen.getByText("Earlier")).toBeVisible();
+  expect(screen.getByText("Today sprint")).toBeVisible();
+  expect(screen.getByText("March 11 review")).toBeVisible();
+  expect(screen.queryByText(hiddenEarlierLabel)).not.toBeInTheDocument();
+  expect(screen.queryByText(new Date(hiddenEarlierDate).toLocaleDateString())).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /Show 1 more chats/i }));
+
+  expect(screen.getByText(hiddenEarlierLabel)).toBeVisible();
+  expect(screen.queryByText("Show more")).not.toBeInTheDocument();
+});
+
+test("shows every search match without rendering a Show more control", () => {
+  renderChrome({
+    sidebarSearchQuery: "growth",
+    chatThreads: [
+      {
+        id: "thread-1",
+        title: "Growth sprint",
+        updatedAt: buildRelativeThreadDate(0),
+      },
+      {
+        id: "thread-2",
+        title: "Growth teardown",
+        updatedAt: buildRelativeThreadDate(-1),
+      },
+      {
+        id: "thread-3",
+        title: "Growth hooks",
+        updatedAt: buildRelativeThreadDate(-2),
+      },
+      {
+        id: "thread-4",
+        title: "Growth retention",
+        updatedAt: buildRelativeThreadDate(-3),
+      },
+      {
+        id: "thread-5",
+        title: "Growth pipeline",
+        updatedAt: buildRelativeThreadDate(-4),
+      },
+    ],
+  });
+
+  expect(screen.getByText("Growth sprint")).toBeVisible();
+  expect(screen.getByText("Growth teardown")).toBeVisible();
+  expect(screen.getByText("Growth hooks")).toBeVisible();
+  expect(screen.getByText("Growth retention")).toBeVisible();
+  expect(screen.getByText("Growth pipeline")).toBeVisible();
+  expect(screen.queryByText("Show more")).not.toBeInTheDocument();
 });

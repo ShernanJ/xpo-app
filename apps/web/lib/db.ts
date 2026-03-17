@@ -12,7 +12,8 @@ function hasDelegate<
     | "draftCandidate"
     | "sourceMaterialAsset"
     | "productEvent"
-    | "chatTurnControl",
+    | "chatTurnControl"
+    | "chatMediaAsset",
 >(
   client: PrismaClient | undefined,
   key: Key,
@@ -32,7 +33,8 @@ function hasRequiredDelegates(client: PrismaClient | undefined): client is Prism
     hasDelegate(client, "draftCandidate") &&
     hasDelegate(client, "sourceMaterialAsset") &&
     hasDelegate(client, "productEvent") &&
-    hasDelegate(client, "chatTurnControl")
+    hasDelegate(client, "chatTurnControl") &&
+    hasDelegate(client, "chatMediaAsset")
   );
 }
 

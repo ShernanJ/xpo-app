@@ -6,6 +6,7 @@ import {
   type DraftBundleResult,
 } from "./draftBundles.ts";
 import { buildDraftResultQuickReplies } from "../../responses/draftResultQuickReplies.ts";
+import { buildDirectionHandoffCopy } from "../../responses/ideationShellCopy.ts";
 import { runDraftBundleCandidateWorkers } from "../../workers/draftBundleCandidateWorkers.ts";
 import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import { buildRuntimeWorkerExecution } from "../../runtime/workerPlane.ts";
@@ -318,7 +319,11 @@ export async function executeDraftBundleCapability(
         mode: "draft",
         outputShape: "short_form_post",
         response: prependFeedbackMemoryNotice(
-          "pulled four different post directions from what i already know about you.",
+          buildDirectionHandoffCopy({
+            source: "draft_bundle",
+            artifact: "post",
+            seed: context.plan.objective,
+          }),
           context.feedbackMemoryNotice ?? null,
         ),
         data: {

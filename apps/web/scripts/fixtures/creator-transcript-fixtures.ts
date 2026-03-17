@@ -177,6 +177,24 @@ export const CREATOR_TRANSCRIPT_FIXTURES: TranscriptReplayFixture[] = [
     ],
   },
   {
+    id: "vitddnv-social-greeting",
+    title: "Vitddnv Social Greeting",
+    description:
+      "Checks that a fresh-thread greeting for @vitddnv returns an immediate, generic help prompt instead of reviving stale ideation behavior.",
+    xHandle: "vitddnv",
+    styleCard: bluntStyleCard,
+    turns: [{ role: "user", message: "hi" }],
+  },
+  {
+    id: "vitddnv-bare-post-ideation",
+    title: "Vitddnv Bare Post Ideation",
+    description:
+      "Checks that a fresh-thread bare post ask for @vitddnv stays in ideation mode with the newer humanized shell copy.",
+    xHandle: "vitddnv",
+    styleCard: bluntStyleCard,
+    turns: [{ role: "user", message: "write a post" }],
+  },
+  {
     id: "profile-summary-uses-synced-context",
     title: "Profile Summary Uses Synced Context",
     description:

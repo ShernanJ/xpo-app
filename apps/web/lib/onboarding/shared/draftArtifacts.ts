@@ -1,5 +1,6 @@
 import type { CreatorGenerationOutputShape } from "../contracts/generationContract";
 import type { VoiceTarget } from "../../agent-v2/core/voiceTarget";
+import type { ChatMediaAttachmentRef } from "../../chat/chatMedia";
 
 export type ThreadFramingStyle = "none" | "soft_signal" | "numbered";
 
@@ -35,6 +36,7 @@ export interface DraftArtifactDetails {
   maxCharacterLimit: number;
   isWithinXLimit: boolean;
   supportAsset: string | null;
+  mediaAttachments?: ChatMediaAttachmentRef[];
   groundingSources: DraftGroundingSource[];
   groundingMode: DraftGroundingMode | null;
   groundingExplanation: string | null;
@@ -51,6 +53,7 @@ export interface DraftArtifactInput {
   kind: CreatorGenerationOutputShape;
   content: string;
   supportAsset: string | null;
+  mediaAttachments?: ChatMediaAttachmentRef[];
   groundingSources?: DraftGroundingSource[];
   groundingMode?: DraftGroundingMode | null;
   groundingExplanation?: string | null;
@@ -160,6 +163,7 @@ export function buildDraftArtifacts(params: {
   drafts: string[];
   outputShape: CreatorGenerationOutputShape | "ideation_angles";
   supportAsset: string | null;
+  mediaAttachments?: ChatMediaAttachmentRef[];
   groundingSources?: DraftGroundingSource[];
   voiceTarget?: VoiceTarget | null;
   noveltyNotes?: string[];
@@ -179,6 +183,7 @@ export function buildDraftArtifacts(params: {
       kind: artifactKind,
       content: draft,
       supportAsset: params.supportAsset,
+      mediaAttachments: params.mediaAttachments || [],
       groundingSources: params.groundingSources || [],
       voiceTarget: params.voiceTarget ?? null,
       noveltyNotes: params.noveltyNotes || [],
@@ -241,6 +246,7 @@ export function buildDraftArtifact(params: DraftArtifactInput): DraftArtifactDet
     maxCharacterLimit,
     isWithinXLimit,
     supportAsset: params.supportAsset,
+    mediaAttachments: (params.mediaAttachments || []).slice(0, 4),
     groundingSources: (params.groundingSources || []).slice(0, 2),
     groundingMode: params.groundingMode ?? null,
     groundingExplanation: params.groundingExplanation?.trim() || null,

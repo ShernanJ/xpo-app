@@ -5,6 +5,7 @@ import {
   type DraftArtifactDetails,
   type ThreadFramingStyle,
 } from "../../../../lib/onboarding/draftArtifacts.ts";
+import type { ChatMediaAttachmentRef } from "../../../../lib/chat/chatMedia.ts";
 
 import { getThreadPostCharacterLimit, type DraftBundleLike } from "./chatDraftPersistenceState.ts";
 import { splitThreadContent } from "./chatDraftEditorState.ts";
@@ -46,6 +47,7 @@ export interface DraftPreviewMessageLike extends ChatMessageLike {
 export interface InlineDraftPreviewState {
   draftBundle: DraftVersionBundleLike | null;
   previewArtifact: DraftArtifact | null;
+  previewMediaAttachments?: ChatMediaAttachmentRef[];
   previewDraft: string;
   threadPreviewPosts: DraftPreviewThreadPost[];
   isThreadPreview: boolean;
@@ -186,6 +188,8 @@ export function resolveInlineDraftPreviewState(args: {
   );
   const previewArtifact =
     draftBundle?.activeVersion.artifact ?? args.message.draftArtifacts?.[0] ?? null;
+  const previewMediaAttachments =
+    previewArtifact?.mediaAttachments ?? args.message.mediaAttachments ?? [];
   const previewDraft =
     draftBundle?.activeVersion.content ??
     args.message.draftArtifacts?.[0]?.content ??
@@ -269,6 +273,7 @@ export function resolveInlineDraftPreviewState(args: {
   return {
     draftBundle,
     previewArtifact,
+    previewMediaAttachments,
     previewDraft,
     threadPreviewPosts,
     isThreadPreview,

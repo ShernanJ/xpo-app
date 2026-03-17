@@ -3,6 +3,7 @@
 import { startTransition, useEffect, useState, type ComponentProps } from "react";
 import { Check, Copy, Edit3 } from "lucide-react";
 import type { AgentProgressRun } from "@/lib/chat/agentProgress";
+import type { ChatMediaAttachmentRef } from "@/lib/chat/chatMedia";
 
 import {
   buildDraftRevealClassName,
@@ -132,7 +133,9 @@ function PendingDraftShell(props: { progress: AgentProgressRun }) {
 }
 
 type ArtifactSectionsProps = ComponentProps<typeof MessageArtifactSections>;
-export type ChatMessageStreamMessage = ArtifactSectionsProps["message"];
+export type ChatMessageStreamMessage = ArtifactSectionsProps["message"] & {
+  mediaAttachments?: ChatMediaAttachmentRef[];
+};
 
 export interface ChatMessageStreamProps<TMessage extends ChatMessageStreamMessage> {
   messages: TMessage[];
@@ -205,7 +208,7 @@ export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
             previousRole={messages[index - 1]?.role}
             index={index}
             userActions={
-              message.role === "user" ? (
+              message.role === "user" && message.content.trim().length > 0 ? (
                 <div className="flex items-center gap-1 text-white">
                   <button
                     type="button"
@@ -269,6 +272,7 @@ export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
                   isLatestAssistantMessage={message.id === latestAssistantMessageId}
                   typedLength={typedAssistantLengths[message.id] ?? 0}
                   assistantTypingBubble={<AssistantTypingBubble label={message.content || null} />}
+                  mediaAttachments={message.mediaAttachments}
                 />
                 <AssistantResultFooter
                   message={message}
@@ -290,6 +294,7 @@ export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
                   isLatestAssistantMessage={message.id === latestAssistantMessageId}
                   typedLength={typedAssistantLengths[message.id] ?? 0}
                   assistantTypingBubble={<AssistantTypingBubble label={message.content || null} />}
+                  mediaAttachments={message.mediaAttachments}
                 />
 
                 <MessageArtifactSections

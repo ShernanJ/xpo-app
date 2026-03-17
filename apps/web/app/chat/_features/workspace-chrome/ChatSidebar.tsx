@@ -12,6 +12,7 @@ export function ChatSidebar() {
     sidebarOpen,
     sidebarSearchQuery,
     onSidebarSearchQueryChange,
+    onExpandEarlierThreads,
     onCloseSidebar,
     onOpenSidebar,
     onNewChat,
@@ -57,20 +58,18 @@ export function ChatSidebar() {
     sessionEmail,
   } = useChatSidebarChrome();
 
-  const handleThreadKeyDown = (
-    event: KeyboardEvent<HTMLDivElement>,
-    sectionLabel: string,
-    threadId: string,
-  ) => {
+  const handleThreadKeyDown = (event: KeyboardEvent<HTMLDivElement>, threadId: string) => {
     if (event.key !== "Enter" && event.key !== " ") {
       return;
     }
 
     event.preventDefault();
-    if (sectionLabel === "Chats" && threadId !== "current-workspace") {
+    if (threadId !== "current-workspace") {
       onSwitchToThread(threadId);
     }
   };
+
+  const hasVisibleSections = sections.some((section) => section.items.length > 0);
 
   return (
     <>
@@ -155,11 +154,17 @@ export function ChatSidebar() {
         <div className="flex-1 overflow-y-auto px-3 py-4">
           {sidebarOpen ? (
             <div className="space-y-6">
+              {!hasVisibleSections && sidebarSearchQuery.trim() ? (
+                <div className="rounded-2xl px-2 py-3 text-sm text-zinc-500">
+                  No matching chats
+                </div>
+              ) : null}
               {sections.map((section) => (
-                <div key={section.section} className="space-y-2">
-                  <p className="px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-600">
-                    {section.section}
-                  </p>
+                <div key={section.id} className="space-y-2">
+                  <div className="flex items-center gap-2 px-2">
+                    <p className="text-sm font-medium text-zinc-400">{section.label}</p>
+                    <div className="h-px flex-1 bg-white/10" />
+                  </div>
                   {section.items.map((item) => (
                     <div
                       key={item.id}
@@ -194,13 +199,11 @@ export function ChatSidebar() {
                           role="button"
                           tabIndex={0}
                           onClick={() => {
-                            if (section.section === "Chats" && item.id !== "current-workspace") {
+                            if (item.id !== "current-workspace") {
                               onSwitchToThread(item.id);
                             }
                           }}
-                          onKeyDown={(event) =>
-                            handleThreadKeyDown(event, section.section, item.id)
-                          }
+                          onKeyDown={(event) => handleThreadKeyDown(event, item.id)}
                           className={`group block w-full cursor-pointer rounded-2xl px-2 py-2 text-left transition hover:bg-white/[0.03] ${
                             activeThreadId === item.id ? "bg-white/[0.04]" : ""
                           }`}
@@ -210,12 +213,9 @@ export function ChatSidebar() {
                               <span className="line-clamp-2 text-sm leading-6 text-zinc-200">
                                 {item.label}
                               </span>
-                              <span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                                {item.meta}
-                              </span>
                             </div>
 
-                            {section.section === "Chats" && item.id !== "current-workspace" ? (
+                            {item.id !== "current-workspace" ? (
                               <div
                                 className="relative w-8 flex-shrink-0 pt-1"
                                 ref={menuOpenThreadId === item.id ? threadMenuRef : null}
@@ -272,10 +272,15 @@ export function ChatSidebar() {
                       )}
                     </div>
                   ))}
-                  {section.items.length === 0 && sidebarSearchQuery.trim() ? (
-                    <div className="rounded-2xl px-2 py-3 text-sm text-zinc-500">
-                      No matching chats
-                    </div>
+                  {section.isExpandable ? (
+                    <button
+                      type="button"
+                      onClick={onExpandEarlierThreads}
+                      className="px-2 text-sm font-medium text-zinc-500 transition hover:text-zinc-200"
+                      aria-label={`Show ${section.hiddenCount} more chats`}
+                    >
+                      Show more
+                    </button>
                   ) : null}
                 </div>
               ))}

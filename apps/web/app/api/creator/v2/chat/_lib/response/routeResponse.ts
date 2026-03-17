@@ -2,6 +2,7 @@ import type {
   SurfaceMode,
   V2ConversationMemory,
 } from "../../../../../../../lib/agent-v2/contracts/chat.ts";
+import type { ImageTurnContext } from "../../../../../../../lib/chat/chatMedia.ts";
 import {
   buildAssistantContextPacket,
   type ChatRouteResponseData,
@@ -44,6 +45,7 @@ export function buildReplyAssistantMessageData(args: {
     draftArtifacts: [],
     draftBundle: null,
     supportAsset: null,
+    mediaAttachments: [],
     groundingSources: [],
     autoSavedSourceMaterials: null,
     outputShape: args.outputShape,
@@ -57,6 +59,7 @@ export function buildReplyAssistantMessageData(args: {
     billing: null,
     replyArtifacts: args.replyArtifacts || null,
     replyParse: args.replyParse || null,
+    imageTurnContext: null as ImageTurnContext | null,
     contextPacket: buildAssistantContextPacket({
       reply: args.reply,
       plan: null,

@@ -112,6 +112,32 @@ test("bare draft requests bypass conversational controller fallbacks and stay in
   assert.equal(result.decision.action, "plan");
 });
 
+test("simple social turns bypass the controller and stay in answer_question", async () => {
+  let controlTurnCalled = false;
+
+  const result = await resolveRuntimeAction({
+    explicitIntent: null,
+    turnPlan: null,
+    userMessage: "hi",
+    recentHistory: "",
+    memory: buildMemory({
+      topicSummary: "stale hiring topic",
+      unresolvedQuestion: "do you want a thread or a post?",
+    }),
+    controlTurnImpl: async () => {
+      controlTurnCalled = true;
+      throw new Error("controller should not run for simple social turns");
+    },
+  });
+
+  assert.equal(controlTurnCalled, false);
+  assert.equal(result.workflow, "answer_question");
+  assert.equal(result.classifiedIntent, "answer_question");
+  assert.equal(result.source, "structured_turn");
+  assert.equal(result.decision.action, "answer");
+  assert.equal(result.decision.rationale, "deterministic simple social turn");
+});
+
 test("mapIntentToRuntimeWorkflow keeps edit/review inside revise_draft", () => {
   assert.equal(
     mapIntentToRuntimeWorkflow({

@@ -40,6 +40,10 @@ import type {
 } from "../../../../../../../lib/agent-v2/capabilities/reply/replyTurnLogic.ts";
 import type { RawOrchestratorResponse } from "../../../../../../../lib/agent-v2/runtime/conversationManager.ts";
 import type { ProfileAnalysisArtifact } from "../../../../../../../lib/chat/profileAnalysisArtifact.ts";
+import type {
+  ChatMediaAttachmentRef,
+  ImageTurnContext,
+} from "../../../../../../../lib/chat/chatMedia.ts";
 
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
 
@@ -821,6 +825,7 @@ export function buildInitialDraftVersionPayload(args: {
   draft: string | null;
   outputShape: string;
   supportAsset: string | null;
+  mediaAttachments?: ChatMediaAttachmentRef[];
   selectedDraftContext: SelectedDraftContext | null;
   groundingSources?: DraftArtifactDetails["groundingSources"];
   groundingMode?: DraftArtifactDetails["groundingMode"];
@@ -863,6 +868,7 @@ export function buildInitialDraftVersionPayload(args: {
     kind: artifactKind,
     content: args.draft,
     supportAsset: args.supportAsset,
+    mediaAttachments: args.mediaAttachments,
     ...(args.groundingSources?.length ? { groundingSources: args.groundingSources } : {}),
     ...(args.groundingMode ? { groundingMode: args.groundingMode } : {}),
     ...(args.groundingExplanation ? { groundingExplanation: args.groundingExplanation } : {}),
@@ -932,6 +938,7 @@ export function buildInitialDraftVersionPayload(args: {
 export function buildDraftBundleVersionPayload(args: {
   draftBundle: DraftBundleResult | null | undefined;
   outputShape: string;
+  mediaAttachments?: ChatMediaAttachmentRef[];
   groundingSources?: DraftArtifactDetails["groundingSources"];
   groundingMode?: DraftArtifactDetails["groundingMode"];
   groundingExplanation?: DraftArtifactDetails["groundingExplanation"];
@@ -970,6 +977,7 @@ export function buildDraftBundleVersionPayload(args: {
       kind: artifactKind,
       content: option.draft,
       supportAsset: option.supportAsset,
+      mediaAttachments: args.mediaAttachments,
       ...(option.groundingSources?.length ? { groundingSources: option.groundingSources } : {}),
       ...(option.groundingMode ? { groundingMode: option.groundingMode } : {}),
       ...(option.groundingExplanation
@@ -1041,6 +1049,7 @@ export interface ChatRouteMappedDataSeed {
   revisionChainId?: string;
   draftBundle: DraftBundlePayload | null;
   supportAsset: string | null;
+  mediaAttachments?: ChatMediaAttachmentRef[];
   groundingSources: GroundingPacketSourceMaterial[];
   autoSavedSourceMaterials: {
     count: number;
@@ -1060,6 +1069,7 @@ export interface ChatRouteMappedDataSeed {
   replyArtifacts: ChatReplyArtifacts | null;
   replyParse: ChatReplyParseEnvelope | null;
   profileAnalysisArtifact?: ProfileAnalysisArtifact | null;
+  imageTurnContext?: ImageTurnContext | null;
 }
 
 export interface AssistantContextPacket {
@@ -1249,6 +1259,7 @@ export function buildChatRouteMappedData(args: {
   styleCard: VoiceStyleCard | null;
   routingDiagnostics: NormalizedChatTurnDiagnostics;
   clientTurnId: string | null;
+  mediaAttachments?: ChatMediaAttachmentRef[] | null;
 }): {
   mappedData: ChatRouteMappedDataSeed;
   responseVoiceTarget: VoiceTarget | null;
@@ -1364,6 +1375,7 @@ export function buildChatRouteMappedData(args: {
         groundingSources: responseGroundingSources,
         groundingMode: responseGroundingMode,
         groundingExplanation: responseGroundingExplanation,
+        mediaAttachments: args.mediaAttachments ?? undefined,
         threadPostMaxCharacterLimit: getXCharacterLimitForAccount(args.isVerifiedAccount),
       })
     : null;
@@ -1372,6 +1384,7 @@ export function buildChatRouteMappedData(args: {
         draft: resolvedPolicyDraft,
         outputShape: args.result.outputShape,
         supportAsset: (resultData?.supportAsset as string) || null,
+        mediaAttachments: args.mediaAttachments ?? undefined,
         selectedDraftContext: args.selectedDraftContext,
         groundingSources: responseGroundingSources,
         groundingMode: responseGroundingMode,
@@ -1410,6 +1423,7 @@ export function buildChatRouteMappedData(args: {
       draftBundle: draftBundlePayload?.draftBundle ?? null,
       supportAsset:
         selectedBundleOption?.supportAsset ?? ((resultData?.supportAsset as string) || null),
+      mediaAttachments: args.mediaAttachments ?? undefined,
       groundingSources: responseGroundingSources,
       autoSavedSourceMaterials:
         resultData?.autoSavedSourceMaterials &&
@@ -1462,6 +1476,7 @@ export function prepareChatRouteTurn(args: {
   nextThreadTitle: string | null;
   preferredSurfaceMode: V2ConversationMemory["preferredSurfaceMode"];
   shouldClearReplyWorkflow: boolean;
+  mediaAttachments?: ChatMediaAttachmentRef[] | null;
 }): PreparedChatRouteTurn {
   const resultData =
     args.rawResponse.data &&
@@ -1508,6 +1523,7 @@ export function prepareChatRouteTurn(args: {
     styleCard: args.styleCard,
     routingDiagnostics: args.routingDiagnostics,
     clientTurnId: args.clientTurnId,
+    mediaAttachments: args.mediaAttachments ?? null,
   });
 
   return {

@@ -3,12 +3,17 @@
 export interface SidebarThreadItem {
   id: string;
   label: string;
-  meta: string;
 }
 
+export type SidebarThreadSectionId = "today" | "earlier";
+
 export interface SidebarThreadSection {
-  section: string;
+  id: SidebarThreadSectionId;
+  label: string;
   items: SidebarThreadItem[];
+  hiddenCount: number;
+  isExpandable: boolean;
+  isExpanded: boolean;
 }
 
 interface ResolveSidebarThreadSectionsParams {
@@ -16,43 +21,158 @@ interface ResolveSidebarThreadSectionsParams {
   chatThreads: Array<{ id: string; title: string; updatedAt: string }>;
   activeThreadId: string | null;
   sidebarSearchQuery: string;
+  earlierThreadsExpanded?: boolean;
+  now?: Date;
+}
+
+const COLLAPSED_EARLIER_THREAD_LIMIT = 3;
+
+function getThreadTimestamp(updatedAt: string): number {
+  const parsedDate = new Date(updatedAt);
+  return Number.isNaN(parsedDate.getTime()) ? 0 : parsedDate.getTime();
+}
+
+function isSameLocalCalendarDay(left: Date, right: Date): boolean {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+function isThreadUpdatedToday(updatedAt: string, now: Date): boolean {
+  const parsedDate = new Date(updatedAt);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return false;
+  }
+
+  return isSameLocalCalendarDay(parsedDate, now);
+}
+
+function mapSidebarThreadItem(thread: { id: string; title: string }): SidebarThreadItem {
+  return {
+    id: thread.id,
+    label: thread.title || "Chat",
+  };
+}
+
+function resolveCollapsedEarlierItems(params: {
+  items: SidebarThreadItem[];
+  activeThreadId: string | null;
+}): Pick<SidebarThreadSection, "items" | "hiddenCount" | "isExpandable"> {
+  const previewIds = new Set(
+    params.items.slice(0, COLLAPSED_EARLIER_THREAD_LIMIT).map((item) => item.id),
+  );
+
+  if (params.activeThreadId) {
+    previewIds.add(params.activeThreadId);
+  }
+
+  const visibleItems = params.items.filter((item) => previewIds.has(item.id));
+  const hiddenCount = Math.max(params.items.length - visibleItems.length, 0);
+
+  return {
+    items: visibleItems,
+    hiddenCount,
+    isExpandable: hiddenCount > 0,
+  };
 }
 
 export function resolveSidebarThreadSections(
   params: ResolveSidebarThreadSectionsParams,
 ): SidebarThreadSection[] {
-  const { hasWorkspace, chatThreads, activeThreadId, sidebarSearchQuery } = params;
+  const {
+    hasWorkspace,
+    chatThreads,
+    activeThreadId,
+    sidebarSearchQuery,
+    earlierThreadsExpanded = false,
+    now = new Date(),
+  } = params;
   if (!hasWorkspace) {
     return [];
   }
 
   const trimmedQuery = sidebarSearchQuery.trim().toLowerCase();
-  const filteredThreads = trimmedQuery
+  const isSearching = trimmedQuery.length > 0;
+  const filteredThreads = (isSearching
     ? chatThreads.filter((thread) =>
         (thread.title || "Chat").toLowerCase().includes(trimmedQuery),
       )
-    : chatThreads;
-  const recentItems = filteredThreads.slice(0, 10).map((thread) => ({
-    id: thread.id,
-    label: thread.title || "Chat",
-    meta: new Date(thread.updatedAt).toLocaleDateString(),
-  }));
+    : chatThreads
+  ).toSorted((left, right) => getThreadTimestamp(right.updatedAt) - getThreadTimestamp(left.updatedAt));
 
-  return [
-    {
-      section: "Chats",
-      items:
-        trimmedQuery || recentItems.length > 0
-          ? recentItems
-          : [
-              {
-                id: activeThreadId ?? "current-workspace",
-                label: "New Chat",
-                meta: "Active",
-              },
-            ],
-    },
-  ];
+  if (!isSearching && filteredThreads.length === 0) {
+    return [
+      {
+        id: "today",
+        label: "Today",
+        items: [
+          {
+            id: activeThreadId ?? "current-workspace",
+            label: "New Chat",
+          },
+        ],
+        hiddenCount: 0,
+        isExpandable: false,
+        isExpanded: false,
+      },
+    ];
+  }
+
+  const todayItems: SidebarThreadItem[] = [];
+  const earlierItems: SidebarThreadItem[] = [];
+
+  for (const thread of filteredThreads) {
+    if (isThreadUpdatedToday(thread.updatedAt, now)) {
+      todayItems.push(mapSidebarThreadItem(thread));
+      continue;
+    }
+
+    earlierItems.push(mapSidebarThreadItem(thread));
+  }
+
+  const sections: SidebarThreadSection[] = [];
+
+  if (todayItems.length > 0) {
+    sections.push({
+      id: "today",
+      label: "Today",
+      items: todayItems,
+      hiddenCount: 0,
+      isExpandable: false,
+      isExpanded: false,
+    });
+  }
+
+  if (earlierItems.length > 0) {
+    if (isSearching || earlierThreadsExpanded) {
+      sections.push({
+        id: "earlier",
+        label: "Earlier",
+        items: earlierItems,
+        hiddenCount: 0,
+        isExpandable: false,
+        isExpanded: earlierThreadsExpanded && !isSearching,
+      });
+    } else {
+      const collapsedEarlierSection = resolveCollapsedEarlierItems({
+        items: earlierItems,
+        activeThreadId,
+      });
+
+      sections.push({
+        id: "earlier",
+        label: "Earlier",
+        items: collapsedEarlierSection.items,
+        hiddenCount: collapsedEarlierSection.hiddenCount,
+        isExpandable: collapsedEarlierSection.isExpandable,
+        isExpanded: false,
+      });
+    }
+  }
+
+  return sections;
 }
 
 export function resolveAccountAvatarFallback(params: {

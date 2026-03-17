@@ -32,12 +32,13 @@ type RequestAssistantReplyFn<TStrategyInputs, TToneInputs, TContentFocus extends
     includeUserMessageInHistory?: boolean;
     turnSource?: "ideation_pick" | "reply_action" | "free_text";
     intent?: "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit";
-    artifactContext?:
+        artifactContext?:
       | {
           kind: "selected_angle";
           angle: string;
           formatHint: SelectedAngleFormatHint;
           supportAsset?: string;
+          imageAssetId?: string;
         }
       | {
           kind: "reply_option_select";
@@ -124,6 +125,7 @@ export function useComposerInteractions<
       angle: string,
       formatHint: SelectedAngleFormatHint,
       supportAsset?: string,
+      imageAssetId?: string,
     ) => {
       if (!activeStrategyInputs || !activeToneInputs || isMainChatLocked) {
         return;
@@ -139,6 +141,7 @@ export function useComposerInteractions<
           angle,
           formatHint,
           ...(supportAsset ? { supportAsset } : {}),
+          ...(imageAssetId ? { imageAssetId } : {}),
         },
         formatPreferenceOverride: formatHint === "thread" ? "thread" : null,
         appendUserMessage: true,
@@ -263,6 +266,7 @@ export function useComposerInteractions<
           quickReply.angle || quickReply.label,
           quickReply.formatHint || "post",
           quickReply.supportAsset,
+          quickReply.imageAssetId,
         );
         return;
       }

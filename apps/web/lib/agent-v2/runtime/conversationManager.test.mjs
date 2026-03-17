@@ -426,15 +426,136 @@ test("routing fast replies use the loaded user context for profile knowledge ask
 
   assert.equal(result.isFastReply, true);
   assert.equal(
-    result.fastReplyResponse?.response.includes("Lately you've been posting about:"),
+    result.fastReplyResponse?.response.includes("**Current read:**"),
     true,
   );
   assert.equal(
-    result.fastReplyResponse?.response.includes("- "),
+    result.fastReplyResponse?.response.includes("## Recent Themes"),
     true,
   );
   assert.equal(result.fastReplyResponse?.presentationStyle, "preserve_authored_structure");
   assert.equal(updatedMemoryArgs?.assistantTurnCount, 1);
+});
+
+test("routing fast replies greet on simple social turns without reviving stale draft context", async () => {
+  enableExtensionlessTsResolution();
+  const { resolveRoutingPolicy } = await import("./routingPolicy.ts");
+  let updatedMemoryArgs = null;
+  let controlTurnCalled = false;
+
+  const currentPendingPlan = {
+    objective: "hiring systems",
+    angle: "show the scorecard that kept the team lean",
+    targetLane: "original",
+    mustInclude: ["ownership filter"],
+    mustAvoid: [],
+    hookType: "direct",
+    pitchResponse: "this angle is clean",
+  };
+
+  const result = await resolveRoutingPolicy(
+    {
+      userId: "user_1",
+      xHandle: "vitddnv",
+      effectiveXHandle: "vitddnv",
+      runId: "run_1",
+      threadId: "thread_1",
+      userMessage: "hi",
+      planSeedMessage: null,
+      recentHistory: "",
+      activeDraft: undefined,
+      turnSource: "free_text",
+      artifactContext: null,
+      planSeedSource: null,
+      resolvedWorkflow: null,
+      replyHandlingBypassedReason: null,
+      formatPreference: null,
+      threadFramingStyle: null,
+      explicitIntent: null,
+      diagnosticContext: null,
+      creatorProfileHints: null,
+      userContextString: "",
+      memory: {
+        conversationState: "plan_pending_approval",
+        activeConstraints: [],
+        topicSummary: "stale hiring topic",
+        lastIdeationAngles: ["ownership filter", "scorecard lesson"],
+        concreteAnswerCount: 3,
+        currentDraftArtifactId: null,
+        activeDraftRef: null,
+        rollingSummary: null,
+        pendingPlan: currentPendingPlan,
+        clarificationState: null,
+        assistantTurnCount: 4,
+        latestRefinementInstruction: null,
+        unresolvedQuestion: "do you want a thread or a post?",
+        clarificationQuestionsAsked: 1,
+        preferredSurfaceMode: null,
+        formatPreference: null,
+        activeReplyContext: null,
+        activeReplyArtifactRef: null,
+        selectedReplyOptionId: null,
+        voiceFidelity: "balanced",
+      },
+      effectiveActiveConstraints: [],
+      turnPlan: null,
+      styleCard: null,
+      anchors: {
+        topicAnchors: [],
+        laneAnchors: [],
+        formatAnchors: [],
+        rankedAnchors: [],
+      },
+      initialWorkerExecutions: [],
+    },
+    {
+      controlTurn: async () => {
+        controlTurnCalled = true;
+        throw new Error("controller should not run for simple social turns");
+      },
+      updateConversationMemory: async (args) => {
+        updatedMemoryArgs = args;
+        return createStoredMemoryRecord({
+          topicSummary: args.topicSummary ?? "stale hiring topic",
+          concreteAnswerCount: args.concreteAnswerCount ?? 3,
+          activeConstraints: {
+            constraints: args.activeConstraints ?? [],
+            conversationState: args.conversationState ?? "plan_pending_approval",
+            pendingPlan: args.pendingPlan ?? currentPendingPlan,
+            clarificationState: null,
+            lastIdeationAngles: ["ownership filter", "scorecard lesson"],
+            rollingSummary: args.rollingSummary ?? null,
+            assistantTurnCount: args.assistantTurnCount ?? 4,
+            activeDraftRef: null,
+            latestRefinementInstruction: null,
+            unresolvedQuestion: args.unresolvedQuestion ?? null,
+            clarificationQuestionsAsked: args.clarificationQuestionsAsked ?? 1,
+            preferredSurfaceMode: args.preferredSurfaceMode ?? null,
+            formatPreference: null,
+            activeReplyContext: null,
+            activeReplyArtifactRef: null,
+            selectedReplyOptionId: null,
+          },
+        });
+      },
+    },
+  );
+
+  assert.equal(controlTurnCalled, false);
+  assert.equal(result.isFastReply, true);
+  assert.equal(
+    result.fastReplyResponse?.response,
+    "Hi. What are we working on today: a post, a thread, or a quick profile audit?",
+  );
+  assert.equal(
+    result.fastReplyResponse?.response.toLowerCase().includes("hiring"),
+    false,
+  );
+  assert.equal(updatedMemoryArgs?.conversationState, "plan_pending_approval");
+  assert.equal(updatedMemoryArgs?.unresolvedQuestion, null);
+  assert.equal("topicSummary" in (updatedMemoryArgs || {}), false);
+  assert.equal(result.memory.topicSummary, "stale hiring topic");
+  assert.equal(result.memory.pendingPlan?.objective, "hiring systems");
 });
 
 test("draft pipeline keeps continuation inside the chosen workflow instead of rewriting runtime resolution", () => {
@@ -1394,6 +1515,57 @@ test("turn context hydration workers fall back to topic summary when the message
   assert.equal(seenFocusTopic, "x growth systems");
   assert.equal(result.workerExecutions[0]?.details?.hasStyleCard, false);
   assert.equal(result.workerExecutions[1]?.details?.focusTopic, "x growth systems");
+});
+
+test("turn context hydration workers skip expensive loading for simple social turns", async () => {
+  let styleProfileCalls = 0;
+  let retrieveAnchorCalls = 0;
+
+  const result = await hydrateTurnContextWorkers({
+    userId: "user_1",
+    effectiveXHandle: "vitddnv",
+    userMessage: "hi",
+    topicSummary: "stale hiring topic",
+    services: {
+      generateStyleProfile: async () => {
+        styleProfileCalls += 1;
+        return null;
+      },
+      retrieveAnchors: async () => {
+        retrieveAnchorCalls += 1;
+        return {
+          topicAnchors: [],
+          laneAnchors: [],
+          formatAnchors: [],
+          rankedAnchors: [],
+        };
+      },
+    },
+  });
+
+  assert.equal(styleProfileCalls, 0);
+  assert.equal(retrieveAnchorCalls, 0);
+  assert.equal(result.styleCard, null);
+  assert.deepEqual(result.anchors.topicAnchors, []);
+  assert.deepEqual(
+    result.workerExecutions.map((execution) => ({
+      worker: execution.worker,
+      status: execution.status,
+      reason: execution.details?.reason || null,
+    })),
+    [
+      {
+        worker: "load_style_profile",
+        status: "skipped",
+        reason: "simple_social_turn",
+      },
+      {
+        worker: "retrieve_anchors",
+        status: "skipped",
+        reason: "simple_social_turn",
+      },
+    ],
+  );
 });
 
 test("turn context hydration workers ignore bare draft commands as retrieval topics", async () => {

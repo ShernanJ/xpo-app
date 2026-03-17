@@ -27,6 +27,7 @@ import {
 import {
   resolveDisplayedDraftCharacterLimit,
 } from "./chatDraftPreviewState";
+import { ChatMediaAttachments } from "../shared/ChatMediaAttachments";
 
 export interface DraftEditorPanelProps {
   layout: "desktop" | "mobile";
@@ -151,6 +152,11 @@ export function DraftEditorPanel(props: DraftEditorPanelProps) {
   const activeThreadPostKey = selectedDraftMessageId
     ? `${selectedDraftMessageId}:${selectedDraftThreadPostIndex}:${isViewingHistoricalDraftVersion ? "history" : "edit"}`
     : `thread-post:${selectedDraftThreadPostIndex}:${isViewingHistoricalDraftVersion ? "history" : "edit"}`;
+  const selectedDraftMediaAttachments =
+    selectedDraftArtifact?.mediaAttachments?.length &&
+    (!isSelectedDraftThread || selectedDraftThreadPostIndex === 0)
+      ? selectedDraftArtifact.mediaAttachments
+      : [];
 
   useEffect(() => {
     if (!isSelectedDraftThread) {
@@ -348,40 +354,63 @@ export function DraftEditorPanel(props: DraftEditorPanelProps) {
                 <div
                   key={activeThreadPostKey}
                   ref={historicalThreadPostRef}
-                  className={`mt-4 flex-1 whitespace-pre-wrap text-white ${bodyTextClassName}`}
+                  className={`mt-4 flex-1 overflow-y-auto text-white ${bodyTextClassName}`}
                 >
-                  {selectedThreadPost}
+                  <div className="whitespace-pre-wrap">{selectedThreadPost}</div>
+                  <ChatMediaAttachments
+                    attachments={selectedDraftMediaAttachments}
+                    variant="draft"
+                    onlyFirst
+                  />
                 </div>
               ) : (
-                <textarea
-                  key={activeThreadPostKey}
-                  ref={threadPostTextareaRef}
-                  value={selectedThreadPost}
-                  onChange={(event) =>
-                    onUpdateThreadDraftPost(
-                      selectedDraftThreadPostIndex,
-                      event.target.value,
-                    )
-                  }
-                  className={`mt-4 min-h-[220px] flex-1 w-full resize-none overflow-y-auto bg-transparent px-0 py-0 text-white outline-none placeholder:text-zinc-600 ${bodyTextClassName}`}
-                  placeholder={`Thread post ${selectedDraftThreadPostIndex + 1}`}
-                />
+                <div key={activeThreadPostKey} className="mt-4 flex min-h-[220px] flex-1 flex-col">
+                  <textarea
+                    ref={threadPostTextareaRef}
+                    value={selectedThreadPost}
+                    onChange={(event) =>
+                      onUpdateThreadDraftPost(
+                        selectedDraftThreadPostIndex,
+                        event.target.value,
+                      )
+                    }
+                    className={`min-h-[220px] flex-1 w-full resize-none overflow-y-auto bg-transparent px-0 py-0 text-white outline-none placeholder:text-zinc-600 ${bodyTextClassName}`}
+                    placeholder={`Thread post ${selectedDraftThreadPostIndex + 1}`}
+                  />
+                  <ChatMediaAttachments
+                    attachments={selectedDraftMediaAttachments}
+                    variant="draft"
+                    onlyFirst
+                  />
+                </div>
               )}
             </div>
           </div>
         ) : isViewingHistoricalDraftVersion ? (
           <div
-            className={`h-full min-h-full overflow-y-auto whitespace-pre-wrap text-white ${bodyTextClassName}`}
+            className={`h-full min-h-full overflow-y-auto text-white ${bodyTextClassName}`}
           >
-            {editorDraftText}
+            <div className="whitespace-pre-wrap">{editorDraftText}</div>
+            <ChatMediaAttachments
+              attachments={selectedDraftMediaAttachments}
+              variant="draft"
+              onlyFirst
+            />
           </div>
         ) : (
-          <textarea
-            value={editorDraftText}
-            onChange={(event) => onChangeEditorDraftText(event.target.value)}
-            className={`h-full min-h-full w-full resize-none overflow-y-auto bg-transparent pr-1 text-white outline-none placeholder:text-zinc-600 ${bodyTextClassName}`}
-            placeholder="Draft content"
-          />
+          <div className="flex h-full min-h-full flex-col">
+            <textarea
+              value={editorDraftText}
+              onChange={(event) => onChangeEditorDraftText(event.target.value)}
+              className={`h-full min-h-[240px] w-full resize-none overflow-y-auto bg-transparent pr-1 text-white outline-none placeholder:text-zinc-600 ${bodyTextClassName}`}
+              placeholder="Draft content"
+            />
+            <ChatMediaAttachments
+              attachments={selectedDraftMediaAttachments}
+              variant="draft"
+              onlyFirst
+            />
+          </div>
         )}
       </div>
 

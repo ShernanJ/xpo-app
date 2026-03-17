@@ -6,6 +6,8 @@ import {
   renderStreamingMarkdownToHtml,
 } from "@/lib/ui/markdown";
 import { getChatRenderMode } from "@/lib/ui/chatRenderMode";
+import type { ChatMediaAttachmentRef } from "@/lib/chat/chatMedia";
+import { ChatMediaAttachments } from "../shared/ChatMediaAttachments";
 
 interface MessageContentProps {
   role: "assistant" | "user";
@@ -14,10 +16,19 @@ interface MessageContentProps {
   isLatestAssistantMessage: boolean;
   typedLength: number;
   assistantTypingBubble: React.ReactNode;
+  mediaAttachments?: ChatMediaAttachmentRef[];
 }
 
 export function MessageContent(props: MessageContentProps) {
-  const { role, content, isStreaming, isLatestAssistantMessage, typedLength, assistantTypingBubble } =
+  const {
+    role,
+    content,
+    isStreaming,
+    isLatestAssistantMessage,
+    typedLength,
+    assistantTypingBubble,
+    mediaAttachments,
+  } =
     props;
 
   if (role === "assistant" && isStreaming) {
@@ -59,6 +70,16 @@ export function MessageContent(props: MessageContentProps) {
     }
 
     return <p className="whitespace-pre-wrap">{content}</p>;
+  }
+
+  if (role === "user") {
+    const hasText = content.trim().length > 0;
+    return (
+      <>
+        {hasText ? <p className="whitespace-pre-wrap">{content}</p> : null}
+        <ChatMediaAttachments attachments={mediaAttachments} variant="bubble" />
+      </>
+    );
   }
 
   return <p className="whitespace-pre-wrap">{content}</p>;

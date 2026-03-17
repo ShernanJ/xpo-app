@@ -4,6 +4,7 @@ import type {
   ChatArtifactContext,
   ChatResolvedWorkflow,
   ChatTurnSource,
+  ImagePostConfirmationArtifactContext,
   NormalizedChatTurn,
   ReplyConfirmationArtifactContext,
   ReplyOptionSelectArtifactContext,
@@ -49,6 +50,10 @@ function parseSelectedAngleArtifactContext(
     typeof record.supportAsset === "string" && record.supportAsset.trim()
       ? record.supportAsset.trim()
       : null;
+  const imageAssetId =
+    typeof record.imageAssetId === "string" && record.imageAssetId.trim()
+      ? record.imageAssetId.trim()
+      : null;
   if (record.kind !== "selected_angle" || !angle) {
     return null;
   }
@@ -58,6 +63,33 @@ function parseSelectedAngleArtifactContext(
     angle,
     formatHint,
     ...(supportAsset ? { supportAsset } : {}),
+    ...(imageAssetId ? { imageAssetId } : {}),
+  };
+}
+
+function parseImagePostConfirmationArtifactContext(
+  value: unknown,
+): ImagePostConfirmationArtifactContext | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const imageAssetId =
+    typeof record.imageAssetId === "string" && record.imageAssetId.trim()
+      ? record.imageAssetId.trim()
+      : null;
+  if (
+    record.kind !== "image_post_confirmation" ||
+    (record.decision !== "confirm" && record.decision !== "decline")
+  ) {
+    return null;
+  }
+
+  return {
+    kind: "image_post_confirmation",
+    decision: record.decision,
+    ...(imageAssetId ? { imageAssetId } : {}),
   };
 }
 
@@ -127,6 +159,7 @@ function parseReplyConfirmationArtifactContext(
 function parseArtifactContext(value: unknown): ChatArtifactContext | null {
   return (
     parseSelectedAngleArtifactContext(value) ||
+    parseImagePostConfirmationArtifactContext(value) ||
     parseDraftSelectionArtifactContext(value) ||
     parseReplyOptionSelectArtifactContext(value) ||
     parseReplyConfirmationArtifactContext(value)
@@ -171,6 +204,10 @@ function resolveTurnSource(args: {
     return "draft_action";
   }
 
+  if (args.artifactContext?.kind === "image_post_confirmation") {
+    return "quick_reply";
+  }
+
   if (
     args.artifactContext?.kind === "reply_option_select" ||
     args.artifactContext?.kind === "reply_confirmation"
@@ -203,6 +240,10 @@ function resolveExplicitIntent(args: {
     return args.artifactContext.action === "review" ? "review" : "edit";
   }
 
+  if (args.artifactContext?.kind === "image_post_confirmation") {
+    return "coach";
+  }
+
   if (args.turnSource === "quick_reply" && args.intent === "ideate") {
     return "ideate";
   }
@@ -224,6 +265,10 @@ function resolveResolvedWorkflow(args: {
 
   if (args.artifactContext?.kind === "draft_selection") {
     return "revise_draft";
+  }
+
+  if (args.artifactContext?.kind === "image_post_confirmation") {
+    return "free_text";
   }
 
   if (
@@ -313,6 +358,10 @@ export function normalizeChatTurn(args: {
     orchestrationMessage = message || `go with option ${artifactContext.optionIndex + 1}`;
     planSeedSource = "message";
   } else if (artifactContext?.kind === "reply_confirmation") {
+    transcriptMessage = message || artifactContext.decision;
+    orchestrationMessage = message || artifactContext.decision;
+    planSeedSource = "message";
+  } else if (artifactContext?.kind === "image_post_confirmation") {
     transcriptMessage = message || artifactContext.decision;
     orchestrationMessage = message || artifactContext.decision;
     planSeedSource = "message";

@@ -28,6 +28,7 @@ interface ChatWorkspaceChromeState {
   tools: ChatWorkspaceChromeTool[];
   sidebarOpen: boolean;
   sidebarSearchQuery: string;
+  earlierThreadsExpanded: boolean;
   sections: ReturnType<typeof resolveSidebarThreadSections>;
   activeThreadId: string | null;
   hoveredThreadId: string | null;
@@ -58,6 +59,7 @@ interface ChatWorkspaceChromeActions {
   toggleSidebar: () => void;
   openCompanionApp: () => void;
   setSidebarSearchQuery: (value: string) => void;
+  expandEarlierThreads: () => void;
   closeSidebar: () => void;
   openSidebar: () => void;
   newChat: () => void;
@@ -104,6 +106,8 @@ export interface ChatWorkspaceChromeProviderProps {
   sidebarOpen: boolean;
   sidebarSearchQuery: string;
   setSidebarSearchQuery: (value: string) => void;
+  earlierThreadsExpanded: boolean;
+  expandEarlierThreads: () => void;
   closeSidebar: () => void;
   openSidebar: () => void;
   handleNewChat: () => void;
@@ -179,6 +183,8 @@ export function ChatWorkspaceChromeProvider(
     openGrowthGuide,
     sidebarOpen,
     setSidebarSearchQuery,
+    earlierThreadsExpanded,
+    expandEarlierThreads,
     closeSidebar,
     openSidebar,
     handleNewChat,
@@ -260,8 +266,9 @@ export function ChatWorkspaceChromeProvider(
         chatThreads,
         activeThreadId,
         sidebarSearchQuery,
+        earlierThreadsExpanded,
       }),
-    [activeThreadId, chatThreads, hasWorkspace, sidebarSearchQuery],
+    [activeThreadId, chatThreads, earlierThreadsExpanded, hasWorkspace, sidebarSearchQuery],
   );
 
   const accountAvatarFallback = useMemo(
@@ -288,6 +295,7 @@ export function ChatWorkspaceChromeProvider(
       tools,
       sidebarOpen,
       sidebarSearchQuery,
+      earlierThreadsExpanded,
       sections,
       activeThreadId,
       hoveredThreadId,
@@ -336,6 +344,7 @@ export function ChatWorkspaceChromeProvider(
       showRateLimitUpgradeCta,
       sidebarOpen,
       sidebarSearchQuery,
+      earlierThreadsExpanded,
       sections,
       tools,
       toolsMenuOpen,
@@ -348,6 +357,7 @@ export function ChatWorkspaceChromeProvider(
       toggleSidebar: () => setSidebarOpen((current) => !current),
       openCompanionApp: () => setExtensionModalOpen(true),
       setSidebarSearchQuery,
+      expandEarlierThreads,
       closeSidebar,
       openSidebar,
       newChat: handleNewChat,
@@ -388,6 +398,7 @@ export function ChatWorkspaceChromeProvider(
       openPreferences,
       openSidebar,
       requestDeleteThread,
+      expandEarlierThreads,
       setEditingThreadId,
       setEditingTitle,
       setExtensionModalOpen,
@@ -449,6 +460,7 @@ export function useChatSidebarChrome() {
   return {
     sidebarOpen: state.sidebarOpen,
     sidebarSearchQuery: state.sidebarSearchQuery,
+    earlierThreadsExpanded: state.earlierThreadsExpanded,
     sections: state.sections,
     activeThreadId: state.activeThreadId,
     hoveredThreadId: state.hoveredThreadId,
@@ -473,6 +485,7 @@ export function useChatSidebarChrome() {
     isVerifiedAccount: state.isVerifiedAccount,
     sessionEmail: state.sessionEmail,
     onSidebarSearchQueryChange: actions.setSidebarSearchQuery,
+    onExpandEarlierThreads: actions.expandEarlierThreads,
     onCloseSidebar: actions.closeSidebar,
     onOpenSidebar: actions.openSidebar,
     onNewChat: actions.newChat,

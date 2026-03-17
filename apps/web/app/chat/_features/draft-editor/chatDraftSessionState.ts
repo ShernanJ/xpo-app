@@ -1,5 +1,6 @@
 import { computeXWeightedCharacterCount } from "../../../../lib/onboarding/draftArtifacts.ts";
 import type { DraftArtifactDetails } from "../../../../lib/onboarding/draftArtifacts.ts";
+import type { ChatMediaAttachmentRef } from "../../../../lib/chat/chatMedia.ts";
 
 type DraftArtifact = DraftArtifactDetails;
 type DraftVersionSource = "assistant_generated" | "assistant_revision" | "manual_save";
@@ -65,6 +66,7 @@ export interface ChatMessageLike {
   previousVersionSnapshot?: DraftVersionSnapshotLike | null;
   revisionChainId?: string;
   supportAsset?: string | null;
+  mediaAttachments?: ChatMediaAttachmentRef[];
   outputShape?: OutputShape;
 }
 

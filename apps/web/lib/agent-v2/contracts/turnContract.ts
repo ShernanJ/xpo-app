@@ -34,6 +34,13 @@ export interface SelectedAngleArtifactContext {
   angle: string;
   formatHint: SelectedAngleFormatHint;
   supportAsset?: string;
+  imageAssetId?: string;
+}
+
+export interface ImagePostConfirmationArtifactContext {
+  kind: "image_post_confirmation";
+  decision: "confirm" | "decline";
+  imageAssetId?: string;
 }
 
 export interface DraftSelectionArtifactContext {
@@ -54,6 +61,7 @@ export interface ReplyConfirmationArtifactContext {
 
 export type ChatArtifactContext =
   | SelectedAngleArtifactContext
+  | ImagePostConfirmationArtifactContext
   | DraftSelectionArtifactContext
   | ReplyOptionSelectArtifactContext
   | ReplyConfirmationArtifactContext;

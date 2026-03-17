@@ -32,6 +32,17 @@ export interface ImageToPostGenerationInput {
   copyModel?: string;
 }
 
+export interface ImageVisualContextInput {
+  imageDataUrl: string;
+  visionModel?: string;
+}
+
+export interface ImageAngleGenerationInput {
+  visualContext: ImageVisionContext;
+  idea?: string | null;
+  copyModel?: string;
+}
+
 export interface ImageToPostGenerationResult {
   visualContext: ImageVisionContext;
   angles: ImagePostAngleOptions;
@@ -94,10 +105,34 @@ function buildCopywriterUserPrompt(args: {
 export async function generateImageToPostOptions(
   input: ImageToPostGenerationInput,
 ): Promise<ImageToPostGenerationResult> {
-  const idea = input.idea?.trim() || null;
-  const visionModel = input.visionModel || DEFAULT_IMAGE_TO_POST_VISION_MODEL;
-  const copyModel = input.copyModel || DEFAULT_IMAGE_TO_POST_COPY_MODEL;
+  const visualContextResult = await analyzeImageVisualContext({
+    imageDataUrl: input.imageDataUrl,
+    visionModel: input.visionModel,
+  });
+  const angleResult = await generateImagePostAngles({
+    visualContext: visualContextResult.visualContext,
+    idea: input.idea,
+    copyModel: input.copyModel,
+  });
 
+  return {
+    visualContext: visualContextResult.visualContext,
+    angles: angleResult.angles,
+    idea: angleResult.idea,
+    models: {
+      vision: visualContextResult.model,
+      copy: angleResult.model,
+    },
+  };
+}
+
+export async function analyzeImageVisualContext(
+  input: ImageVisualContextInput,
+): Promise<{
+  visualContext: ImageVisionContext;
+  model: string;
+}> {
+  const visionModel = input.visionModel || DEFAULT_IMAGE_TO_POST_VISION_MODEL;
   const rawVisionContext = await fetchJsonFromGroq<unknown>({
     model: visionModel,
     temperature: 0,
@@ -142,6 +177,21 @@ export async function generateImageToPostOptions(
     );
   }
 
+  return {
+    visualContext: parsedVisionContext.data,
+    model: visionModel,
+  };
+}
+
+export async function generateImagePostAngles(
+  input: ImageAngleGenerationInput,
+): Promise<{
+  angles: ImagePostAngleOptions;
+  idea: string | null;
+  model: string;
+}> {
+  const idea = input.idea?.trim() || null;
+  const copyModel = input.copyModel || DEFAULT_IMAGE_TO_POST_COPY_MODEL;
   const rawAngleOptions = await fetchJsonFromGroq<unknown>({
     model: copyModel,
     reasoning_effort: "medium",
@@ -157,7 +207,7 @@ export async function generateImageToPostOptions(
       {
         role: "user",
         content: buildCopywriterUserPrompt({
-          visualContext: parsedVisionContext.data,
+          visualContext: input.visualContext,
           idea,
         }),
       },
@@ -180,12 +230,8 @@ export async function generateImageToPostOptions(
   }
 
   return {
-    visualContext: parsedVisionContext.data,
     angles: parsedAngleOptions.data,
     idea,
-    models: {
-      vision: visionModel,
-      copy: copyModel,
-    },
+    model: copyModel,
   };
 }

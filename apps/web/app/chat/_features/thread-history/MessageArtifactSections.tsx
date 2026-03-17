@@ -592,7 +592,7 @@ function FollowUpChipButton(props: {
         <Icon
           className={`shrink-0 transition group-hover/follow-up-chip:text-[#e7e9ea] ${
             isPrimaryIdeationAngle
-              ? "mt-0.5 h-4 w-4 text-[#d4b15a]"
+              ? "mt-0.5 h-4 w-4 text-white"
               : "h-4 w-4 text-[#71767b] [transform:scaleY(-1)]"
           }`}
         />

@@ -14,7 +14,7 @@ export interface ChatSmokeRequestCounts {
   chat: number;
   context: number;
   contract: number;
-  imagePosts: number;
+  imageTurns: number;
   lastChatRequestBody: Record<string, unknown> | null;
   preferences: number;
   profileScrape: number;
@@ -327,27 +327,140 @@ function buildCreatedThread() {
   };
 }
 
-function buildImagePostReply() {
+const smokeImageVisualContext = {
+  primary_subject: "founder at a laptop",
+  setting: "a bright home office",
+  lighting_and_mood: "warm and focused",
+  any_readable_text: "ship the update",
+  key_details: ["coffee mug", "analytics dashboard", "notebook"],
+} as const;
+
+const smokeImageAttachments = [
+  {
+    assetId: "chat-media-smoke-1",
+    kind: "image",
+    src: "/api/creator/v2/chat/media/chat-media-smoke-1",
+    previewSrc: "/api/creator/v2/chat/media/chat-media-smoke-1?variant=preview",
+    mimeType: "image/png",
+    width: 1280,
+    height: 720,
+    name: "draft.png",
+  },
+] as const;
+
+const smokeImageTurnContext = {
+  imageAssetId: "chat-media-smoke-1",
+  visualContext: smokeImageVisualContext,
+  supportAsset:
+    "Image anchor: founder at a laptop in a bright home office.\nMood: warm and focused.\nReadable text: ship the update.\nKey details: coffee mug, analytics dashboard, notebook.",
+  mediaAttachments: smokeImageAttachments,
+} as const;
+
+function buildInitialImageTurnReply() {
   return {
     ok: true,
     data: {
-      xHandle: CHAT_SMOKE_HANDLE,
-      visualContext: {
-        primary_subject: "founder at a laptop",
-        setting: "a bright home office",
-        lighting_and_mood: "warm and focused",
-        any_readable_text: "ship the update",
-        key_details: ["coffee mug", "analytics dashboard", "notebook"],
+      threadId: "thread-smoke-image-1",
+      userMessage: {
+        id: "user-image-1",
+        threadId: "thread-smoke-image-1",
+        role: "user",
+        content: "",
+        createdAt: "2026-03-16T12:01:00.000Z",
+        mediaAttachments: smokeImageAttachments,
       },
-      posts: [
-        "Question hook post from the image.",
-        "Relatable take post from the image.",
-        "Bold statement post from the image.",
-      ],
-      idea: null,
-      models: {
-        vision: "fixture-vision",
-        copy: "fixture-copy",
+      assistantMessage: {
+        id: "assistant-image-1",
+        threadId: "thread-smoke-image-1",
+        role: "assistant",
+        content:
+          'I see you sent an image of founder at a laptop in a bright home office. The overall mood looks warm and focused. I can also read "ship the update". A few details that stand out: coffee mug, analytics dashboard, notebook.\n\nDid you want to write a post on this image?',
+        createdAt: "2026-03-16T12:01:02.000Z",
+        outputShape: "coach_question",
+        surfaceMode: "ask_one_question",
+        quickReplies: [
+          {
+            kind: "image_post_confirmation",
+            value: "yes, write a post",
+            label: "yes, write a post",
+            decision: "confirm",
+            imageAssetId: "chat-media-smoke-1",
+          },
+          {
+            kind: "image_post_confirmation",
+            value: "not now",
+            label: "not now",
+            decision: "decline",
+            imageAssetId: "chat-media-smoke-1",
+          },
+        ],
+        imageTurnContext: {
+          ...smokeImageTurnContext,
+          awaitingConfirmation: true,
+        },
+      },
+    },
+  };
+}
+
+function buildImageTurnConfirmationReply() {
+  return {
+    ok: true,
+    data: {
+      userMessage: {
+        id: "user-image-2",
+        threadId: "thread-smoke-image-1",
+        role: "user",
+        content: "yes, write a post",
+        createdAt: "2026-03-16T12:01:04.000Z",
+      },
+      assistantMessage: {
+        id: "assistant-image-2",
+        threadId: "thread-smoke-image-1",
+        role: "assistant",
+        content: "I pulled a few post directions from the image. Choose one and I'll turn it into a draft.",
+        createdAt: "2026-03-16T12:01:06.000Z",
+        outputShape: "ideation_angles",
+        surfaceMode: "offer_options",
+        supportAsset: smokeImageTurnContext.supportAsset,
+        angles: [
+          { title: "Question hook post from the image." },
+          { title: "Relatable take post from the image." },
+          { title: "Bold statement post from the image." },
+        ],
+        quickReplies: [
+          {
+            kind: "ideation_angle",
+            value: "Question hook post from the image.",
+            label: "Question hook post from the image.",
+            angle: "Question hook post from the image.",
+            formatHint: "post",
+            supportAsset: smokeImageTurnContext.supportAsset,
+            imageAssetId: "chat-media-smoke-1",
+          },
+          {
+            kind: "ideation_angle",
+            value: "Relatable take post from the image.",
+            label: "Relatable take post from the image.",
+            angle: "Relatable take post from the image.",
+            formatHint: "post",
+            supportAsset: smokeImageTurnContext.supportAsset,
+            imageAssetId: "chat-media-smoke-1",
+          },
+          {
+            kind: "ideation_angle",
+            value: "Bold statement post from the image.",
+            label: "Bold statement post from the image.",
+            angle: "Bold statement post from the image.",
+            formatHint: "post",
+            supportAsset: smokeImageTurnContext.supportAsset,
+            imageAssetId: "chat-media-smoke-1",
+          },
+        ],
+        imageTurnContext: {
+          ...smokeImageTurnContext,
+          awaitingConfirmation: false,
+        },
       },
     },
   };
@@ -470,9 +583,23 @@ export async function installChatSmokeApiMocks(
     await fulfillJson(route, buildThreads());
   });
 
-  await page.route("**/api/creator/v2/image-posts", async (route) => {
-    counts.imagePosts += 1;
-    await fulfillJson(route, buildImagePostReply());
+  await page.route("**/api/creator/v2/chat/image-turns", async (route) => {
+    counts.imageTurns += 1;
+    const contentType = route.request().headers()["content-type"] || "";
+    await fulfillJson(
+      route,
+      contentType.includes("application/json")
+        ? buildImageTurnConfirmationReply()
+        : buildInitialImageTurnReply(),
+    );
+  });
+
+  await page.route("**/api/creator/v2/chat/media/**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      body: Buffer.from("fixture-image"),
+    });
   });
 
   await page.route("**/api/creator/v2/preferences", async (route) => {

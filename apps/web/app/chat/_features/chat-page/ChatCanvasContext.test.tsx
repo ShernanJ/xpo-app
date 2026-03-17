@@ -29,6 +29,8 @@ function buildWorkspaceChromeProps(
     sidebarOpen: false,
     sidebarSearchQuery: "",
     setSidebarSearchQuery: vi.fn(),
+    earlierThreadsExpanded: false,
+    expandEarlierThreads: vi.fn(),
     closeSidebar: vi.fn(),
     openSidebar: vi.fn(),
     handleNewChat: vi.fn(),

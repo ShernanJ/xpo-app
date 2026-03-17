@@ -10,6 +10,7 @@ import type {
   NormalizedChatTurnDiagnostics,
 } from "../../../../../../../lib/agent-v2/contracts/turnContract.ts";
 import type { RawOrchestratorResponse } from "../../../../../../../lib/agent-v2/runtime/conversationManager.ts";
+import type { ChatMediaAttachmentRef } from "../../../../../../../lib/chat/chatMedia.ts";
 import {
   prepareChatRouteTurn,
   type PreparedChatRouteTurn,
@@ -180,6 +181,7 @@ export async function prepareManagedMainTurnWithDeps(
     clientTurnId: string | null;
     currentThreadTitle: string | null | undefined;
     shouldClearReplyWorkflow: boolean;
+    mediaAttachments?: ChatMediaAttachmentRef[] | null;
   },
   deps: {
     generateThreadTitle: (args: {
@@ -232,6 +234,7 @@ export async function prepareManagedMainTurnWithDeps(
     nextThreadTitle,
     preferredSurfaceMode: args.rawResponse.memory.preferredSurfaceMode ?? "natural",
     shouldClearReplyWorkflow: args.shouldClearReplyWorkflow,
+    mediaAttachments: args.mediaAttachments ?? null,
   });
 }
 
@@ -247,6 +250,7 @@ export async function prepareManagedMainTurn(args: {
   clientTurnId: string | null;
   currentThreadTitle: string | null | undefined;
   shouldClearReplyWorkflow: boolean;
+  mediaAttachments?: ChatMediaAttachmentRef[] | null;
 }): Promise<PreparedChatRouteTurn> {
   const { generateThreadTitle } = await import(
     "../../../../../../../lib/agent-v2/agents/threadTitle.ts"

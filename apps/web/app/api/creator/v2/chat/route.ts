@@ -72,6 +72,10 @@ import {
   requireAllowedOrigin,
 } from "@/lib/security/requestValidation";
 import { isMissingChatTurnControlTableError } from "@/lib/agent-v2/persistence/prismaGuards";
+import {
+  buildChatMediaAttachmentRef,
+  type ChatMediaAttachmentRef,
+} from "@/lib/chat/chatMedia";
 
 type CreatorChatRequest = CreatorChatTransportRequest & Record<string, unknown>;
 type StreamProgressCallback = (
@@ -482,6 +486,35 @@ function buildTurnInProgressResponse(args: {
   );
 }
 
+async function resolveSelectedAngleMediaAttachments(args: {
+  userId: string;
+  artifactContext: ReturnType<typeof normalizeChatTurn>["artifactContext"];
+}): Promise<ChatMediaAttachmentRef[] | null> {
+  if (
+    args.artifactContext?.kind !== "selected_angle" ||
+    !args.artifactContext.imageAssetId
+  ) {
+    return null;
+  }
+
+  const asset = await prisma.chatMediaAsset.findFirst({
+    where: {
+      id: args.artifactContext.imageAssetId,
+      userId: args.userId,
+    },
+    select: {
+      id: true,
+      kind: true,
+      mimeType: true,
+      width: true,
+      height: true,
+      originalName: true,
+    },
+  });
+
+  return asset ? [buildChatMediaAttachmentRef(asset)] : null;
+}
+
 function streamChatRouteResponse(args: {
   execute: (onProgress: StreamProgressCallback) => Promise<Response>;
 }): Response {
@@ -674,6 +707,10 @@ export async function handleChatRouteRequest(args: {
   }
 
   const { activeHandle, storedThread } = threadState;
+  const selectedAngleMediaAttachments = await resolveSelectedAngleMediaAttachments({
+    userId: args.userId,
+    artifactContext: normalizedTurn.artifactContext,
+  });
   const shouldForcePinnedRefreshForAnalysis = isInlineProfileAnalysisRequest(
     effectiveMessage,
   );
@@ -944,6 +981,7 @@ export async function handleChatRouteRequest(args: {
         clientTurnId,
         currentThreadTitle: storedThread.title,
         shouldClearReplyWorkflow: false,
+        mediaAttachments: selectedAngleMediaAttachments,
       });
 
       await emitProgress(
@@ -1149,6 +1187,7 @@ export async function handleChatRouteRequest(args: {
       clientTurnId,
       currentThreadTitle: storedThread.title,
       shouldClearReplyWorkflow: shouldResetReplyWorkflow,
+      mediaAttachments: selectedAngleMediaAttachments,
     });
     return await finalizeMainAssistantTurn({
       preparedTurn,
