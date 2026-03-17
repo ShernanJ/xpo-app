@@ -132,6 +132,14 @@ export function ChatSidebar() {
               <div className="space-y-1">
                 <button
                   type="button"
+                  onClick={onOpenContentHub}
+                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
+                >
+                  <Pin className="h-4 w-4 shrink-0" />
+                  <span>Posts &amp; Threads</span>
+                </button>
+                <button
+                  type="button"
                   onClick={onOpenPreferences}
                   className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
                 >
@@ -145,14 +153,6 @@ export function ChatSidebar() {
                 >
                   <MessageSquareText className="h-4 w-4 shrink-0" />
                   <span>Feedback</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={onOpenContentHub}
-                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
-                >
-                  <Pin className="h-4 w-4 shrink-0" />
-                  <span>Posts &amp; Threads</span>
                 </button>
               </div>
             </div>
