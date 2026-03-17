@@ -8,7 +8,6 @@ import {
 
 const SHORT_FORM_X_LIMIT = 280;
 const LONG_FORM_X_LIMIT = 25_000;
-const THREAD_TOTAL_X_LIMIT = 1_680;
 const THREAD_DEFAULT_POST_COUNT = 6;
 
 function getThreadTotalXLimit(isVerified: boolean): number {

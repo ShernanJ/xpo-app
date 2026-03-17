@@ -393,7 +393,7 @@ function ChatPageContent() {
   >({});
 
   const [isSending, setIsSending] = useState(false);
-  const [streamStatus, setStreamStatus] = useState<string | null>(null);
+  const [, setStreamStatus] = useState<string | null>(null);
   const [activeAgentProgress, setActiveAgentProgress] = useState<AgentProgressRun | null>(
     null,
   );
@@ -968,11 +968,15 @@ function ChatPageContent() {
       }),
     [accountName, activeThreadId, context, isLeavingHero, messages.length],
   );
-  const composerMode: ChatComposerMode = editingUserMessageId
-    ? { kind: "edit" }
-    : activeComposerCommand
-      ? { kind: "command", commandId: activeComposerCommand }
-      : null;
+  const composerMode = useMemo<ChatComposerMode>(
+    () =>
+      editingUserMessageId
+        ? { kind: "edit" }
+        : activeComposerCommand
+          ? { kind: "command", commandId: activeComposerCommand }
+          : null,
+    [activeComposerCommand, editingUserMessageId],
+  );
   const slashCommandQuery =
     composerMode || composerImageAttachment
       ? null

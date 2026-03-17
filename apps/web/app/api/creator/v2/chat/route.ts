@@ -32,7 +32,6 @@ import {
   refundRouteTurnCharge,
 } from "./_lib/control/routeControlPlane";
 import {
-  claimTurnExecutionLease,
   findActiveTurnForThread,
   heartbeatTurnExecution,
   markTurnFailed,

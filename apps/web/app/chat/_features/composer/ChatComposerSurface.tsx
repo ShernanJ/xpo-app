@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import {
   AnimatePresence,
   motion,
@@ -10,7 +11,6 @@ import {
   X,
 } from "lucide-react";
 import {
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -18,6 +18,7 @@ import {
   type FormEventHandler,
   type KeyboardEventHandler,
   type RefObject,
+  type SetStateAction,
 } from "react";
 
 import {
@@ -95,7 +96,11 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
     onSubmit,
   } = props;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const [highlightedCommandIndex, setHighlightedCommandIndex] = useState(0);
+  const highlightedSlashCommandSessionKey = `${isSlashCommandPickerOpen ? "open" : "closed"}:${slashCommandQuery ?? ""}`;
+  const [highlightedCommandState, setHighlightedCommandState] = useState(() => ({
+    index: 0,
+    sessionKey: "",
+  }));
   const modeLabel = formatComposerModeLabel(composerMode);
   const filteredSlashCommands = useMemo(
     () =>
@@ -105,10 +110,29 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
       }),
     [slashCommandQuery, slashCommands],
   );
+  const highlightedCommandIndex =
+    highlightedCommandState.sessionKey === highlightedSlashCommandSessionKey
+      ? Math.min(
+          highlightedCommandState.index,
+          Math.max(filteredSlashCommands.length - 1, 0),
+        )
+      : 0;
 
-  useEffect(() => {
-    setHighlightedCommandIndex(0);
-  }, [isSlashCommandPickerOpen, slashCommandQuery]);
+  const updateHighlightedCommandIndex = (value: SetStateAction<number>) => {
+    setHighlightedCommandState((current) => {
+      const currentIndex =
+        current.sessionKey === highlightedSlashCommandSessionKey
+          ? current.index
+          : 0;
+      const nextIndex =
+        typeof value === "function" ? value(currentIndex) : value;
+
+      return {
+        index: nextIndex,
+        sessionKey: highlightedSlashCommandSessionKey,
+      };
+    });
+  };
 
   const handleSelectSlashCommand = (commandId: ComposerCommandId) => {
     onSelectSlashCommand(commandId);
@@ -121,7 +145,7 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
     if (isSlashCommandPickerOpen) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
-        setHighlightedCommandIndex((current) =>
+        updateHighlightedCommandIndex((current) =>
           filteredSlashCommands.length === 0
             ? 0
             : (current + 1) % filteredSlashCommands.length,
@@ -131,7 +155,7 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
 
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        setHighlightedCommandIndex((current) =>
+        updateHighlightedCommandIndex((current) =>
           filteredSlashCommands.length === 0
             ? 0
             : (current - 1 + filteredSlashCommands.length) % filteredSlashCommands.length,
@@ -302,7 +326,7 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
                     key={command.id}
                     type="button"
                     onClick={() => handleSelectSlashCommand(command.id)}
-                    onMouseEnter={() => setHighlightedCommandIndex(index)}
+                    onMouseEnter={() => updateHighlightedCommandIndex(index)}
                     className={`flex w-full items-center justify-between rounded-2xl px-3 py-2 text-left transition ${
                       isSelected
                         ? "bg-white/[0.08] text-white"
@@ -330,9 +354,13 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
 
         {composerImageAttachment ? (
           <div className="mt-2 flex items-center gap-3 rounded-2xl border border-white/10 bg-black/25 px-3 py-2">
-            <img
+            <Image
               src={composerImageAttachment.objectUrl}
               alt={composerImageAttachment.name}
+              width={40}
+              height={40}
+              sizes="40px"
+              unoptimized
               className="h-10 w-10 rounded-xl object-cover"
             />
             <div className="min-w-0 flex-1">
