@@ -18,10 +18,13 @@ interface FolderPatchRequest extends Record<string, unknown> {
 }
 
 function isUniqueConstraintError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
   return (
-    Boolean(error) &&
-    typeof error === "object" &&
     "code" in error &&
+    typeof error.code === "string" &&
     error.code === "P2002"
   );
 }

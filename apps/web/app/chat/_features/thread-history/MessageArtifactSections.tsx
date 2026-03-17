@@ -596,8 +596,8 @@ function FollowUpChipButton(props: {
       disabled={disabled}
       className={`group/follow-up-chip inline-flex max-w-full cursor-pointer text-[#e7e9ea] transition-[color,transform] duration-150 active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-55 ${
         isPrimaryIdeationAngle
-          ? "w-full rounded-2xl border border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]"
-          : "w-fit rounded-full bg-transparent"
+          ? "w-full rounded-2xl border border-white/10 bg-white/[0.03] hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.05]"
+          : "w-fit rounded-full bg-transparent hover:-translate-y-0.5"
       }`}
     >
       <div

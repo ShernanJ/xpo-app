@@ -75,6 +75,7 @@ import {
   buildChatMediaAttachmentRef,
   type ChatMediaAttachmentRef,
 } from "@/lib/chat/chatMedia";
+import { registerChatRouteHandler } from "./_lib/routeHandlerRegistry";
 
 type CreatorChatRequest = CreatorChatTransportRequest & Record<string, unknown>;
 type StreamProgressCallback = (
@@ -564,7 +565,7 @@ function streamChatRouteResponse(args: {
   });
 }
 
-export async function handleChatRouteRequest(args: {
+async function handleChatRouteRequest(args: {
   request: NextRequest;
   body: CreatorChatRequest;
   monetizationEnabled: boolean;
@@ -1245,3 +1246,5 @@ export async function handleChatRouteRequest(args: {
     stopHeartbeat();
   }
 }
+
+registerChatRouteHandler(handleChatRouteRequest);

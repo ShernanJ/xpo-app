@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import type { CreatorChatTransportRequest } from "@/lib/agent-v2/contracts/chatTransport";
 import { isMonetizationEnabled } from "@/lib/billing/monetization";
 
-import { handleChatRouteRequest } from "../../route";
+import "../../route";
 import {
   claimNextExecutableTurn,
   claimTurnExecutionLease,
@@ -11,6 +11,7 @@ import {
   markTurnCompleted,
   markTurnFailed,
 } from "../control/routeTurnControl";
+import { getChatRouteHandler } from "../routeHandlerRegistry";
 
 const DEFAULT_CHAT_TURN_LEASE_MS = Math.max(
   5_000,
@@ -111,6 +112,8 @@ function resolveResponseMessage(payload: Record<string, unknown> | null) {
 
   return firstError?.message?.trim() || "The turn failed before completion.";
 }
+
+const handleChatRouteRequest = getChatRouteHandler();
 
 async function finalizeClaimedTurn(args: {
   turn: {

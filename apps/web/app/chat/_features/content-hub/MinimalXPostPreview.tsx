@@ -191,7 +191,7 @@ export function MinimalXPostPreview(props: MinimalXPostPreviewProps) {
                     <ChatMediaAttachments
                       attachments={item.artifact?.mediaAttachments}
                       variant="draft"
-                      onlyFirst={variant === "compact"}
+                      onlyFirst={false}
                     />
                   ) : null}
                   {variant === "full" ? (

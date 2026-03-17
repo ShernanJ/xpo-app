@@ -276,7 +276,7 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
               type="button"
               onClick={onOpenComposerImagePicker}
               disabled={isComposerDisabled}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/20 text-zinc-300 transition hover:border-white/20 hover:bg-white/[0.04] hover:text-white disabled:pointer-events-none disabled:border-white/5 disabled:text-zinc-600"
+              className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-white/10 bg-black/20 text-zinc-300 transition-all hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.04] hover:text-white disabled:pointer-events-none disabled:border-white/5 disabled:text-zinc-600"
               aria-label="Attach image"
             >
               <Paperclip className="h-4 w-4" />
@@ -294,7 +294,7 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
               <button
                 type="button"
                 onClick={onInterruptReply}
-                className="group flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95"
+                className="group flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white text-black transition-all hover:-translate-y-0.5 hover:scale-105 active:scale-95"
                 aria-label="Stop generating"
               >
                 <Square className="h-3.5 w-3.5 fill-current" />
@@ -303,7 +303,7 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
               <button
                 type="submit"
                 disabled={isSubmitDisabled}
-                className="group flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10"
+                className="group flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white text-black transition-all hover:-translate-y-0.5 hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10"
                 aria-label="Send message"
               >
                 <svg
@@ -385,7 +385,7 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
             <button
               type="button"
               onClick={onRemoveComposerImageAttachment}
-              className="rounded-full border border-white/10 p-1.5 text-zinc-400 transition hover:border-white/20 hover:text-white"
+              className="cursor-pointer rounded-full border border-white/10 p-1.5 text-zinc-400 transition hover:border-white/20 hover:text-white"
               aria-label="Remove attached image"
             >
               <X className="h-4 w-4" />

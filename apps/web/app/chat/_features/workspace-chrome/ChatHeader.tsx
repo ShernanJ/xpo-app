@@ -43,10 +43,10 @@ export function ChatHeader() {
             <button
               type="button"
               onClick={onToggleToolsMenu}
-              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] transition ${
+              className={`inline-flex cursor-pointer items-center gap-1 rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] transition-all hover:-translate-y-0.5 ${
                 toolsMenuOpen
-                  ? "border-white/20 bg-white/[0.06] text-white"
-                  : "border-white/10 text-zinc-300 hover:bg-white/[0.04] hover:text-white"
+                  ? "border-white/20 bg-white/[0.06] text-white hover:border-white/30 hover:bg-white/[0.09]"
+                  : "border-white/10 text-zinc-300 hover:border-white/20 hover:bg-white/[0.04] hover:text-white"
               }`}
             >
               <span>Tools</span>
@@ -59,7 +59,7 @@ export function ChatHeader() {
                     key={item.key}
                     type="button"
                     onClick={item.onSelect}
-                    className="flex w-full items-center justify-between rounded-2xl px-3 py-2.5 text-left text-sm text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
+                    className="flex w-full cursor-pointer items-center justify-between rounded-2xl px-3 py-2.5 text-left text-sm text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
                   >
                     <span>{item.label}</span>
                     <ArrowUpRight className="h-3.5 w-3.5 text-zinc-500" />
@@ -71,7 +71,7 @@ export function ChatHeader() {
           <button
             type="button"
             onClick={onOpenCompanionApp}
-            className="hidden items-center gap-1 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-white/[0.04] md:inline-flex"
+            className="hidden cursor-pointer items-center gap-1 rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white transition-all hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.04] md:inline-flex"
           >
             <span>Companion App</span>
             <ArrowUpRight className="h-3.5 w-3.5" />

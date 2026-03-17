@@ -52,6 +52,8 @@ type DraftCandidateWithFolder = {
   folder: FolderRecord | null;
 };
 
+type DraftReviewCandidateRecord = Omit<DraftCandidateWithFolder, "folder">;
+
 export interface SerializedFolder {
   id: string;
   name: string;
@@ -217,7 +219,7 @@ export function serializeContentItem(
 }
 
 export function serializeDraftReviewCandidate(
-  candidate: DraftCandidateWithFolder,
+  candidate: DraftReviewCandidateRecord,
 ): SerializedDraftReviewCandidate {
   return {
     id: candidate.id,
