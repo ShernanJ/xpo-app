@@ -50,6 +50,7 @@ export interface UseChatMessageStreamPropsOptions<TMessage extends ChatMessageSt
     autoSavedSourceMaterials: NonNullable<TMessage["autoSavedSourceMaterials"]>,
   ) => void;
   onSubmitAssistantMessageFeedback: (messageId: string, value: "up" | "down") => void;
+  onOpenScopedFeedback: (messageId: string) => void;
   onQuickReplySelect: ArtifactSectionProps["onQuickReplySelect"];
   onAngleSelect: (title: string, selectedAngleFormatHint: SelectedAngleFormatHint) => void;
   onReplyOptionSelect: (optionIndex: number) => void;
@@ -121,6 +122,9 @@ export function useChatMessageStreamProps<TMessage extends ChatMessageStreamMess
       },
       onSubmitAssistantMessageFeedback: (value) => {
         options.onSubmitAssistantMessageFeedback(message.id, value);
+      },
+      onOpenScopedFeedback: () => {
+        options.onOpenScopedFeedback(message.id);
       },
       onQuickReplySelect: options.onQuickReplySelect,
       onAngleSelect: options.onAngleSelect,

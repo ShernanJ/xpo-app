@@ -619,12 +619,16 @@ function ChatPageContent() {
     feedbackModalOpen,
     setFeedbackModalOpen,
     openFeedbackDialog,
+    openScopedFeedbackDialog,
     feedbackCategory,
     setFeedbackCategory,
+    feedbackSource,
+    feedbackScope,
     activeFeedbackTitle,
     updateActiveFeedbackTitle,
     activeFeedbackDraft,
     updateActiveFeedbackDraft,
+    discardFeedbackDraft,
     feedbackEditorRef,
     handleFeedbackEditorKeyDown,
     applyFeedbackMarkdownToken,
@@ -650,6 +654,8 @@ function ChatPageContent() {
   } = useFeedbackState({
     activeThreadId,
     activeDraftMessageId: activeDraftEditor?.messageId ?? null,
+    profileHandle: accountName,
+    messages,
     fetchWorkspace,
   });
   const {
@@ -1891,6 +1897,9 @@ function ChatPageContent() {
             onSubmitAssistantMessageFeedback={(messageId, value) => {
               void submitAssistantMessageFeedback(messageId, value);
             }}
+            onOpenScopedFeedback={(messageId) => {
+              openScopedFeedbackDialog(messageId);
+            }}
             onQuickReplySelect={(quickReply) => {
               void handleMessageQuickReplySelect(quickReply as ChatQuickReply);
             }}
@@ -2047,10 +2056,13 @@ function ChatPageContent() {
         submitFeedback={submitFeedback}
         feedbackCategory={feedbackCategory}
         setFeedbackCategory={setFeedbackCategory}
+        feedbackSource={feedbackSource}
+        feedbackScope={feedbackScope}
         activeFeedbackTitle={activeFeedbackTitle}
         updateActiveFeedbackTitle={updateActiveFeedbackTitle}
         activeFeedbackDraft={activeFeedbackDraft}
         updateActiveFeedbackDraft={updateActiveFeedbackDraft}
+        discardFeedbackDraft={discardFeedbackDraft}
         feedbackEditorRef={feedbackEditorRef}
         handleFeedbackEditorKeyDown={handleFeedbackEditorKeyDown}
         applyFeedbackMarkdownToken={applyFeedbackMarkdownToken}

@@ -11,12 +11,16 @@ import {
   type KeyboardEvent,
 } from "react";
 
+import type { ChatMessage } from "../chat-page/chatPageTypes";
 import {
+  DEFAULT_SCOPED_FEEDBACK_CATEGORY,
+  FEEDBACK_CATEGORY_ORDER,
   FEEDBACK_MAX_FILE_SIZE_BYTES,
   FEEDBACK_MAX_FILES,
-  buildDefaultFeedbackDrafts,
-  buildDefaultFeedbackTitles,
+  buildFeedbackDraftsForSource,
   buildFeedbackImageThumbnailDataUrl,
+  buildFeedbackTitlesForSource,
+  createDefaultFeedbackScopeContext,
   extractFeedbackTemplateFields,
   formatFeedbackStatusLabel,
   isSupportedFeedbackFile,
@@ -27,6 +31,8 @@ import {
   type FeedbackImageDraft,
   type FeedbackReportFilter,
   type FeedbackReportStatus,
+  type FeedbackScopeContext,
+  type FeedbackSource,
 } from "./feedbackState";
 
 interface ValidationError {
@@ -79,25 +85,285 @@ type FeedbackStatusUpdateResponse =
   | FeedbackStatusUpdateSuccess
   | FeedbackStatusUpdateFailure;
 
+interface StoredFeedbackCategoryDraft {
+  title: string;
+  draft: string;
+}
+
+interface StoredFeedbackDraftUiState {
+  selectedCategory: FeedbackCategory;
+}
+
+const FEEDBACK_DRAFT_STORAGE_PREFIX = "xpo:feedback-draft:v1";
+const FEEDBACK_TRANSCRIPT_WINDOW_SIZE = 6;
+const FEEDBACK_TRANSCRIPT_EXCERPT_CHAR_LIMIT = 1200;
+
 interface UseFeedbackStateOptions {
   activeThreadId: string | null;
   activeDraftMessageId: string | null;
+  profileHandle: string | null;
+  messages: ChatMessage[];
   fetchWorkspace: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 }
 
+function sanitizeStorageKeyPart(value: string | null | undefined): string {
+  return encodeURIComponent((value?.trim().toLowerCase() || "unknown").slice(0, 120));
+}
+
+function buildFeedbackDraftStorageBaseKey(args: {
+  profileHandle: string | null;
+  threadId: string | null;
+  source: FeedbackSource;
+  reportedMessageId: string | null;
+}): string {
+  return [
+    FEEDBACK_DRAFT_STORAGE_PREFIX,
+    sanitizeStorageKeyPart(args.profileHandle),
+    sanitizeStorageKeyPart(args.threadId ?? "new-chat"),
+    sanitizeStorageKeyPart(args.source),
+    sanitizeStorageKeyPart(args.reportedMessageId ?? "global"),
+  ].join(":");
+}
+
+function buildFeedbackCategoryStorageKey(baseKey: string, category: FeedbackCategory): string {
+  return `${baseKey}:category:${category}`;
+}
+
+function buildFeedbackUiStorageKey(baseKey: string): string {
+  return `${baseKey}:ui`;
+}
+
+function buildFeedbackScopeStorageKey(baseKey: string): string {
+  return `${baseKey}:scope`;
+}
+
+function parseStoredFeedbackCategoryDraft(
+  rawValue: string | null,
+): StoredFeedbackCategoryDraft | null {
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue) as Partial<StoredFeedbackCategoryDraft>;
+    if (typeof parsed.title !== "string" || typeof parsed.draft !== "string") {
+      return null;
+    }
+
+    return {
+      title: parsed.title,
+      draft: parsed.draft,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseStoredFeedbackUiState(rawValue: string | null): StoredFeedbackDraftUiState | null {
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue) as Partial<StoredFeedbackDraftUiState>;
+    if (!parsed?.selectedCategory || !FEEDBACK_CATEGORY_ORDER.includes(parsed.selectedCategory)) {
+      return null;
+    }
+
+    return {
+      selectedCategory: parsed.selectedCategory,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseStoredFeedbackScope(rawValue: string | null): FeedbackScopeContext | null {
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue) as Partial<FeedbackScopeContext>;
+    const transcriptExcerpt = Array.isArray(parsed.transcriptExcerpt)
+      ? parsed.transcriptExcerpt.filter(
+          (entry): entry is NonNullable<FeedbackScopeContext["transcriptExcerpt"]>[number] =>
+            Boolean(
+              entry &&
+                typeof entry.messageId === "string" &&
+                typeof entry.role === "string" &&
+                (entry.role === "assistant" || entry.role === "user") &&
+                typeof entry.excerpt === "string",
+            ),
+        )
+      : [];
+    if (
+      parsed.source !== "global_feedback" &&
+      parsed.source !== "message_report"
+    ) {
+      return null;
+    }
+
+    return {
+      source: parsed.source,
+      reportedMessageId:
+        typeof parsed.reportedMessageId === "string" ? parsed.reportedMessageId : null,
+      assistantExcerpt:
+        typeof parsed.assistantExcerpt === "string" ? parsed.assistantExcerpt : null,
+      precedingUserExcerpt:
+        typeof parsed.precedingUserExcerpt === "string" ? parsed.precedingUserExcerpt : null,
+      transcriptExcerpt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildFeedbackExcerpt(
+  value: string,
+  maxLength = FEEDBACK_TRANSCRIPT_EXCERPT_CHAR_LIMIT,
+): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function buildScopedFeedbackContext(
+  messages: ChatMessage[],
+  messageId: string,
+): FeedbackScopeContext | null {
+  const targetIndex = messages.findIndex((message) => message.id === messageId);
+  if (targetIndex < 0) {
+    return null;
+  }
+
+  const targetMessage = messages[targetIndex];
+  if (targetMessage.role !== "assistant" || !targetMessage.content.trim()) {
+    return null;
+  }
+
+  const precedingUserMessage = [...messages.slice(0, targetIndex)]
+    .reverse()
+    .find((message) => message.role === "user" && message.content.trim().length > 0);
+  const transcriptExcerpt = messages
+    .slice(0, targetIndex + 1)
+    .filter(
+      (message) =>
+        (message.role === "assistant" || message.role === "user") &&
+        message.content.trim().length > 0,
+    )
+    .slice(-FEEDBACK_TRANSCRIPT_WINDOW_SIZE)
+    .map((message) => ({
+      messageId: message.id,
+      role: message.role,
+      excerpt: buildFeedbackExcerpt(message.content),
+    }));
+
+  return {
+    source: "message_report",
+    reportedMessageId: targetMessage.id,
+    assistantExcerpt: buildFeedbackExcerpt(targetMessage.content),
+    precedingUserExcerpt: precedingUserMessage
+      ? buildFeedbackExcerpt(precedingUserMessage.content)
+      : null,
+    transcriptExcerpt,
+  };
+}
+
+function loadDraftStateFromStorage(args: {
+  baseKey: string;
+  source: FeedbackSource;
+  defaultCategory: FeedbackCategory;
+  fallbackScope: FeedbackScopeContext;
+}): {
+  selectedCategory: FeedbackCategory;
+  titlesByCategory: Record<FeedbackCategory, string>;
+  draftsByCategory: Record<FeedbackCategory, string>;
+  scope: FeedbackScopeContext;
+} {
+  const titlesByCategory = buildFeedbackTitlesForSource(args.source);
+  const draftsByCategory = buildFeedbackDraftsForSource(args.source);
+
+  if (typeof window === "undefined") {
+    return {
+      selectedCategory: args.defaultCategory,
+      titlesByCategory,
+      draftsByCategory,
+      scope: args.fallbackScope,
+    };
+  }
+
+  for (const category of FEEDBACK_CATEGORY_ORDER) {
+    const stored = parseStoredFeedbackCategoryDraft(
+      window.localStorage.getItem(buildFeedbackCategoryStorageKey(args.baseKey, category)),
+    );
+    if (!stored) {
+      continue;
+    }
+
+    titlesByCategory[category] = stored.title;
+    draftsByCategory[category] = stored.draft;
+  }
+
+  const storedUiState = parseStoredFeedbackUiState(
+    window.localStorage.getItem(buildFeedbackUiStorageKey(args.baseKey)),
+  );
+  const storedScope = parseStoredFeedbackScope(
+    window.localStorage.getItem(buildFeedbackScopeStorageKey(args.baseKey)),
+  );
+
+  return {
+    selectedCategory: storedUiState?.selectedCategory ?? args.defaultCategory,
+    titlesByCategory,
+    draftsByCategory,
+    scope:
+      storedScope && storedScope.source === args.source ? storedScope : args.fallbackScope,
+  };
+}
+
+function clearPersistedDraftState(baseKey: string | null) {
+  if (!baseKey || typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.removeItem(buildFeedbackUiStorageKey(baseKey));
+  window.localStorage.removeItem(buildFeedbackScopeStorageKey(baseKey));
+  for (const category of FEEDBACK_CATEGORY_ORDER) {
+    window.localStorage.removeItem(buildFeedbackCategoryStorageKey(baseKey, category));
+  }
+}
+
+function revokeFeedbackImageDrafts(images: FeedbackImageDraft[]) {
+  for (const image of images) {
+    URL.revokeObjectURL(image.previewUrl);
+  }
+}
+
 export function useFeedbackState(options: UseFeedbackStateOptions) {
-  const { activeThreadId, activeDraftMessageId, fetchWorkspace } = options;
+  const { activeThreadId, activeDraftMessageId, profileHandle, messages, fetchWorkspace } =
+    options;
 
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
   const [feedbackCategory, setFeedbackCategory] =
     useState<FeedbackCategory>("feedback");
+  const [feedbackSource, setFeedbackSource] =
+    useState<FeedbackSource>("global_feedback");
+  const [feedbackScope, setFeedbackScope] = useState<FeedbackScopeContext>(() =>
+    createDefaultFeedbackScopeContext(),
+  );
   const [feedbackTitlesByCategory, setFeedbackTitlesByCategory] = useState<
     Record<FeedbackCategory, string>
-  >(() => buildDefaultFeedbackTitles());
+  >(() => buildFeedbackTitlesForSource("global_feedback"));
   const [feedbackDraftsByCategory, setFeedbackDraftsByCategory] = useState<
     Record<FeedbackCategory, string>
-  >(() => buildDefaultFeedbackDrafts());
+  >(() => buildFeedbackDraftsForSource("global_feedback"));
   const [feedbackImages, setFeedbackImages] = useState<FeedbackImageDraft[]>([]);
+  const [activeFeedbackDraftStorageBaseKey, setActiveFeedbackDraftStorageBaseKey] =
+    useState<string | null>(null);
+  const [feedbackPersistenceEnabled, setFeedbackPersistenceEnabled] = useState(false);
   const [isFeedbackSubmitting, setIsFeedbackSubmitting] = useState(false);
   const [feedbackSubmitNotice, setFeedbackSubmitNotice] = useState<string | null>(null);
   const [isFeedbackDropActive, setIsFeedbackDropActive] = useState(false);
@@ -113,44 +379,181 @@ export function useFeedbackState(options: UseFeedbackStateOptions) {
   const feedbackEditorRef = useRef<HTMLTextAreaElement | null>(null);
   const feedbackFileInputRef = useRef<HTMLInputElement | null>(null);
   const feedbackImagesRef = useRef(feedbackImages);
+  const feedbackScopeRef = useRef(feedbackScope);
+  const activeFeedbackDraftStorageBaseKeyRef = useRef(activeFeedbackDraftStorageBaseKey);
+  const feedbackImagesCacheRef = useRef<Record<string, FeedbackImageDraft[]>>({});
+  const feedbackImageCleanupListRef = useRef<FeedbackImageDraft[]>([]);
 
   const activeFeedbackTitle = feedbackTitlesByCategory[feedbackCategory] ?? "";
   const activeFeedbackDraft = feedbackDraftsByCategory[feedbackCategory] ?? "";
 
-  const openFeedbackDialog = useCallback(() => {
-    setFeedbackSubmitNotice(null);
-    setFeedbackModalOpen(true);
+  const persistCurrentFeedbackDraft = useCallback(
+    (enabled: boolean) => {
+      setFeedbackPersistenceEnabled(enabled);
+    },
+    [],
+  );
+
+  const syncFeedbackImageCleanupList = useCallback(() => {
+    const uniqueImages = new Map<string, FeedbackImageDraft>();
+    for (const draftImages of Object.values(feedbackImagesCacheRef.current)) {
+      for (const image of draftImages) {
+        uniqueImages.set(image.id, image);
+      }
+    }
+    for (const image of feedbackImagesRef.current) {
+      uniqueImages.set(image.id, image);
+    }
+    feedbackImageCleanupListRef.current = [...uniqueImages.values()];
   }, []);
 
+  const stashCurrentFeedbackImages = useCallback(() => {
+    const currentBaseKey = activeFeedbackDraftStorageBaseKeyRef.current;
+    if (!currentBaseKey) {
+      return;
+    }
+
+    feedbackImagesCacheRef.current[currentBaseKey] = feedbackImagesRef.current;
+    syncFeedbackImageCleanupList();
+  }, [syncFeedbackImageCleanupList]);
+
+  const clearCachedFeedbackImagesForKey = useCallback((baseKey: string | null) => {
+    if (!baseKey) {
+      return;
+    }
+
+    const cachedImages = feedbackImagesCacheRef.current[baseKey];
+    if (cachedImages?.length) {
+      revokeFeedbackImageDrafts(cachedImages);
+    }
+    delete feedbackImagesCacheRef.current[baseKey];
+    syncFeedbackImageCleanupList();
+  }, [syncFeedbackImageCleanupList]);
+
+  const hydrateFeedbackDraftSession = useCallback(
+    (args: {
+      source: FeedbackSource;
+      defaultCategory: FeedbackCategory;
+      scope: FeedbackScopeContext;
+      baseKey: string;
+    }) => {
+      stashCurrentFeedbackImages();
+      const hydrated = loadDraftStateFromStorage({
+        baseKey: args.baseKey,
+        source: args.source,
+        defaultCategory: args.defaultCategory,
+        fallbackScope: args.scope,
+      });
+
+      setFeedbackSource(args.source);
+      setFeedbackScope(hydrated.scope);
+      setFeedbackCategory(hydrated.selectedCategory);
+      setFeedbackTitlesByCategory(hydrated.titlesByCategory);
+      setFeedbackDraftsByCategory(hydrated.draftsByCategory);
+      setActiveFeedbackDraftStorageBaseKey(args.baseKey);
+      setFeedbackImages(feedbackImagesCacheRef.current[args.baseKey] ?? []);
+      setFeedbackSubmitNotice(null);
+      setFeedbackPersistenceEnabled(true);
+      setFeedbackModalOpen(true);
+    },
+    [stashCurrentFeedbackImages],
+  );
+
+  const openFeedbackDialog = useCallback(() => {
+    const scope = createDefaultFeedbackScopeContext();
+    const baseKey = buildFeedbackDraftStorageBaseKey({
+      profileHandle,
+      threadId: activeThreadId,
+      source: "global_feedback",
+      reportedMessageId: null,
+    });
+    hydrateFeedbackDraftSession({
+      source: "global_feedback",
+      defaultCategory: "feedback",
+      scope,
+      baseKey,
+    });
+  }, [activeThreadId, hydrateFeedbackDraftSession, profileHandle]);
+
+  const openScopedFeedbackDialog = useCallback(
+    (messageId: string) => {
+      const scope = buildScopedFeedbackContext(messages, messageId);
+      if (!scope) {
+        return;
+      }
+
+      const targetMessage = messages.find((message) => message.id === messageId) ?? null;
+      const baseKey = buildFeedbackDraftStorageBaseKey({
+        profileHandle,
+        threadId: targetMessage?.threadId ?? activeThreadId,
+        source: "message_report",
+        reportedMessageId: messageId,
+      });
+      hydrateFeedbackDraftSession({
+        source: "message_report",
+        defaultCategory: DEFAULT_SCOPED_FEEDBACK_CATEGORY,
+        scope,
+        baseKey,
+      });
+    },
+    [activeThreadId, hydrateFeedbackDraftSession, messages, profileHandle],
+  );
+
   const updateFeedbackModalOpen = useCallback((open: boolean) => {
+    if (!open) {
+      stashCurrentFeedbackImages();
+    }
     setFeedbackModalOpen(open);
-  }, []);
+  }, [stashCurrentFeedbackImages]);
 
   const updateFeedbackCategory = useCallback((category: FeedbackCategory) => {
     setFeedbackCategory(category);
-  }, []);
+    setFeedbackSubmitNotice(null);
+    persistCurrentFeedbackDraft(true);
+  }, [persistCurrentFeedbackDraft]);
 
   const updateActiveFeedbackTitle = useCallback(
     (value: string) => {
+      persistCurrentFeedbackDraft(true);
       setFeedbackTitlesByCategory((current) => ({
         ...current,
         [feedbackCategory]: value,
       }));
       setFeedbackSubmitNotice(null);
     },
-    [feedbackCategory],
+    [feedbackCategory, persistCurrentFeedbackDraft],
   );
 
   const updateActiveFeedbackDraft = useCallback(
     (value: string) => {
+      persistCurrentFeedbackDraft(true);
       setFeedbackDraftsByCategory((current) => ({
         ...current,
         [feedbackCategory]: value,
       }));
       setFeedbackSubmitNotice(null);
     },
-    [feedbackCategory],
+    [feedbackCategory, persistCurrentFeedbackDraft],
   );
+
+  const discardFeedbackDraft = useCallback(() => {
+    clearPersistedDraftState(activeFeedbackDraftStorageBaseKeyRef.current);
+    clearCachedFeedbackImagesForKey(activeFeedbackDraftStorageBaseKeyRef.current);
+    setFeedbackImages([]);
+    setFeedbackTitlesByCategory(buildFeedbackTitlesForSource(feedbackSource));
+    setFeedbackDraftsByCategory(buildFeedbackDraftsForSource(feedbackSource));
+    setFeedbackCategory(
+      feedbackSource === "message_report"
+        ? DEFAULT_SCOPED_FEEDBACK_CATEGORY
+        : "feedback",
+    );
+    if (feedbackSource === "global_feedback") {
+      setFeedbackScope(createDefaultFeedbackScopeContext());
+    }
+    setFeedbackSubmitNotice("Draft cleared.");
+    setFeedbackPersistenceEnabled(false);
+    setIsFeedbackDropActive(false);
+  }, [clearCachedFeedbackImagesForKey, feedbackSource]);
 
   const applyFeedbackMarkdownToken = useCallback(
     (token: "bold" | "italic" | "bullet" | "link") => {
@@ -196,6 +599,7 @@ export function useFeedbackState(options: UseFeedbackStateOptions) {
         nextCursorEnd = nextCursorStart + "https://example.com".length;
       }
 
+      persistCurrentFeedbackDraft(true);
       const nextText = currentText.slice(0, start) + insertion + currentText.slice(end);
       setFeedbackDraftsByCategory((current) => ({
         ...current,
@@ -208,7 +612,7 @@ export function useFeedbackState(options: UseFeedbackStateOptions) {
         textarea.setSelectionRange(nextCursorStart, nextCursorEnd);
       });
     },
-    [feedbackCategory, feedbackDraftsByCategory],
+    [feedbackCategory, feedbackDraftsByCategory, persistCurrentFeedbackDraft],
   );
 
   const handleFeedbackEditorKeyDown = useCallback(
@@ -237,24 +641,6 @@ export function useFeedbackState(options: UseFeedbackStateOptions) {
     },
     [applyFeedbackMarkdownToken],
   );
-
-  const clearFeedbackImages = useCallback(() => {
-    setFeedbackImages((current) => {
-      for (const image of current) {
-        URL.revokeObjectURL(image.previewUrl);
-      }
-      return [];
-    });
-  }, []);
-
-  const resetFeedbackDrafts = useCallback(() => {
-    clearFeedbackImages();
-    setFeedbackCategory("feedback");
-    setFeedbackTitlesByCategory(buildDefaultFeedbackTitles());
-    setFeedbackDraftsByCategory(buildDefaultFeedbackDrafts());
-    setIsFeedbackDropActive(false);
-    setFeedbackSubmitNotice(null);
-  }, [clearFeedbackImages]);
 
   const loadFeedbackHistory = useCallback(async () => {
     setIsFeedbackHistoryLoading(true);
@@ -375,6 +761,7 @@ export function useFeedbackState(options: UseFeedbackStateOptions) {
       acceptedCount = nextItems.length;
       return [...current, ...nextItems];
     });
+    persistCurrentFeedbackDraft(true);
     if (acceptedCount === 0) {
       setFeedbackSubmitNotice(`You can upload up to ${FEEDBACK_MAX_FILES} files.`);
       return;
@@ -390,7 +777,7 @@ export function useFeedbackState(options: UseFeedbackStateOptions) {
     }
 
     setFeedbackSubmitNotice(null);
-  }, []);
+  }, [persistCurrentFeedbackDraft]);
 
   const handleFeedbackImageSelection = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -480,6 +867,11 @@ export function useFeedbackState(options: UseFeedbackStateOptions) {
             viewportHeight: window.innerHeight,
             userAgent: navigator.userAgent,
             appSurface: "chat",
+            source: feedbackScopeRef.current.source,
+            reportedMessageId: feedbackScopeRef.current.reportedMessageId,
+            assistantExcerpt: feedbackScopeRef.current.assistantExcerpt,
+            precedingUserExcerpt: feedbackScopeRef.current.precedingUserExcerpt,
+            transcriptExcerpt: feedbackScopeRef.current.transcriptExcerpt,
           },
           attachments: attachmentPayloads,
         };
@@ -500,8 +892,19 @@ export function useFeedbackState(options: UseFeedbackStateOptions) {
           throw new Error(fallbackMessage || "Failed to submit feedback.");
         }
 
+        clearPersistedDraftState(activeFeedbackDraftStorageBaseKeyRef.current);
+        clearCachedFeedbackImagesForKey(activeFeedbackDraftStorageBaseKeyRef.current);
+        setFeedbackImages([]);
+        setFeedbackTitlesByCategory(buildFeedbackTitlesForSource(feedbackScopeRef.current.source));
+        setFeedbackDraftsByCategory(buildFeedbackDraftsForSource(feedbackScopeRef.current.source));
+        setFeedbackCategory(
+          feedbackScopeRef.current.source === "message_report"
+            ? DEFAULT_SCOPED_FEEDBACK_CATEGORY
+            : "feedback",
+        );
         setFeedbackSubmitNotice("Feedback submitted. Thanks for helping improve Xpo.");
-        resetFeedbackDrafts();
+        setFeedbackPersistenceEnabled(false);
+        setIsFeedbackDropActive(false);
         await loadFeedbackHistory();
       } catch (error) {
         const fallbackMessage =
@@ -518,23 +921,68 @@ export function useFeedbackState(options: UseFeedbackStateOptions) {
       activeFeedbackDraft,
       activeFeedbackTitle,
       activeThreadId,
+      clearCachedFeedbackImagesForKey,
       feedbackCategory,
       feedbackImages,
       fetchWorkspace,
       loadFeedbackHistory,
-      resetFeedbackDrafts,
     ],
   );
 
   useEffect(() => {
     feedbackImagesRef.current = feedbackImages;
-  }, [feedbackImages]);
+    syncFeedbackImageCleanupList();
+  }, [feedbackImages, syncFeedbackImageCleanupList]);
 
   useEffect(() => {
+    feedbackScopeRef.current = feedbackScope;
+  }, [feedbackScope]);
+
+  useEffect(() => {
+    activeFeedbackDraftStorageBaseKeyRef.current = activeFeedbackDraftStorageBaseKey;
+  }, [activeFeedbackDraftStorageBaseKey]);
+
+  useEffect(() => {
+    if (
+      !feedbackPersistenceEnabled ||
+      !activeFeedbackDraftStorageBaseKey ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    window.localStorage.setItem(
+      buildFeedbackUiStorageKey(activeFeedbackDraftStorageBaseKey),
+      JSON.stringify({
+        selectedCategory: feedbackCategory,
+      } satisfies StoredFeedbackDraftUiState),
+    );
+    window.localStorage.setItem(
+      buildFeedbackScopeStorageKey(activeFeedbackDraftStorageBaseKey),
+      JSON.stringify(feedbackScope),
+    );
+    for (const category of FEEDBACK_CATEGORY_ORDER) {
+      window.localStorage.setItem(
+        buildFeedbackCategoryStorageKey(activeFeedbackDraftStorageBaseKey, category),
+        JSON.stringify({
+          title: feedbackTitlesByCategory[category] ?? "",
+          draft: feedbackDraftsByCategory[category] ?? "",
+        } satisfies StoredFeedbackCategoryDraft),
+      );
+    }
+  }, [
+    activeFeedbackDraftStorageBaseKey,
+    feedbackCategory,
+    feedbackDraftsByCategory,
+    feedbackPersistenceEnabled,
+    feedbackScope,
+    feedbackTitlesByCategory,
+  ]);
+
+  useEffect(() => {
+    const getFeedbackImageCleanupList = () => feedbackImageCleanupListRef.current;
     return () => {
-      for (const image of feedbackImagesRef.current) {
-        URL.revokeObjectURL(image.previewUrl);
-      }
+      revokeFeedbackImageDrafts(getFeedbackImageCleanupList());
     };
   }, []);
 
@@ -550,12 +998,16 @@ export function useFeedbackState(options: UseFeedbackStateOptions) {
     feedbackModalOpen,
     setFeedbackModalOpen: updateFeedbackModalOpen,
     openFeedbackDialog,
+    openScopedFeedbackDialog,
     feedbackCategory,
     setFeedbackCategory: updateFeedbackCategory,
+    feedbackSource,
+    feedbackScope,
     activeFeedbackTitle,
     updateActiveFeedbackTitle,
     activeFeedbackDraft,
     updateActiveFeedbackDraft,
+    discardFeedbackDraft,
     feedbackEditorRef,
     handleFeedbackEditorKeyDown,
     applyFeedbackMarkdownToken,

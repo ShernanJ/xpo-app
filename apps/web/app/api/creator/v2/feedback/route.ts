@@ -5,6 +5,10 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/lib/generated/prisma/client";
 import {
+  FeedbackContextSchema,
+  FeedbackRequestContextSchema,
+} from "@/lib/feedback/feedbackSchemas";
+import {
   FeedbackAttachmentSchema,
   FeedbackCategorySchema,
   FeedbackSubmissionSchema,
@@ -32,18 +36,7 @@ const FeedbackRequestSchema = z.object({
   title: z.string().trim().min(2).max(140).nullable().optional(),
   message: z.string().trim().min(8).max(10000),
   fields: z.record(z.string(), z.string()).optional(),
-  context: z
-    .object({
-      pagePath: z.string().optional(),
-      threadId: z.string().nullable().optional(),
-      activeModal: z.string().nullable().optional(),
-      draftMessageId: z.string().nullable().optional(),
-      viewportWidth: z.number().int().positive().optional(),
-      viewportHeight: z.number().int().positive().optional(),
-      userAgent: z.string().optional(),
-      appSurface: z.string().optional(),
-    })
-    .optional(),
+  context: FeedbackRequestContextSchema.optional(),
   attachments: z.array(FeedbackAttachmentSchema).max(FEEDBACK_MAX_ATTACHMENTS).optional(),
 });
 
@@ -123,18 +116,7 @@ function mapRecordToSubmission(
   },
 ) {
   const parsedFields = z.record(z.string(), z.string()).safeParse(record.fields);
-  const parsedContext = z
-    .object({
-      pagePath: z.string().default("/chat"),
-      threadId: z.string().nullable().optional(),
-      activeModal: z.string().nullable().optional(),
-      draftMessageId: z.string().nullable().optional(),
-      viewportWidth: z.number().int().positive().optional(),
-      viewportHeight: z.number().int().positive().optional(),
-      userAgent: z.string().optional(),
-      appSurface: z.string().default("chat"),
-    })
-    .safeParse(record.context);
+  const parsedContext = FeedbackContextSchema.safeParse(record.context);
 
   return FeedbackSubmissionSchema.parse({
     id: record.id,
@@ -393,6 +375,11 @@ export async function POST(request: NextRequest) {
       viewportHeight: parsedBody.data.context?.viewportHeight,
       userAgent: parsedBody.data.context?.userAgent,
       appSurface: parsedBody.data.context?.appSurface ?? "chat",
+      source: parsedBody.data.context?.source ?? "global_feedback",
+      reportedMessageId: parsedBody.data.context?.reportedMessageId ?? null,
+      assistantExcerpt: parsedBody.data.context?.assistantExcerpt ?? null,
+      precedingUserExcerpt: parsedBody.data.context?.precedingUserExcerpt ?? null,
+      transcriptExcerpt: parsedBody.data.context?.transcriptExcerpt ?? [],
     },
     attachments: sanitizeAttachments(parsedBody.data.attachments ?? []),
   });

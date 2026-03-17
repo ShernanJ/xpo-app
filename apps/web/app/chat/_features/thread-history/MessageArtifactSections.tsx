@@ -6,6 +6,7 @@ import {
   Check,
   Copy,
   Edit3,
+  Flag,
   Lightbulb,
   ThumbsDown,
   ThumbsUp,
@@ -144,6 +145,7 @@ interface MessageArtifactSectionsProps {
   onOpenSourceMaterialEditor: (params: { assetId?: string; title?: string | null }) => void;
   onUndoAutoSavedSourceMaterials: () => void;
   onSubmitAssistantMessageFeedback: (value: "up" | "down") => void;
+  onOpenScopedFeedback: () => void;
   onQuickReplySelect: (quickReply: QuickReplyLike) => void;
   onAngleSelect: (title: string, formatHint: SelectedAngleFormatHint) => void;
   onReplyOptionSelect: (optionIndex: number) => void;
@@ -186,6 +188,7 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
     onOpenSourceMaterialEditor,
     onUndoAutoSavedSourceMaterials,
     onSubmitAssistantMessageFeedback,
+    onOpenScopedFeedback,
     onQuickReplySelect,
     onAngleSelect,
     onReplyOptionSelect,
@@ -308,6 +311,15 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
             } disabled:cursor-not-allowed disabled:opacity-60`}
           >
             <ThumbsDown className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onClick={onOpenScopedFeedback}
+            aria-label="Report response"
+            title="Report response"
+            className="inline-flex cursor-pointer items-center rounded-full p-1.5 text-zinc-600 transition hover:text-zinc-300"
+          >
+            <Flag className="h-3 w-3" />
           </button>
         </div>
       ) : null}
@@ -474,6 +486,7 @@ export function AssistantResultFooter(props: {
   canRunReplyActions: boolean;
   shouldShowQuickReplies: (message: MessageLike) => boolean;
   onSubmitAssistantMessageFeedback: (value: "up" | "down") => void;
+  onOpenScopedFeedback: () => void;
   onQuickReplySelect: (quickReply: QuickReplyLike) => void;
 }) {
   const {
@@ -484,6 +497,7 @@ export function AssistantResultFooter(props: {
     canRunReplyActions,
     shouldShowQuickReplies,
     onSubmitAssistantMessageFeedback,
+    onOpenScopedFeedback,
     onQuickReplySelect,
   } = props;
 
@@ -527,6 +541,15 @@ export function AssistantResultFooter(props: {
             } disabled:cursor-not-allowed disabled:opacity-60`}
           >
             <ThumbsDown className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onClick={onOpenScopedFeedback}
+            aria-label="Report response"
+            title="Report response"
+            className="inline-flex cursor-pointer items-center rounded-full p-1.5 text-zinc-600 transition hover:text-zinc-300"
+          >
+            <Flag className="h-3 w-3" />
           </button>
         </div>
       ) : null}

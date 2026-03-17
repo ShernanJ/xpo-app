@@ -282,6 +282,7 @@ export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
                   canRunReplyActions={artifactSectionProps.canRunReplyActions}
                   shouldShowQuickReplies={artifactSectionProps.shouldShowQuickReplies}
                   onSubmitAssistantMessageFeedback={artifactSectionProps.onSubmitAssistantMessageFeedback}
+                  onOpenScopedFeedback={artifactSectionProps.onOpenScopedFeedback}
                   onQuickReplySelect={artifactSectionProps.onQuickReplySelect}
                 />
               </>
@@ -314,6 +315,7 @@ export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
                   canRunReplyActions={artifactSectionProps.canRunReplyActions}
                   shouldShowQuickReplies={artifactSectionProps.shouldShowQuickReplies}
                   onSubmitAssistantMessageFeedback={artifactSectionProps.onSubmitAssistantMessageFeedback}
+                  onOpenScopedFeedback={artifactSectionProps.onOpenScopedFeedback}
                   onQuickReplySelect={artifactSectionProps.onQuickReplySelect}
                 />
               </>

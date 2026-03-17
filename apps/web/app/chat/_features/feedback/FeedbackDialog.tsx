@@ -28,6 +28,8 @@ import {
   type FeedbackImageDraft,
   type FeedbackReportFilter,
   type FeedbackReportStatus,
+  type FeedbackScopeContext,
+  type FeedbackSource,
 } from "./feedbackState";
 
 interface FeedbackDialogProps {
@@ -36,10 +38,13 @@ interface FeedbackDialogProps {
   onSubmit: FormEventHandler<HTMLFormElement>;
   feedbackCategory: FeedbackCategory;
   onFeedbackCategoryChange: (category: FeedbackCategory) => void;
+  feedbackSource: FeedbackSource;
+  feedbackScope: FeedbackScopeContext;
   activeFeedbackTitle: string;
   onActiveFeedbackTitleChange: (value: string) => void;
   activeFeedbackDraft: string;
   onActiveFeedbackDraftChange: (value: string) => void;
+  onDiscardDraft: () => void;
   feedbackEditorRef: RefObject<HTMLTextAreaElement | null>;
   onFeedbackEditorKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
   onInsertMarkdownToken: (token: "bold" | "italic" | "bullet" | "link") => void;
@@ -78,10 +83,13 @@ export function FeedbackDialog(props: FeedbackDialogProps) {
     onSubmit,
     feedbackCategory,
     onFeedbackCategoryChange,
+    feedbackSource,
+    feedbackScope,
     activeFeedbackTitle,
     onActiveFeedbackTitleChange,
     activeFeedbackDraft,
     onActiveFeedbackDraftChange,
+    onDiscardDraft,
     feedbackEditorRef,
     onFeedbackEditorKeyDown,
     onInsertMarkdownToken,
@@ -122,10 +130,11 @@ export function FeedbackDialog(props: FeedbackDialogProps) {
     () => [
       `profile: @${profileHandle || "unknown"}`,
       `thread: ${activeThreadId ?? "new chat"}`,
+      `source: ${feedbackSource === "message_report" ? "message report" : "global feedback"}`,
       "surface: chat",
       `route: ${activeThreadId ? `/chat/${activeThreadId}` : "/chat"}`,
     ],
-    [activeThreadId, profileHandle],
+    [activeThreadId, feedbackSource, profileHandle],
   );
   const sortedFeedbackHistory = useMemo(
     () =>
@@ -211,22 +220,58 @@ export function FeedbackDialog(props: FeedbackDialogProps) {
             </p>
             <h2 className="mt-3 text-2xl font-semibold text-white">Help us improve Xpo</h2>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-400">
-              Choose a category, keep your message in the template, and submit. Switching tabs
-              keeps your draft intact.
+              {feedbackSource === "message_report"
+                ? "We prefilled the surrounding thread context for this response. Your draft stays intact if you close the modal and come back."
+                : "Choose a category, keep your message in the template, and submit. Switching tabs keeps your draft intact."}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
-          >
-            Close
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onDiscardDraft}
+              className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+            >
+              Discard draft
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
+            >
+              Close
+            </button>
+          </div>
         </div>
 
         <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
           <div className="overflow-y-auto px-6 py-6">
             <div className="space-y-5">
+              {feedbackSource === "message_report" ? (
+                <div className="rounded-3xl border border-amber-300/20 bg-amber-300/[0.06] p-5">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-100/80">
+                    Reporting this response
+                  </p>
+                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                        Your prompt
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-zinc-200">
+                        {feedbackScope.precedingUserExcerpt || "No earlier user prompt was captured."}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                        Assistant response
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-zinc-200">
+                        {feedbackScope.assistantExcerpt || "No assistant excerpt was captured."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
                   Message type
@@ -357,6 +402,10 @@ export function FeedbackDialog(props: FeedbackDialogProps) {
                       />
                     </div>
                   </div>
+                  <p className="mt-2 text-[11px] text-zinc-500">
+                    Draft text auto-saves. After a full page refresh, you&apos;ll need to reattach
+                    files.
+                  </p>
 
                   {feedbackImages.length > 0 ? (
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -462,6 +511,9 @@ export function FeedbackDialog(props: FeedbackDialogProps) {
                     {feedbackTrackedContextRows.map((row) => (
                       <li key={row}>• {row}</li>
                     ))}
+                    {feedbackScope.reportedMessageId ? (
+                      <li>• reported message: {feedbackScope.reportedMessageId}</li>
+                    ) : null}
                     <li>• timestamp: captured server-side on submit</li>
                     <li>• account + user identity: attached server-side</li>
                   </ul>
@@ -653,13 +705,22 @@ export function FeedbackDialog(props: FeedbackDialogProps) {
                 {feedbackOpenWithMediaCount}
               </p>
             </div>
-            <button
-              type="submit"
-              disabled={isFeedbackSubmitting || activeFeedbackDraft.trim().length === 0}
-              className="rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
-            >
-              {isFeedbackSubmitting ? "Submitting" : "Submit feedback"}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={onDiscardDraft}
+                className="rounded-full border border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+              >
+                Discard draft
+              </button>
+              <button
+                type="submit"
+                disabled={isFeedbackSubmitting || activeFeedbackDraft.trim().length === 0}
+                className="rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+              >
+                {isFeedbackSubmitting ? "Submitting" : "Submit feedback"}
+              </button>
+            </div>
           </div>
         </form>
       </div>

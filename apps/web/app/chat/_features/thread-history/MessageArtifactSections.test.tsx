@@ -47,6 +47,7 @@ test("angle picks use the durable ideation format hint instead of parsing reply 
       onOpenSourceMaterialEditor={() => {}}
       onUndoAutoSavedSourceMaterials={() => {}}
       onSubmitAssistantMessageFeedback={() => {}}
+      onOpenScopedFeedback={() => {}}
       onQuickReplySelect={() => {}}
       onAngleSelect={onAngleSelect}
       onReplyOptionSelect={() => {}}
@@ -115,6 +116,7 @@ test("selected draft direction renders highlighted and disables the ideation opt
       onOpenSourceMaterialEditor={() => {}}
       onUndoAutoSavedSourceMaterials={() => {}}
       onSubmitAssistantMessageFeedback={() => {}}
+      onOpenScopedFeedback={() => {}}
       onQuickReplySelect={() => {}}
       onAngleSelect={() => {}}
       onReplyOptionSelect={() => {}}
@@ -196,6 +198,7 @@ test("primary ideation angle chips replace the duplicate angle list", async () =
         onOpenSourceMaterialEditor={() => {}}
         onUndoAutoSavedSourceMaterials={() => {}}
         onSubmitAssistantMessageFeedback={() => {}}
+        onOpenScopedFeedback={() => {}}
         onQuickReplySelect={onQuickReplySelect}
         onAngleSelect={onAngleSelect}
         onReplyOptionSelect={() => {}}
@@ -230,6 +233,7 @@ test("primary ideation angle chips replace the duplicate angle list", async () =
         canRunReplyActions={true}
         shouldShowQuickReplies={() => true}
         onSubmitAssistantMessageFeedback={() => {}}
+        onOpenScopedFeedback={() => {}}
         onQuickReplySelect={onQuickReplySelect}
       />
     </>,
@@ -354,6 +358,7 @@ test("generated result messages keep footer controls out of the artifact section
       onOpenSourceMaterialEditor={() => {}}
       onUndoAutoSavedSourceMaterials={() => {}}
       onSubmitAssistantMessageFeedback={() => {}}
+      onOpenScopedFeedback={() => {}}
       onQuickReplySelect={() => {}}
       onAngleSelect={() => {}}
       onReplyOptionSelect={() => {}}
@@ -369,4 +374,63 @@ test("generated result messages keep footer controls out of the artifact section
   expect(screen.queryByLabelText("Thumbs up")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /rewrite bio/i })).not.toBeInTheDocument();
   expect(screen.getByText("Conversion Score")).toBeInTheDocument();
+});
+
+test("report action opens scoped feedback for assistant messages", async () => {
+  const user = userEvent.setup();
+  const onOpenScopedFeedback = vi.fn();
+
+  render(
+    <MessageArtifactSections
+      message={{
+        id: "assistant-1",
+        role: "assistant",
+        content: "This answer missed the point.",
+        outputShape: "coach_question",
+        feedbackValue: null,
+      }}
+      index={0}
+      messagesLength={1}
+      composerCharacterLimit={280}
+      isVerifiedAccount={false}
+      isMainChatLocked={false}
+      showDevTools={false}
+      selectedDraftMessageId={null}
+      selectedDraftVersionId={null}
+      selectedThreadPreviewPostIndex={undefined}
+      expandedInlineThreadPreviewId={null}
+      copiedPreviewDraftMessageId={null}
+      dismissedAutoSavedSource={false}
+      autoSavedSourceUndoPending={false}
+      messageFeedbackPending={false}
+      canRunReplyActions={true}
+      contextIdentity={{
+        username: "vitddnv",
+        displayName: "Vitalii Dodonov",
+        avatarUrl: null,
+      }}
+      getRevealClassName={() => ""}
+      shouldAnimateRevealLines={() => false}
+      shouldShowQuickReplies={() => false}
+      shouldShowOptionArtifacts={() => false}
+      shouldShowDraftOutput={() => false}
+      onOpenSourceMaterialEditor={() => {}}
+      onUndoAutoSavedSourceMaterials={() => {}}
+      onSubmitAssistantMessageFeedback={() => {}}
+      onOpenScopedFeedback={onOpenScopedFeedback}
+      onQuickReplySelect={() => {}}
+      onAngleSelect={() => {}}
+      onReplyOptionSelect={() => {}}
+      onSelectDraftBundleOption={() => {}}
+      onOpenDraftEditor={() => {}}
+      onRequestDraftCardRevision={() => {}}
+      onToggleExpandedInlineThreadPreview={() => {}}
+      onCopyPreviewDraft={() => {}}
+      onShareDraftEditor={() => {}}
+    />,
+  );
+
+  await user.click(screen.getByRole("button", { name: /report response/i }));
+
+  expect(onOpenScopedFeedback).toHaveBeenCalledTimes(1);
 });

@@ -35,6 +35,7 @@ function createArtifactSectionProps(overrides = {}) {
     onOpenSourceMaterialEditor: () => {},
     onUndoAutoSavedSourceMaterials: () => {},
     onSubmitAssistantMessageFeedback: () => {},
+    onOpenScopedFeedback: () => {},
     onQuickReplySelect: () => {},
     onAngleSelect: () => {},
     onReplyOptionSelect: () => {},
@@ -280,13 +281,17 @@ test("renders result feedback and follow-up chips after the full result body", (
 
   const analysisHeading = screen.getByRole("heading", { name: "Profile Snapshot" });
   const thumbsUp = screen.getByLabelText("Thumbs up");
+  const reportButton = screen.getByRole("button", { name: /report response/i });
   const followUpChip = screen.getByRole("button", { name: /rewrite bio/i });
 
   expect(
     analysisHeading.compareDocumentPosition(thumbsUp) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
   expect(
-    thumbsUp.compareDocumentPosition(followUpChip) & Node.DOCUMENT_POSITION_FOLLOWING,
+    thumbsUp.compareDocumentPosition(reportButton) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    reportButton.compareDocumentPosition(followUpChip) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
 });
 

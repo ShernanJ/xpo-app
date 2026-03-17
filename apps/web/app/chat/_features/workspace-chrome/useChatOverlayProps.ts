@@ -21,6 +21,8 @@ import type {
   FeedbackImageDraft,
   FeedbackReportFilter,
   FeedbackReportStatus,
+  FeedbackScopeContext,
+  FeedbackSource,
 } from "../feedback/feedbackState";
 import type {
   SourceMaterialAsset,
@@ -124,10 +126,13 @@ export interface UseChatOverlayPropsOptions {
   submitFeedback: FormEventHandler<HTMLFormElement>;
   feedbackCategory: FeedbackCategory;
   setFeedbackCategory: (value: FeedbackCategory) => void;
+  feedbackSource: FeedbackSource;
+  feedbackScope: FeedbackScopeContext;
   activeFeedbackTitle: string;
   updateActiveFeedbackTitle: (value: string) => void;
   activeFeedbackDraft: string;
   updateActiveFeedbackDraft: (value: string) => void;
+  discardFeedbackDraft: () => void;
   feedbackEditorRef: RefObject<HTMLTextAreaElement | null>;
   handleFeedbackEditorKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
   applyFeedbackMarkdownToken: (token: "bold" | "italic" | "bullet" | "link") => void;
@@ -407,10 +412,13 @@ export function useChatOverlayProps(
         onSubmit: options.submitFeedback,
         feedbackCategory: options.feedbackCategory,
         onFeedbackCategoryChange: options.setFeedbackCategory,
+        feedbackSource: options.feedbackSource,
+        feedbackScope: options.feedbackScope,
         activeFeedbackTitle: options.activeFeedbackTitle,
         onActiveFeedbackTitleChange: options.updateActiveFeedbackTitle,
         activeFeedbackDraft: options.activeFeedbackDraft,
         onActiveFeedbackDraftChange: options.updateActiveFeedbackDraft,
+        onDiscardDraft: options.discardFeedbackDraft,
         feedbackEditorRef: options.feedbackEditorRef,
         onFeedbackEditorKeyDown: options.handleFeedbackEditorKeyDown,
         onInsertMarkdownToken: options.applyFeedbackMarkdownToken,

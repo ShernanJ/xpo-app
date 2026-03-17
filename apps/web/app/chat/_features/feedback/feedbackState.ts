@@ -3,6 +3,21 @@
 export type FeedbackCategory = "feature_request" | "feedback" | "bug_report";
 export type FeedbackReportStatus = "open" | "resolved" | "cancelled";
 export type FeedbackReportFilter = "all" | FeedbackReportStatus;
+export type FeedbackSource = "global_feedback" | "message_report";
+
+export interface FeedbackTranscriptEntry {
+  messageId: string;
+  role: "assistant" | "user";
+  excerpt: string;
+}
+
+export interface FeedbackScopeContext {
+  source: FeedbackSource;
+  reportedMessageId: string | null;
+  assistantExcerpt: string | null;
+  precedingUserExcerpt: string | null;
+  transcriptExcerpt: FeedbackTranscriptEntry[];
+}
 
 export interface FeedbackImageDraft {
   id: string;
@@ -43,6 +58,10 @@ interface FeedbackCategoryConfig {
 
 export const FEEDBACK_MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 export const FEEDBACK_MAX_FILES = 6;
+export const DEFAULT_SCOPED_FEEDBACK_CATEGORY: FeedbackCategory = "bug_report";
+export const SCOPED_FEEDBACK_DEFAULT_TITLE = "Reported response";
+export const SCOPED_FEEDBACK_TEMPLATE =
+  "**What I was trying to do:**\n\n**What I expected:**\n\n**What the assistant actually did:**\n\n**Optional repro details:**";
 const FEEDBACK_SUPPORTED_FILE_MIME_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -127,6 +146,36 @@ export function buildDefaultFeedbackTitles(): Record<FeedbackCategory, string> {
       bug_report: "",
     } as Record<FeedbackCategory, string>,
   );
+}
+
+export function createDefaultFeedbackScopeContext(): FeedbackScopeContext {
+  return {
+    source: "global_feedback",
+    reportedMessageId: null,
+    assistantExcerpt: null,
+    precedingUserExcerpt: null,
+    transcriptExcerpt: [],
+  };
+}
+
+export function buildFeedbackTitlesForSource(
+  source: FeedbackSource,
+): Record<FeedbackCategory, string> {
+  const titles = buildDefaultFeedbackTitles();
+  if (source === "message_report") {
+    titles.bug_report = SCOPED_FEEDBACK_DEFAULT_TITLE;
+  }
+  return titles;
+}
+
+export function buildFeedbackDraftsForSource(
+  source: FeedbackSource,
+): Record<FeedbackCategory, string> {
+  const drafts = buildDefaultFeedbackDrafts();
+  if (source === "message_report") {
+    drafts.bug_report = SCOPED_FEEDBACK_TEMPLATE;
+  }
+  return drafts;
 }
 
 export async function readFeedbackFileSignatureHex(file: File): Promise<string | null> {

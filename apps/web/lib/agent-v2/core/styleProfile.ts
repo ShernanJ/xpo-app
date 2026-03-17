@@ -2,6 +2,7 @@ import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
 import { z } from "zod";
 import { filterProfileContextLeaks } from "./profileContextLeak.ts";
+import { FeedbackContextSchema } from "../../feedback/feedbackSchemas";
 
 export const FactLedgerSourceMaterialSchema = z.object({
   type: z.enum(["story", "playbook", "framework", "case_study"]).default("story"),
@@ -86,16 +87,7 @@ export const FeedbackSubmissionSchema = z.object({
     userHandle: z.string().nullable().optional(),
     xHandle: z.string().nullable().optional(),
   }),
-  context: z.object({
-    pagePath: z.string().default("/chat"),
-    threadId: z.string().nullable().optional(),
-    activeModal: z.string().nullable().optional(),
-    draftMessageId: z.string().nullable().optional(),
-    viewportWidth: z.number().int().positive().optional(),
-    viewportHeight: z.number().int().positive().optional(),
-    userAgent: z.string().optional(),
-    appSurface: z.string().default("chat"),
-  }),
+  context: FeedbackContextSchema,
   attachments: z.array(FeedbackAttachmentSchema).default([]),
 });
 
