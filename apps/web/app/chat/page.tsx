@@ -2,6 +2,7 @@
 
 import {
   Suspense,
+  type ChangeEvent,
   type FormEvent,
   type KeyboardEvent,
   useCallback,
@@ -27,6 +28,26 @@ import {
   resolveComposerViewState,
 } from "./_features/composer/composerViewState";
 import { useComposerInteractions } from "./_features/composer/useComposerInteractions";
+import {
+  consumeExactLeadingSlashCommand,
+  dismissSlashCommandInput,
+  resolveSlashCommandQuery,
+} from "./_features/composer/chatComposerState";
+import { useComposerPlaceholderState } from "./_features/composer/composerPlaceholderState";
+import {
+  buildImageIdeationQuickReplies,
+  buildImagePostSupportAsset,
+  createComposerImageAttachment,
+  revokeComposerImageAttachment,
+  validateComposerImageFile,
+  type ImagePostRouteSuccessData,
+} from "./_features/composer/composerImageState";
+import type {
+  ChatComposerMode,
+  ComposerCommandId,
+  ComposerImageAttachment,
+  HeroQuickAction,
+} from "./_features/composer/composerTypes";
 import { useDraftEditorState } from "./_features/draft-editor/useDraftEditorState";
 import { useDraftInspectorState } from "./_features/draft-editor/useDraftInspectorState";
 import { useDraftRevisionActions } from "./_features/draft-editor/useDraftRevisionActions";
@@ -74,6 +95,7 @@ import {
   formatEnumLabel,
   formatNicheSummary,
   getComposerCharacterLimit,
+  HERO_EXIT_TRANSITION_MS,
   inferInitialToneInputs,
   normalizeAccountHandle,
   personalizePlaybookTemplateText,
@@ -262,6 +284,12 @@ function ChatPageContent() {
     onErrorMessage: setErrorMessage,
   });
   const [draftInput, setDraftInput] = useState("");
+  const [activeComposerCommand, setActiveComposerCommand] =
+    useState<ComposerCommandId | null>(null);
+  const [composerInlineNotice, setComposerInlineNotice] = useState<string | null>(null);
+  const [composerImageAttachment, setComposerImageAttachment] =
+    useState<ComposerImageAttachment | null>(null);
+  const composerFileInputRef = useRef<HTMLInputElement | null>(null);
   const [copiedUserMessageId, setCopiedUserMessageId] = useState<string | null>(null);
   const copiedUserMessageResetTimeoutRef = useRef<number | null>(null);
   const [editingUserMessageId, setEditingUserMessageId] = useState<string | null>(null);
@@ -417,6 +445,11 @@ function ChatPageContent() {
       }
     };
   }, []);
+  useEffect(() => {
+    return () => {
+      revokeComposerImageAttachment(composerImageAttachment);
+    };
+  }, [composerImageAttachment]);
   const [activeDraftEditor, setActiveDraftEditor] = useState<DraftDrawerSelection | null>(null);
   const [, setConversationMemory] = useState<
     CreatorChatSuccess["data"]["memory"] | null
@@ -453,6 +486,12 @@ function ChatPageContent() {
   useEffect(() => {
     setCopiedUserMessageId(null);
     clearEditingUserMessage();
+    setActiveComposerCommand(null);
+    setComposerInlineNotice(null);
+    setComposerImageAttachment((current) => {
+      revokeComposerImageAttachment(current);
+      return null;
+    });
     setActiveThreadTurn(null);
     setStatusMessage(null);
   }, [activeThreadId, clearEditingUserMessage, threadStateResetVersion]);
@@ -483,14 +522,24 @@ function ChatPageContent() {
     [],
   );
 
+  const clearComposerImageAttachment = useCallback(() => {
+    setComposerImageAttachment((current) => {
+      revokeComposerImageAttachment(current);
+      return null;
+    });
+  }, []);
+
   const handleEditUserMessage = useCallback(
     (messageId: string, content: string) => {
+      setActiveComposerCommand(null);
+      setComposerInlineNotice(null);
+      clearComposerImageAttachment();
       setEditingUserMessageId(messageId);
       setEditingUserMessageOriginalText(content);
       setDraftInput(content);
       setErrorMessage(null);
     },
-    [],
+    [clearComposerImageAttachment],
   );
 
   const composerCharacterLimit = useMemo(
@@ -901,9 +950,42 @@ function ChatPageContent() {
     }),
   });
   const isMainChatLocked = isSending || isDraftInspectorLoading;
+  const composerViewState = useMemo(
+    () =>
+      resolveComposerViewState({
+        context,
+        accountName,
+        activeThreadId,
+        messagesLength: messages.length,
+        isLeavingHero,
+      }),
+    [accountName, activeThreadId, context, isLeavingHero, messages.length],
+  );
+  const composerMode: ChatComposerMode = editingUserMessageId
+    ? { kind: "edit" }
+    : activeComposerCommand
+      ? { kind: "command", commandId: activeComposerCommand }
+      : null;
+  const slashCommandQuery =
+    composerMode || composerImageAttachment
+      ? null
+      : resolveSlashCommandQuery(draftInput);
+  const {
+    activePlaceholder,
+    placeholderAnimationKey,
+    shouldAnimatePlaceholder,
+  } = useComposerPlaceholderState({
+    prompts:
+      activeThreadId
+        ? [composerViewState.threadActivePlaceholder]
+        : composerMode?.kind === "command"
+        ? composerViewState.threadPlaceholderPrompts
+        : composerViewState.defaultPlaceholderPrompts,
+    isPaused: draftInput.trim().length > 0 || Boolean(editingUserMessageId),
+  });
   const defaultQuickReplies = useMemo(
-    () => buildDefaultExampleQuickReplies(context) as ChatQuickReply[],
-    [context],
+    () => buildDefaultExampleQuickReplies(context, accountName) as ChatQuickReply[],
+    [accountName, context],
   );
 
   const assistantReplyOrchestrator: UseAssistantReplyOrchestratorResult<
@@ -979,9 +1061,8 @@ function ChatPageContent() {
     handleAngleSelect,
     handleReplyOptionSelect,
     handleQuickReplySelect,
-    handleComposerSubmit: handleComposerSubmitBase,
     submitQuickStarter,
-    handleComposerKeyDown: handleComposerKeyDownBase,
+    submitComposerPrompt,
   } = useComposerInteractions<
     ChatMessage,
     ChatQuickReply,
@@ -1004,6 +1085,99 @@ function ChatPageContent() {
     setErrorMessage,
     setIsLeavingHero,
   });
+
+  const enterComposerCommandMode = useCallback((commandId: ComposerCommandId) => {
+    setActiveComposerCommand(commandId);
+    setComposerInlineNotice(null);
+    setErrorMessage(null);
+  }, [setErrorMessage]);
+
+  const handleSelectSlashCommand = useCallback(
+    (commandId: ComposerCommandId) => {
+      enterComposerCommandMode(commandId);
+      setDraftInput("");
+    },
+    [enterComposerCommandMode],
+  );
+
+  const handleDismissSlashCommandPicker = useCallback(() => {
+    setDraftInput((current) => dismissSlashCommandInput(current));
+  }, []);
+
+  const handleDraftInputChange = useCallback(
+    (value: string) => {
+      setComposerInlineNotice(null);
+
+      if (composerMode?.kind === "edit" || composerMode?.kind === "command") {
+        setDraftInput(value);
+        return;
+      }
+
+      const consumedCommand = consumeExactLeadingSlashCommand({
+        input: value,
+        commands: composerViewState.slashCommands,
+      });
+      if (consumedCommand) {
+        enterComposerCommandMode(consumedCommand.command.id);
+        setDraftInput(consumedCommand.remainder);
+        return;
+      }
+
+      setDraftInput(value);
+    },
+    [composerMode, composerViewState.slashCommands, enterComposerCommandMode],
+  );
+
+  const openComposerImagePicker = useCallback(() => {
+    if (
+      isSending ||
+      !context ||
+      !contract ||
+      !activeStrategyInputs ||
+      !activeToneInputs
+    ) {
+      return;
+    }
+
+    setComposerInlineNotice(null);
+    composerFileInputRef.current?.click();
+  }, [activeStrategyInputs, activeToneInputs, context, contract, isSending]);
+
+  const handleComposerFileChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const selectedFile = event.target.files?.[0] ?? null;
+      event.target.value = "";
+
+      if (!selectedFile) {
+        return;
+      }
+
+      const validation = validateComposerImageFile(selectedFile);
+      if (!validation.ok) {
+        setComposerInlineNotice(validation.error);
+        return;
+      }
+
+      setComposerInlineNotice(null);
+      setComposerImageAttachment((current) => {
+        revokeComposerImageAttachment(current);
+        return createComposerImageAttachment(selectedFile);
+      });
+    },
+    [],
+  );
+
+  const handleCancelComposerMode = useCallback(() => {
+    if (composerMode?.kind === "edit") {
+      clearEditingUserMessage({ clearComposer: true });
+      return;
+    }
+
+    if (composerMode?.kind === "command") {
+      setActiveComposerCommand(null);
+      setComposerInlineNotice(null);
+    }
+  }, [clearEditingUserMessage, composerMode]);
 
   const rewindAndResendEditedMessage = useCallback(async () => {
     const trimmedPrompt = draftInput.trim();
@@ -1115,17 +1289,203 @@ function ChatPageContent() {
     setTypedAssistantLengths,
   ]);
 
+  const maybeAnimateComposerHeroExit = useCallback(async () => {
+    if (activeThreadId || messages.length > 0) {
+      return;
+    }
+
+    setIsLeavingHero(true);
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, HERO_EXIT_TRANSITION_MS);
+    });
+  }, [activeThreadId, messages.length, setIsLeavingHero]);
+
+  const ensureActiveComposerThreadId = useCallback(async () => {
+    if (activeThreadId) {
+      return activeThreadId;
+    }
+
+    const response = await fetchWorkspace("/api/creator/v2/threads", {
+      method: "POST",
+    });
+    const data = (await response.json().catch(() => null)) as
+      | {
+          ok?: boolean;
+          data?: {
+            thread?: {
+              id?: string;
+              title?: string | null;
+            };
+          };
+          errors?: Array<{ message?: string }>;
+        }
+      | null;
+
+    const createdThreadId = data?.data?.thread?.id?.trim();
+    if (!response.ok || !data?.ok || !createdThreadId) {
+      throw new Error(data?.errors?.[0]?.message || "Failed to create a chat thread.");
+    }
+
+    applyCreatedThreadWorkspaceUpdate(
+      createdThreadId,
+      data?.data?.thread?.title?.trim() || "New Chat",
+    );
+
+    return createdThreadId;
+  }, [activeThreadId, applyCreatedThreadWorkspaceUpdate, fetchWorkspace]);
+
+  const submitImageAttachmentPrompt = useCallback(async () => {
+    if (!composerImageAttachment) {
+      return;
+    }
+
+    if (composerMode?.kind === "command" && composerMode.commandId === "thread") {
+      setComposerInlineNotice(
+        "Generate post options from the image first, then turn the winner into a thread.",
+      );
+      return;
+    }
+
+    const displayUserMessage = draftInput.trim() || "write me a post using this image";
+    const idea = draftInput.trim() || null;
+
+    try {
+      setComposerInlineNotice(null);
+      setErrorMessage(null);
+      await maybeAnimateComposerHeroExit();
+
+      setIsSending(true);
+      const threadId = await ensureActiveComposerThreadId();
+      const formData = new FormData();
+      formData.append("image", composerImageAttachment.file);
+      if (idea) {
+        formData.append("idea", idea);
+      }
+
+      const response = await fetchWorkspace("/api/creator/v2/image-posts", {
+        method: "POST",
+        body: formData,
+      });
+      const data = (await response.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            data?: ImagePostRouteSuccessData;
+            errors?: Array<{ message?: string }>;
+          }
+        | null;
+
+      if (!response.ok || !data?.ok || !data.data) {
+        throw new Error(data?.errors?.[0]?.message || "Image analysis failed.");
+      }
+
+      const createdAt = new Date().toISOString();
+      const supportAsset = buildImagePostSupportAsset(data.data.visualContext);
+      const quickReplies = buildImageIdeationQuickReplies({
+        angles: data.data.angles,
+        supportAsset,
+      });
+      const angles = quickReplies.map((quickReply) => ({
+        title: quickReply.angle || quickReply.label,
+      }));
+
+      setMessages((current) => [
+        ...current,
+        {
+          id: `user-image-${Date.now().toString(36)}`,
+          threadId,
+          role: "user",
+          content: displayUserMessage,
+          createdAt,
+        },
+        {
+          id: `assistant-image-${Date.now().toString(36)}`,
+          threadId,
+          role: "assistant",
+          content: "Pulled 3 post directions from the image. Pick one and I'll draft it.",
+          createdAt,
+          angles,
+          quickReplies,
+          ideationFormatHint: "post",
+          supportAsset,
+          outputShape: "ideation_angles",
+          feedbackValue: null,
+        },
+      ]);
+      scrollThreadToBottom();
+      clearComposerImageAttachment();
+      setActiveComposerCommand(null);
+      setDraftInput("");
+    } catch (error) {
+      setComposerInlineNotice(
+        error instanceof Error ? error.message : "Image analysis failed.",
+      );
+    } finally {
+      setIsSending(false);
+    }
+  }, [
+    clearComposerImageAttachment,
+    composerImageAttachment,
+    composerMode,
+    draftInput,
+    ensureActiveComposerThreadId,
+    fetchWorkspace,
+    maybeAnimateComposerHeroExit,
+    scrollThreadToBottom,
+  ]);
+
+  const autoSubmittedComposerImageIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!composerImageAttachment) {
+      autoSubmittedComposerImageIdRef.current = null;
+      return;
+    }
+
+    if (autoSubmittedComposerImageIdRef.current === composerImageAttachment.id) {
+      return;
+    }
+
+    autoSubmittedComposerImageIdRef.current = composerImageAttachment.id;
+    void submitImageAttachmentPrompt();
+  }, [composerImageAttachment, submitImageAttachmentPrompt]);
+
+  const submitMainComposer = useCallback(async () => {
+    if (editingUserMessageId) {
+      await rewindAndResendEditedMessage();
+      return;
+    }
+
+    if (composerImageAttachment) {
+      await submitImageAttachmentPrompt();
+      return;
+    }
+
+    if (composerMode?.kind === "command" && composerMode.commandId === "thread") {
+      await submitComposerPrompt(draftInput, {
+        intentOverride: "draft",
+        formatPreferenceOverride: "thread",
+      });
+      setActiveComposerCommand(null);
+      return;
+    }
+
+    await submitComposerPrompt(draftInput);
+  }, [
+    composerImageAttachment,
+    composerMode,
+    draftInput,
+    editingUserMessageId,
+    rewindAndResendEditedMessage,
+    submitComposerPrompt,
+    submitImageAttachmentPrompt,
+  ]);
+
   const handleComposerSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (editingUserMessageId) {
-        void rewindAndResendEditedMessage();
-        return;
-      }
-
-      handleComposerSubmitBase(event);
+      void submitMainComposer();
     },
-    [editingUserMessageId, handleComposerSubmitBase, rewindAndResendEditedMessage],
+    [submitMainComposer],
   );
 
   const handleComposerKeyDown = useCallback(
@@ -1136,9 +1496,12 @@ function ChatPageContent() {
         return;
       }
 
-      handleComposerKeyDownBase(event);
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        void submitMainComposer();
+      }
     },
-    [editingUserMessageId, handleComposerKeyDownBase, rewindAndResendEditedMessage],
+    [editingUserMessageId, rewindAndResendEditedMessage, submitMainComposer],
   );
 
   const { requestDraftCardRevision, requestSelectedThreadFramingChange } =
@@ -1179,13 +1542,7 @@ function ChatPageContent() {
     heroQuickActions,
     isNewChatHero,
     shouldCenterHero,
-  } = resolveComposerViewState({
-    context,
-    accountName,
-    activeThreadId,
-    messagesLength: messages.length,
-    isLeavingHero,
-  });
+  } = composerViewState;
   const lifetimeSlotSummary = billingState?.lifetimeSlots ?? null;
   const {
     activeBillingSnapshot,
@@ -1337,12 +1694,23 @@ function ChatPageContent() {
           heroGreeting,
           isVerifiedAccount,
           isLeavingHero,
-          composerModeLabel: editingUserMessageId ? "Editing message" : null,
+          composerMode,
           draftInput,
-          onDraftInputChange: setDraftInput,
-          onCancelComposerMode: () => clearEditingUserMessage({ clearComposer: true }),
+          activePlaceholder,
+          placeholderAnimationKey,
+          shouldAnimatePlaceholder,
+          slashCommands: composerViewState.slashCommands,
+          slashCommandQuery,
+          isSlashCommandPickerOpen: Boolean(slashCommandQuery),
+          composerInlineNotice,
+          composerImageAttachment,
+          composerFileInputRef,
+          onDraftInputChange: handleDraftInputChange,
+          onCancelComposerMode: handleCancelComposerMode,
+          onDismissSlashCommandPicker: handleDismissSlashCommandPicker,
           onComposerKeyDown: handleComposerKeyDown,
           onComposerSubmit: handleComposerSubmit,
+          onComposerFileChange: handleComposerFileChange,
           onInterruptReply: () => {
             void interruptAssistantReply();
           },
@@ -1350,9 +1718,23 @@ function ChatPageContent() {
           isSubmitDisabled,
           isSending,
           heroQuickActions,
-          onQuickAction: (prompt: string) => {
-            void submitQuickStarter(prompt);
+          onQuickAction: (action: HeroQuickAction) => {
+            if (action.kind === "prompt") {
+              void submitQuickStarter(action.prompt);
+              return;
+            }
+
+            if (action.kind === "command") {
+              enterComposerCommandMode(action.commandId);
+              setDraftInput("");
+              return;
+            }
+
+            openComposerImagePicker();
           },
+          onOpenComposerImagePicker: openComposerImagePicker,
+          onRemoveComposerImageAttachment: clearComposerImageAttachment,
+          onSelectSlashCommand: handleSelectSlashCommand,
           isNewChatHero,
           showScrollToLatest,
           shouldCenterHero,

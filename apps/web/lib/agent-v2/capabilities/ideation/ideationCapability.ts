@@ -27,6 +27,7 @@ import type {
   CapabilityExecutionResult,
   RuntimeResponseSeed,
 } from "../../runtime/runtimeContracts.ts";
+import { compactTopicLabel } from "../../responses/draftTopicSelector.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -70,6 +71,133 @@ export interface IdeationCapabilityOutput {
   memoryPatch: IdeationCapabilityMemoryPatch;
 }
 
+function extractAngleTitle(angle: { title?: string | null } | string): string {
+  if (typeof angle === "string") {
+    return angle.trim();
+  }
+
+  return typeof angle.title === "string" ? angle.title.trim() : "";
+}
+
+function normalizePrimaryAngleTitle(value: string): string {
+  return value
+    .trim()
+    .replace(/^\d+[.)]\s*/, "")
+    .replace(/^(?:angle|idea|option|hook)\s*[:\-]\s*/i, "")
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/[.?!]+$/, "")
+    .trim();
+}
+
+function sanitizeAngleSeed(value: string | null | undefined): string | null {
+  const compact = value ? compactTopicLabel(value) : null;
+  if (!compact || compact === "your usual lane") {
+    return null;
+  }
+
+  return compact;
+}
+
+function buildPrimaryAngleFallbacks(args: {
+  seed: string | null;
+  formatHint: "post" | "thread";
+}): string[] {
+  if (args.seed) {
+    return args.formatHint === "thread"
+      ? [
+          `the hard lesson behind ${args.seed}`,
+          `the mistake most people make with ${args.seed}`,
+          `the playbook for ${args.seed}`,
+        ]
+      : [
+          `the hard lesson behind ${args.seed}`,
+          `the mistake most people make with ${args.seed}`,
+          `the playbook behind ${args.seed}`,
+        ];
+  }
+
+  return args.formatHint === "thread"
+    ? [
+        "the hard lesson behind a recent win",
+        "the mistake people keep repeating",
+        "the playbook behind a result",
+      ]
+    : [
+        "a hard lesson that changed how you work",
+        "the mistake people keep repeating",
+        "the playbook behind a recent win",
+      ];
+}
+
+function looksUnusablePrimaryAngleTitle(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+
+  return (
+    normalized.length < 12 ||
+    normalized.length > 96 ||
+    /\?$/.test(normalized) ||
+    /^(?:what|why|how|where|when|who|which|is|are|do|does|did|can|could|would|should)\b/.test(
+      normalized,
+    ) ||
+    /\b(?:example angle|one-sentence summary|bullet list|max 5 words|cta|structure)\b/.test(
+      normalized,
+    )
+  );
+}
+
+function coercePrimaryIdeationAngles(args: {
+  angles: Array<{ title?: string | null } | string> | null | undefined;
+  formatHint: "post" | "thread";
+  fallbackSeed: string | null;
+}): Array<{ title: string }> {
+  const normalizedAngles: Array<{ title: string }> = [];
+  const seen = new Set<string>();
+  const fallbacks = buildPrimaryAngleFallbacks({
+    seed: args.fallbackSeed,
+    formatHint: args.formatHint,
+  });
+
+  const addAngle = (title: string) => {
+    const normalizedTitle = normalizePrimaryAngleTitle(title);
+    if (!normalizedTitle) {
+      return;
+    }
+
+    const key = normalizedTitle.toLowerCase();
+    if (seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    normalizedAngles.push({ title: normalizedTitle });
+  };
+
+  for (const [index, angle] of (args.angles || []).entries()) {
+    const rawTitle = normalizePrimaryAngleTitle(extractAngleTitle(angle));
+    if (!rawTitle) {
+      continue;
+    }
+
+    addAngle(looksUnusablePrimaryAngleTitle(rawTitle) ? fallbacks[index % fallbacks.length] : rawTitle);
+    if (normalizedAngles.length >= 3) {
+      return normalizedAngles.slice(0, 3);
+    }
+  }
+
+  for (const fallback of fallbacks) {
+    addAngle(fallback);
+    if (normalizedAngles.length >= 3) {
+      return normalizedAngles.slice(0, 3);
+    }
+  }
+
+  return normalizedAngles.slice(0, 3);
+}
+
 export async function executeIdeationCapability(
   args: CapabilityExecutionRequest<IdeationCapabilityContext> & {
     services: Pick<ConversationServices, "generateIdeasMenu">;
@@ -105,12 +233,38 @@ export async function executeIdeationCapability(
   const currentTopicSummary = looksGenericTopicSummary(ideationTopicSummary)
     ? null
     : ideationTopicSummary;
+  const ideationFormatHint =
+    context.turnFormatPreference === "thread" ? "thread" : "post";
+  const usesPrimaryAngleChips =
+    isBareDraftRequest(ideationReplyMessage) ||
+    isOpenEndedWildcardDraftRequest(ideationReplyMessage);
+  const primaryAngles = usesPrimaryAngleChips
+    ? coercePrimaryIdeationAngles({
+        angles: ideas?.angles,
+        formatHint: ideationFormatHint,
+        fallbackSeed:
+          sanitizeAngleSeed(currentTopicSummary) ||
+          sanitizeAngleSeed(inferredIdeaTopic) ||
+          sanitizeAngleSeed(context.relevantTopicAnchors[0]) ||
+          null,
+      })
+    : [];
+  const responseAngles = usesPrimaryAngleChips ? primaryAngles : ideas?.angles || [];
+  const responseIdeaTitles = extractIdeaTitlesFromIdeas(responseAngles);
+  const responseInferredIdeaTopic = inferTopicFromIdeaTitles(responseIdeaTitles);
   const nextIdeationTopicSummary =
     isBareIdeationRequest(ideationReplyMessage) ||
     isBareDraftRequest(ideationReplyMessage) ||
     isOpenEndedWildcardDraftRequest(ideationReplyMessage)
-      ? currentTopicSummary || inferredIdeaTopic
+      ? currentTopicSummary || responseInferredIdeaTopic
       : ideationPromptMessage;
+  const quickReplies = buildIdeationQuickReplies({
+    styleCard: context.styleCard,
+    seedTopic: nextIdeationTopicSummary || currentTopicSummary,
+    mode: usesPrimaryAngleChips ? "primary_angle_picks" : "follow_up",
+    angles: responseAngles,
+    formatHint: ideationFormatHint,
+  });
 
   return {
     workflow: args.workflow,
@@ -125,18 +279,15 @@ export async function executeIdeationCapability(
             close: ideas?.close || "",
             userMessage: ideationReplyMessage,
             styleCard: context.styleCard,
+            primaryAngleChipMode: usesPrimaryAngleChips,
           }),
           context.feedbackMemoryNotice ?? null,
         ),
-        data: ideas
+        data: responseAngles.length > 0 || quickReplies.length > 0
           ? {
-              angles: ideas.angles,
-              ideationFormatHint:
-                context.turnFormatPreference === "thread" ? "thread" : "post",
-              quickReplies: buildIdeationQuickReplies({
-                styleCard: context.styleCard,
-                seedTopic: nextIdeationTopicSummary || currentTopicSummary,
-              }),
+              angles: responseAngles,
+              ideationFormatHint,
+              quickReplies,
             }
           : undefined,
       },
@@ -144,8 +295,8 @@ export async function executeIdeationCapability(
         ...(nextIdeationTopicSummary !== context.memory.topicSummary
           ? { topicSummary: nextIdeationTopicSummary }
           : {}),
-        ...(currentIdeaTitles.length > 0
-          ? { lastIdeationAngles: currentIdeaTitles }
+        ...(responseIdeaTitles.length > 0
+          ? { lastIdeationAngles: responseIdeaTitles }
           : {}),
         conversationState: "ready_to_ideate",
         pendingPlan: null,
@@ -163,7 +314,7 @@ export async function executeIdeationCapability(
               latestDraftStatus: "Ideation in progress",
               formatPreference:
                 context.memory.formatPreference || context.turnFormatPreference,
-              unresolvedQuestion: ideas?.close || null,
+              unresolvedQuestion: usesPrimaryAngleChips ? null : ideas?.close || null,
             })
           : context.memory.rollingSummary,
         latestRefinementInstruction: null,
@@ -179,7 +330,7 @@ export async function executeIdeationCapability(
         status: "completed",
         groupId: null,
         details: {
-          angleCount: ideas?.angles?.length ?? 0,
+          angleCount: responseAngles.length,
           topicSummary: nextIdeationTopicSummary,
         },
       },

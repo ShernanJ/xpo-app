@@ -180,11 +180,13 @@ function normalizeQuickReplies(value: unknown): ClarificationState["options"] {
         | "content_focus"
         | "example_reply"
         | "planner_action"
-        | "clarification_choice" =
+        | "clarification_choice"
+        | "ideation_angle" =
         item.kind === "content_focus" ||
         item.kind === "example_reply" ||
         item.kind === "planner_action" ||
-        item.kind === "clarification_choice"
+        item.kind === "clarification_choice" ||
+        item.kind === "ideation_angle"
           ? item.kind
           : "example_reply";
       const explicitIntent:
@@ -217,6 +219,15 @@ function normalizeQuickReplies(value: unknown): ClarificationState["options"] {
         item.formatPreference === "thread"
           ? item.formatPreference
           : undefined;
+      const formatHint: "post" | "thread" | undefined =
+        item.formatHint === "post" || item.formatHint === "thread"
+          ? item.formatHint
+          : undefined;
+      const angle = typeof item.angle === "string" ? item.angle : undefined;
+      const supportAsset =
+        typeof item.supportAsset === "string" && item.supportAsset.trim()
+          ? item.supportAsset.trim()
+          : undefined;
 
       return {
         kind,
@@ -224,6 +235,9 @@ function normalizeQuickReplies(value: unknown): ClarificationState["options"] {
         label: typeof item.label === "string" ? item.label : "",
         suggestedFocus: typeof item.suggestedFocus === "string" ? item.suggestedFocus : undefined,
         explicitIntent,
+        ...(angle ? { angle } : {}),
+        ...(formatHint ? { formatHint } : {}),
+        ...(supportAsset ? { supportAsset } : {}),
         ...(formatPreference ? { formatPreference } : {}),
       };
     })

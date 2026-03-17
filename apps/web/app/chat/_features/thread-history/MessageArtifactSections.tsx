@@ -46,6 +46,9 @@ type QuickReplyLike = {
   kind: string;
   value: string;
   label: string;
+  angle?: string;
+  formatHint?: SelectedAngleFormatHint;
+  supportAsset?: string;
 };
 
 type ReplyArtifactsLike =
@@ -200,6 +203,9 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
 
   const isLatestMessage = index === messagesLength - 1;
   const isGeneratedResult = isGeneratedResultOutputShape(message.outputShape);
+  const hasPrimaryIdeationAngleQuickReplies =
+    message.outputShape === "ideation_angles" &&
+    Boolean(message.quickReplies?.some((quickReply) => quickReply.kind === "ideation_angle"));
 
   return (
     <>
@@ -319,7 +325,8 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
 
       {shouldShowOptionArtifacts(message) &&
       message.outputShape !== "coach_question" &&
-      message.angles?.length ? (
+      message.angles?.length &&
+      !hasPrimaryIdeationAngleQuickReplies ? (
         <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
           {message.angles.map((angle, angleIndex) => {
             const isStructured = typeof angle === "object" && angle !== null;
@@ -555,6 +562,8 @@ function FollowUpChipButton(props: {
   animationDelaySeconds?: number;
 }) {
   const { quickReply, disabled, onSelect, animationDelaySeconds } = props;
+  const isPrimaryIdeationAngle = quickReply.kind === "ideation_angle";
+  const Icon = isPrimaryIdeationAngle ? Lightbulb : FollowUpChipIcon;
 
   return (
     <button
@@ -562,18 +571,38 @@ function FollowUpChipButton(props: {
       type="button"
       onClick={() => onSelect(quickReply)}
       disabled={disabled}
-      className="group/follow-up-chip inline-flex w-fit max-w-full cursor-pointer rounded-full bg-transparent text-[#e7e9ea] transition-[color,transform] duration-150 active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-55"
+      className={`group/follow-up-chip inline-flex max-w-full cursor-pointer text-[#e7e9ea] transition-[color,transform] duration-150 active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-55 ${
+        isPrimaryIdeationAngle
+          ? "w-full rounded-2xl border border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]"
+          : "w-fit rounded-full bg-transparent"
+      }`}
     >
       <div
-        className="flex items-center gap-2.5 px-1 py-2 animate-fade-in-slide-up"
+        className={`flex animate-fade-in-slide-up ${
+          isPrimaryIdeationAngle
+            ? "items-start gap-3 px-4 py-3"
+            : "items-center gap-2.5 px-1 py-2"
+        }`}
         style={
           animationDelaySeconds !== undefined
             ? { animationDelay: `${animationDelaySeconds}s` }
             : undefined
         }
       >
-        <FollowUpChipIcon className="h-4 w-4 text-[#71767b] transition [transform:scaleY(-1)] group-hover/follow-up-chip:text-[#e7e9ea]" />
-        <span className="whitespace-nowrap text-[15px] font-medium leading-none tracking-[-0.01em] text-[#b8bbbe] transition group-hover/follow-up-chip:text-[#e7e9ea]">
+        <Icon
+          className={`shrink-0 transition group-hover/follow-up-chip:text-[#e7e9ea] ${
+            isPrimaryIdeationAngle
+              ? "mt-0.5 h-4 w-4 text-[#d4b15a]"
+              : "h-4 w-4 text-[#71767b] [transform:scaleY(-1)]"
+          }`}
+        />
+        <span
+          className={`font-medium tracking-[-0.01em] transition group-hover/follow-up-chip:text-[#e7e9ea] ${
+            isPrimaryIdeationAngle
+              ? "whitespace-normal text-[15px] leading-6 text-[#e7e9ea]"
+              : "whitespace-nowrap text-[15px] leading-none text-[#b8bbbe]"
+          }`}
+        >
           {quickReply.label}
         </span>
       </div>

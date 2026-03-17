@@ -292,10 +292,18 @@ export type ChatContentFocus =
   | "social_observation";
 
 export interface ChatQuickReply {
-  kind: "content_focus" | "example_reply" | "planner_action" | "clarification_choice";
+  kind:
+    | "content_focus"
+    | "example_reply"
+    | "planner_action"
+    | "clarification_choice"
+    | "ideation_angle";
   value: string;
   label: string;
   suggestedFocus?: ChatContentFocus;
   explicitIntent?: ChatIntent;
   formatPreference?: "shortform" | "longform" | "thread";
+  angle?: string;
+  formatHint?: SelectedAngleFormatHint;
+  supportAsset?: string;
 }

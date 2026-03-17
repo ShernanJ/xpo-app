@@ -2,30 +2,34 @@
 
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 
-const BASE_HERO_QUICK_ACTIONS = [
+import type {
+  ChatComposerMode,
+  HeroQuickAction,
+  SlashCommandDefinition,
+} from "./composerTypes";
+export type { HeroQuickAction } from "./composerTypes";
+
+const SLASH_COMMANDS: SlashCommandDefinition[] = [
   {
-    label: "Write a post",
-    prompt: "write a post",
-  },
-  {
-    label: "Analyze my profile",
-    prompt: "analyze my profile",
-  },
-  {
-    label: "Write a thread",
-    prompt: "write a thread",
+    id: "thread",
+    command: "/thread",
+    label: "/thread",
+    description: "Draft a multi-post X thread from the context you type next.",
   },
 ] as const;
-
-export interface HeroQuickAction {
-  label: string;
-  prompt: string;
-}
 
 export interface DefaultExampleQuickReply {
   kind: "example_reply";
   value: string;
   label: string;
+}
+
+interface ComposerProfileContext {
+  knownFor: string | null;
+  targetAudience: string | null;
+  primaryPillar: string | null;
+  secondaryPillar: string | null;
+  handle: string | null;
 }
 
 function shouldUseLowercaseChipVoice(context: CreatorAgentContext | null): boolean {
@@ -38,26 +42,155 @@ function applyChipVoiceCase(value: string, lowercase: boolean): string {
   return lowercase ? normalized.toLowerCase() : normalized;
 }
 
-function buildHeroQuickActions(lowercase: boolean): HeroQuickAction[] {
-  return BASE_HERO_QUICK_ACTIONS.map((action) => ({
-    label: applyChipVoiceCase(action.label, lowercase),
-    prompt: applyChipVoiceCase(action.prompt, lowercase),
-  }));
-}
+function trimProfileFragment(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
 
-export function buildDefaultExampleQuickReplies(
-  context: CreatorAgentContext | null,
-): DefaultExampleQuickReply[] {
-  const lowercase = shouldUseLowercaseChipVoice(context);
-  return BASE_HERO_QUICK_ACTIONS.map((action) => ({
-    kind: "example_reply",
-    value: applyChipVoiceCase(action.prompt, lowercase),
-    label: applyChipVoiceCase(action.label, lowercase),
-  }));
+  const normalized = value.trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return null;
+  }
+
+  return normalized.replace(/[.!?]+$/, "");
 }
 
 function normalizeAccountHandle(value: string): string {
   return value.trim().replace(/^@+/, "").toLowerCase();
+}
+
+function resolveComposerProfileContext(
+  context: CreatorAgentContext | null,
+  accountName: string | null,
+): ComposerProfileContext {
+  const contentPillars = dedupeNonEmptyStrings([
+    ...(context?.growthStrategySnapshot.contentPillars ?? []),
+    ...(context?.creatorProfile.topics.contentPillars ?? []),
+    ...(context?.creatorProfile.topics.dominantTopics ?? []).map((topic) =>
+      typeof topic?.label === "string" ? topic.label : "",
+    ),
+  ]);
+  const knownFor = trimProfileFragment(context?.growthStrategySnapshot.knownFor);
+  const targetAudience = trimProfileFragment(context?.growthStrategySnapshot.targetAudience);
+  const handle = trimProfileFragment(
+    accountName ??
+      context?.creatorProfile.identity.username ??
+      context?.account ??
+      null,
+  );
+
+  return {
+    knownFor,
+    targetAudience,
+    primaryPillar: trimProfileFragment(contentPillars[0] ?? null),
+    secondaryPillar: trimProfileFragment(contentPillars[1] ?? null),
+    handle,
+  };
+}
+
+function dedupeNonEmptyStrings(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+
+  for (const value of values) {
+    const normalized = trimProfileFragment(value);
+    if (!normalized) {
+      continue;
+    }
+
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(normalized);
+  }
+
+  return deduped;
+}
+
+function buildDefaultPromptPool(profile: ComposerProfileContext): string[] {
+  const postTopic = profile.knownFor || profile.primaryPillar || "my niche";
+  const threadTopic = profile.primaryPillar || profile.knownFor || "one of my core topics";
+  const profileReference = profile.handle ? `@${normalizeAccountHandle(profile.handle)}` : "my profile";
+
+  return [
+    `write me a post about ${postTopic}...`,
+    `write a thread about ${threadTopic}...`,
+    "turn one of my recent lessons into a post",
+    `give me 3 post ideas from ${profileReference}`,
+    "write me a post using this image",
+    "how can i grow on x?",
+    "rewrite this so it sounds more like me",
+    "what should i post next for more profile clicks?",
+  ];
+}
+
+function buildThreadPromptPool(profile: ComposerProfileContext): string[] {
+  const threadTopic = profile.primaryPillar || profile.knownFor || "one of my core topics";
+  const targetAudience = profile.targetAudience || "my audience";
+
+  return [
+    `break down ${threadTopic} into 5 posts`,
+    "turn one lesson from my recent posts into a thread",
+    `write a contrarian thread for ${targetAudience}`,
+    "make a thread that teaches my playbook step by step",
+  ];
+}
+
+function buildHeroQuickActions(
+  profile: ComposerProfileContext,
+  lowercase: boolean,
+): HeroQuickAction[] {
+  return [
+    {
+      kind: "prompt",
+      label: applyChipVoiceCase("Write a post", lowercase),
+      prompt: applyChipVoiceCase("write a post", lowercase),
+    },
+    {
+      kind: "prompt",
+      label: applyChipVoiceCase("Write a thread", lowercase),
+      prompt: applyChipVoiceCase("write a thread", lowercase),
+    },
+    {
+      kind: "prompt",
+      label: applyChipVoiceCase("Analyze my profile", lowercase),
+      prompt: applyChipVoiceCase("analyze my profile", lowercase),
+    },
+  ];
+}
+
+function buildDefaultExamplePromptPool(
+  profile: ComposerProfileContext,
+): string[] {
+  const postTopic = profile.knownFor || profile.primaryPillar || "my niche";
+  const threadTopic = profile.primaryPillar || profile.knownFor || "one of my core topics";
+
+  return [
+    `write me a post about ${postTopic}`,
+    `write a thread about ${threadTopic}`,
+    "how can i grow on x?",
+  ];
+}
+
+export function buildDefaultExampleQuickReplies(
+  context: CreatorAgentContext | null,
+  accountName: string | null = null,
+): DefaultExampleQuickReply[] {
+  const lowercase = shouldUseLowercaseChipVoice(context);
+  const profile = resolveComposerProfileContext(context, accountName);
+
+  return buildDefaultExamplePromptPool(profile).map((prompt) => {
+    const value = applyChipVoiceCase(prompt, lowercase);
+
+    return {
+      kind: "example_reply",
+      value,
+      label: value,
+    };
+  });
 }
 
 function isClearlyCasualGreetingProfile(
@@ -89,9 +222,7 @@ function isClearlyCasualGreetingProfile(
     /\b(formal|professional|polished|executive|authoritative|analytical|structured)\b/.test(
       voiceSignals,
     );
-  const hasCasualSignal = /\b(casual|playful|relaxed|unfiltered|fun|raw|loose)\b/.test(
-    voiceSignals,
-  );
+  const hasCasualSignal = /\b(casual|playful|relaxed|unfiltered|fun|raw|loose)\b/.test(voiceSignals);
   const hasSlangSignal = /\b(yo|dawg|nah|yep|haha|lol|lmao)\b/.test(voiceSignals);
   const isLowercaseHeavy =
     profile.voice.primaryCasing === "lowercase" && profile.voice.lowercaseSharePercent >= 96;
@@ -126,6 +257,14 @@ function buildHeroGreeting(params: {
   return resolvedHandle ? `${opener} @${resolvedHandle}` : `${opener} there`;
 }
 
+export function formatComposerModeLabel(mode: ChatComposerMode): string | null {
+  if (!mode) {
+    return null;
+  }
+
+  return mode.kind === "edit" ? "Editing message" : "/thread";
+}
+
 export function resolveComposerViewState(params: {
   context: CreatorAgentContext | null;
   accountName: string | null;
@@ -140,7 +279,9 @@ export function resolveComposerViewState(params: {
     context,
     accountName,
   });
-  const heroQuickActions = buildHeroQuickActions(shouldUseLowercaseChipVoice(context));
+  const lowercase = shouldUseLowercaseChipVoice(context);
+  const profile = resolveComposerProfileContext(context, accountName);
+  const heroQuickActions = buildHeroQuickActions(profile, lowercase);
   const heroIdentityLabel =
     context?.creatorProfile.identity.displayName ??
     context?.creatorProfile.identity.username ??
@@ -154,6 +295,14 @@ export function resolveComposerViewState(params: {
     heroInitials,
     heroIdentityLabel,
     heroQuickActions,
+    slashCommands: SLASH_COMMANDS,
+    defaultPlaceholderPrompts: buildDefaultPromptPool(profile).map((prompt) =>
+      applyChipVoiceCase(prompt, lowercase),
+    ),
+    threadPlaceholderPrompts: buildThreadPromptPool(profile).map((prompt) =>
+      applyChipVoiceCase(prompt, lowercase),
+    ),
+    threadActivePlaceholder: "Ask anything",
     isNewChatHero,
     shouldCenterHero: isNewChatHero || isLeavingHero,
   };

@@ -4,13 +4,19 @@ import {
   createContext,
   useContext,
   useMemo,
+  type ChangeEvent,
   type FormEvent,
   type KeyboardEvent,
   type PropsWithChildren,
   type RefObject,
 } from "react";
 
-import type { HeroQuickAction } from "../composer/composerViewState";
+import type {
+  ChatComposerMode,
+  ComposerImageAttachment,
+  HeroQuickAction,
+  SlashCommandDefinition,
+} from "../composer/composerTypes";
 
 interface ChatCanvasState {
   threadCanvasClassName: string;
@@ -32,8 +38,16 @@ interface ChatCanvasState {
   heroGreeting: string;
   isVerifiedAccount: boolean;
   isLeavingHero: boolean;
-  composerModeLabel: string | null;
+  composerMode: ChatComposerMode;
   draftInput: string;
+  activePlaceholder: string;
+  placeholderAnimationKey: string;
+  shouldAnimatePlaceholder: boolean;
+  slashCommands: SlashCommandDefinition[];
+  slashCommandQuery: string | null;
+  isSlashCommandPickerOpen: boolean;
+  composerInlineNotice: string | null;
+  composerImageAttachment: ComposerImageAttachment | null;
   isComposerDisabled: boolean;
   isSubmitDisabled: boolean;
   isSending: boolean;
@@ -49,14 +63,20 @@ interface ChatCanvasActions {
   openPricing: () => void;
   dismissBillingWarning: () => void;
   setDraftInput: (value: string) => void;
+  dismissSlashCommandPicker: () => void;
   onComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onComposerSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onQuickAction: (prompt: string) => void;
+  onComposerFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onQuickAction: (action: HeroQuickAction) => void;
+  openComposerImagePicker: () => void;
+  removeComposerImageAttachment: () => void;
+  selectSlashCommand: (commandId: SlashCommandDefinition["id"]) => void;
   scrollToBottom: () => void;
 }
 
 interface ChatCanvasMeta {
   threadScrollRef: RefObject<HTMLElement | null>;
+  composerFileInputRef: RefObject<HTMLInputElement | null>;
 }
 
 interface ChatCanvasContextValue {
@@ -88,18 +108,32 @@ export interface ChatCanvasProviderProps {
   heroGreeting: string;
   isVerifiedAccount: boolean;
   isLeavingHero: boolean;
-  composerModeLabel: string | null;
+  composerMode: ChatComposerMode;
   draftInput: string;
+  activePlaceholder: string;
+  placeholderAnimationKey: string;
+  shouldAnimatePlaceholder: boolean;
+  slashCommands: SlashCommandDefinition[];
+  slashCommandQuery: string | null;
+  isSlashCommandPickerOpen: boolean;
+  composerInlineNotice: string | null;
+  composerImageAttachment: ComposerImageAttachment | null;
+  composerFileInputRef: RefObject<HTMLInputElement | null>;
   onDraftInputChange: (value: string) => void;
   onCancelComposerMode: () => void;
+  onDismissSlashCommandPicker: () => void;
   onComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onComposerSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onComposerFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onInterruptReply: () => void;
   isComposerDisabled: boolean;
   isSubmitDisabled: boolean;
   isSending: boolean;
   heroQuickActions: HeroQuickAction[];
-  onQuickAction: (prompt: string) => void;
+  onQuickAction: (action: HeroQuickAction) => void;
+  onOpenComposerImagePicker: () => void;
+  onRemoveComposerImageAttachment: () => void;
+  onSelectSlashCommand: (commandId: SlashCommandDefinition["id"]) => void;
   isNewChatHero: boolean;
   showScrollToLatest: boolean;
   shouldCenterHero: boolean;
@@ -147,18 +181,32 @@ export function ChatCanvasProvider(
     heroGreeting,
     isVerifiedAccount,
     isLeavingHero,
-    composerModeLabel,
+    composerMode,
     draftInput,
+    activePlaceholder,
+    placeholderAnimationKey,
+    shouldAnimatePlaceholder,
+    slashCommands,
+    slashCommandQuery,
+    isSlashCommandPickerOpen,
+    composerInlineNotice,
+    composerImageAttachment,
+    composerFileInputRef,
     onDraftInputChange,
     onCancelComposerMode,
+    onDismissSlashCommandPicker,
     onComposerKeyDown,
     onComposerSubmit,
+    onComposerFileChange,
     onInterruptReply,
     isComposerDisabled,
     isSubmitDisabled,
     isSending,
     heroQuickActions,
     onQuickAction,
+    onOpenComposerImagePicker,
+    onRemoveComposerImageAttachment,
+    onSelectSlashCommand,
     isNewChatHero,
     showScrollToLatest,
     shouldCenterHero,
@@ -186,8 +234,16 @@ export function ChatCanvasProvider(
       heroGreeting,
       isVerifiedAccount,
       isLeavingHero,
-      composerModeLabel,
+      composerMode,
       draftInput,
+      activePlaceholder,
+      placeholderAnimationKey,
+      shouldAnimatePlaceholder,
+      slashCommands,
+      slashCommandQuery,
+      isSlashCommandPickerOpen,
+      composerInlineNotice,
+      composerImageAttachment,
       isComposerDisabled,
       isSubmitDisabled,
       isSending,
@@ -209,7 +265,15 @@ export function ChatCanvasProvider(
       heroIdentityLabel,
       heroInitials,
       heroQuickActions,
-      composerModeLabel,
+      composerImageAttachment,
+      composerInlineNotice,
+      composerMode,
+      activePlaceholder,
+      placeholderAnimationKey,
+      shouldAnimatePlaceholder,
+      slashCommands,
+      slashCommandQuery,
+      isSlashCommandPickerOpen,
       isComposerDisabled,
       isHeroVisible,
       isLeavingHero,
@@ -222,6 +286,8 @@ export function ChatCanvasProvider(
       shouldCenterHero,
       showBillingWarningBanner,
       showScrollToLatest,
+      slashCommands,
+      slashCommandQuery,
       threadCanvasClassName,
       threadCanvasTransitionClassName,
       threadContentTransitionClassName,
@@ -235,20 +301,30 @@ export function ChatCanvasProvider(
       openPricing: onOpenPricing,
       dismissBillingWarning: onDismissBillingWarning,
       setDraftInput: onDraftInputChange,
+      dismissSlashCommandPicker: onDismissSlashCommandPicker,
       onComposerKeyDown,
       onComposerSubmit,
+      onComposerFileChange,
       onQuickAction,
+      openComposerImagePicker: onOpenComposerImagePicker,
+      removeComposerImageAttachment: onRemoveComposerImageAttachment,
+      selectSlashCommand: onSelectSlashCommand,
       scrollToBottom: onScrollToBottom,
     }),
     [
       onCancelComposerMode,
+      onComposerFileChange,
       onComposerKeyDown,
       onComposerSubmit,
       onDraftInputChange,
+      onDismissSlashCommandPicker,
       onDismissBillingWarning,
       onInterruptReply,
       onOpenPricing,
+      onOpenComposerImagePicker,
       onQuickAction,
+      onRemoveComposerImageAttachment,
+      onSelectSlashCommand,
       onScrollToBottom,
     ],
   );
@@ -256,8 +332,9 @@ export function ChatCanvasProvider(
   const meta = useMemo<ChatCanvasMeta>(
     () => ({
       threadScrollRef,
+      composerFileInputRef,
     }),
-    [threadScrollRef],
+    [composerFileInputRef, threadScrollRef],
   );
 
   const value = useMemo<ChatCanvasContextValue>(
@@ -299,7 +376,7 @@ export function useChatThreadViewCanvas() {
 }
 
 export function useChatHeroCanvas() {
-  const { state, actions } = useChatCanvasContext();
+  const { state, actions, meta } = useChatCanvasContext();
 
   return {
     isVisible: state.isHeroVisible,
@@ -310,12 +387,26 @@ export function useChatHeroCanvas() {
     isVerifiedAccount: state.isVerifiedAccount,
     isLeavingHero: state.isLeavingHero,
     draftInput: state.draftInput,
-    composerModeLabel: state.composerModeLabel,
+    composerMode: state.composerMode,
+    activePlaceholder: state.activePlaceholder,
+    placeholderAnimationKey: state.placeholderAnimationKey,
+    shouldAnimatePlaceholder: state.shouldAnimatePlaceholder,
+    slashCommands: state.slashCommands,
+    slashCommandQuery: state.slashCommandQuery,
+    isSlashCommandPickerOpen: state.isSlashCommandPickerOpen,
+    composerInlineNotice: state.composerInlineNotice,
+    composerImageAttachment: state.composerImageAttachment,
+    composerFileInputRef: meta.composerFileInputRef,
     onCancelComposerMode: actions.cancelComposerMode,
     onDraftInputChange: actions.setDraftInput,
+    onDismissSlashCommandPicker: actions.dismissSlashCommandPicker,
     onComposerKeyDown: actions.onComposerKeyDown,
+    onComposerFileChange: actions.onComposerFileChange,
     onSubmit: actions.onComposerSubmit,
     onInterruptReply: actions.interruptReply,
+    onOpenComposerImagePicker: actions.openComposerImagePicker,
+    onRemoveComposerImageAttachment: actions.removeComposerImageAttachment,
+    onSelectSlashCommand: actions.selectSlashCommand,
     isComposerDisabled: state.isComposerDisabled,
     isSubmitDisabled: state.isSubmitDisabled,
     isSending: state.isSending,
@@ -325,7 +416,7 @@ export function useChatHeroCanvas() {
 }
 
 export function useChatComposerDockCanvas() {
-  const { state, actions } = useChatCanvasContext();
+  const { state, actions, meta } = useChatCanvasContext();
 
   return {
     isNewChatHero: state.isNewChatHero,
@@ -334,12 +425,26 @@ export function useChatComposerDockCanvas() {
     shouldCenterHero: state.shouldCenterHero,
     onScrollToBottom: actions.scrollToBottom,
     draftInput: state.draftInput,
-    composerModeLabel: state.composerModeLabel,
+    composerMode: state.composerMode,
+    activePlaceholder: state.activePlaceholder,
+    placeholderAnimationKey: state.placeholderAnimationKey,
+    shouldAnimatePlaceholder: state.shouldAnimatePlaceholder,
+    slashCommands: state.slashCommands,
+    slashCommandQuery: state.slashCommandQuery,
+    isSlashCommandPickerOpen: state.isSlashCommandPickerOpen,
+    composerInlineNotice: state.composerInlineNotice,
+    composerImageAttachment: state.composerImageAttachment,
+    composerFileInputRef: meta.composerFileInputRef,
     onCancelComposerMode: actions.cancelComposerMode,
     onDraftInputChange: actions.setDraftInput,
+    onDismissSlashCommandPicker: actions.dismissSlashCommandPicker,
     onComposerKeyDown: actions.onComposerKeyDown,
+    onComposerFileChange: actions.onComposerFileChange,
     onSubmit: actions.onComposerSubmit,
     onInterruptReply: actions.interruptReply,
+    onOpenComposerImagePicker: actions.openComposerImagePicker,
+    onRemoveComposerImageAttachment: actions.removeComposerImageAttachment,
+    onSelectSlashCommand: actions.selectSlashCommand,
     isComposerDisabled: state.isComposerDisabled,
     isSubmitDisabled: state.isSubmitDisabled,
     isSending: state.isSending,

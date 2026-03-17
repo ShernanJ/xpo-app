@@ -58,6 +58,33 @@ test("prepareAssistantReplyTransport resolves ideation picks into structured tra
   assert.equal(prepared.clientTurnId?.startsWith("turn_"), true);
 });
 
+test("prepareAssistantReplyTransport preserves support assets on image-backed ideation picks", () => {
+  const prepared = prepareAssistantReplyTransport({
+    prompt: "",
+    history: [{ id: "user-1", role: "user", content: "write from this image" }],
+    runId: "run-1",
+    threadId: "thread-1",
+    workspaceHandle: "stan",
+    artifactContext: {
+      kind: "selected_angle",
+      angle: "why screenshots like this outperform polished launch art",
+      formatHint: "post",
+      supportAsset: "Image anchor: analytics dashboard on a laptop.",
+    },
+    selectedDraftContext: null,
+    strategyInputs: baseStrategyInputs,
+    toneInputs: baseToneInputs,
+  });
+
+  assert.equal(prepared.transportRequest?.artifactContext?.kind, "selected_angle");
+  assert.equal(
+    prepared.transportRequest?.artifactContext?.kind === "selected_angle"
+      ? prepared.transportRequest.artifactContext.supportAsset
+      : null,
+    "Image anchor: analytics dashboard on a laptop.",
+  );
+});
+
 test("prepareAssistantReplyTransport preserves thread intent for thread angle picks", () => {
   const prepared = prepareAssistantReplyTransport({
     prompt: "",

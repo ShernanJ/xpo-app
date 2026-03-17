@@ -101,18 +101,38 @@ function buildCanvasProps(
     heroGreeting: "What are we making?",
     isVerifiedAccount: true,
     isLeavingHero: false,
-    composerModeLabel: null,
+    composerMode: null,
     draftInput: "",
+    activePlaceholder: "write me a post about building in public...",
+    placeholderAnimationKey: "0:write me a post about building in public...",
+    shouldAnimatePlaceholder: true,
+    slashCommands: [],
+    slashCommandQuery: null,
+    isSlashCommandPickerOpen: false,
+    composerInlineNotice: null,
+    composerImageAttachment: null,
+    composerFileInputRef: { current: null },
     onDraftInputChange: vi.fn(),
     onCancelComposerMode: vi.fn(),
+    onDismissSlashCommandPicker: vi.fn(),
     onComposerKeyDown: vi.fn(),
     onComposerSubmit: vi.fn(),
+    onComposerFileChange: vi.fn(),
     onInterruptReply: vi.fn(),
     isComposerDisabled: false,
     isSubmitDisabled: true,
     isSending: false,
-    heroQuickActions: [{ label: "Write a thread", prompt: "Write a thread" }],
+    heroQuickActions: [
+      {
+        kind: "command",
+        label: "Write a thread",
+        commandId: "thread",
+      },
+    ],
     onQuickAction: vi.fn(),
+    onOpenComposerImagePicker: vi.fn(),
+    onRemoveComposerImageAttachment: vi.fn(),
+    onSelectSlashCommand: vi.fn(),
     isNewChatHero: true,
     showScrollToLatest: false,
     shouldCenterHero: true,
@@ -137,7 +157,11 @@ test("wires hero quick actions and billing controls through the canvas provider"
   await user.click(screen.getByRole("button", { name: /Upgrade/i }));
   await user.click(screen.getByRole("button", { name: "Dismiss billing warning" }));
 
-  expect(canvasProps.onQuickAction).toHaveBeenCalledWith("Write a thread");
+  expect(canvasProps.onQuickAction).toHaveBeenCalledWith({
+    kind: "command",
+    label: "Write a thread",
+    commandId: "thread",
+  });
   expect(canvasProps.onOpenPricing).toHaveBeenCalledTimes(1);
   expect(canvasProps.onDismissBillingWarning).toHaveBeenCalledTimes(1);
 });
@@ -162,7 +186,7 @@ test("wires the dock composer and scroll action through the canvas provider", as
   );
 
   await user.click(screen.getByRole("button", { name: "Jump to latest message" }));
-  fireEvent.change(screen.getByPlaceholderText("What are we creating today?"), {
+  fireEvent.change(screen.getByRole("textbox", { name: "Chat composer" }), {
     target: { value: "next draft" },
   });
   fireEvent.submit(screen.getByRole("button", { name: "Send message" }).closest("form")!);

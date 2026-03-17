@@ -367,6 +367,31 @@ test("ideation quick replies expose more-like-this and change-it-up chips", () =
   assert.equal(quickReplies[1].explicitIntent, "ideate");
 });
 
+test("bare draft ideation quick replies expose three structured angle chips", () => {
+  const quickReplies = buildIdeationQuickReplies({
+    styleCard: null,
+    mode: "primary_angle_picks",
+    formatHint: "post",
+    angles: [
+      { title: "the hiring filter that kept our team lean" },
+      { title: "why founder-led sales breaks when the process stays tribal" },
+      { title: "the onboarding fix that shortened time-to-value" },
+    ],
+  });
+
+  assert.equal(quickReplies.length, 3);
+  assert.equal(quickReplies.every((chip) => chip.kind === "ideation_angle"), true);
+  assert.equal(quickReplies.every((chip) => chip.formatHint === "post"), true);
+  assert.deepEqual(
+    quickReplies.map((chip) => chip.label),
+    [
+      "The hiring filter that kept our team lean",
+      "Why founder-led sales breaks when the process stays tribal",
+      "The onboarding fix that shortened time-to-value",
+    ],
+  );
+});
+
 test("ideation quick replies respect lowercase style preference", () => {
   const quickReplies = buildIdeationQuickReplies({
     styleCard: {
@@ -949,10 +974,13 @@ test("bare post draft ideation reply names post directions clearly", () => {
     close: "which angle do you want to flesh out first?",
     userMessage: "write a post",
     styleCard: null,
+    primaryAngleChipMode: true,
   });
 
   assert.equal(reply.toLowerCase().includes("post directions"), true);
   assert.equal(/pick one and i'll draft it|which one should i draft first|if one works, i'll draft it/i.test(reply), true);
+  assert.equal(reply.toLowerCase().includes("which specific"), false);
+  assert.equal(reply.toLowerCase().includes("example angle"), false);
 });
 
 test("bare thread draft ideation reply names thread directions clearly", () => {

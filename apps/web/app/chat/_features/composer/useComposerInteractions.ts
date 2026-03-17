@@ -31,11 +31,13 @@ type RequestAssistantReplyFn<TStrategyInputs, TToneInputs, TContentFocus extends
     displayUserMessage?: string;
     includeUserMessageInHistory?: boolean;
     turnSource?: "ideation_pick" | "reply_action" | "free_text";
+    intent?: "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit";
     artifactContext?:
       | {
           kind: "selected_angle";
           angle: string;
           formatHint: SelectedAngleFormatHint;
+          supportAsset?: string;
         }
       | {
           kind: "reply_option_select";
@@ -118,7 +120,11 @@ export function useComposerInteractions<
   );
 
   const handleAngleSelect = useCallback(
-    async (angle: string, formatHint: SelectedAngleFormatHint) => {
+    async (
+      angle: string,
+      formatHint: SelectedAngleFormatHint,
+      supportAsset?: string,
+    ) => {
       if (!activeStrategyInputs || !activeToneInputs || isMainChatLocked) {
         return;
       }
@@ -132,6 +138,7 @@ export function useComposerInteractions<
           kind: "selected_angle",
           angle,
           formatHint,
+          ...(supportAsset ? { supportAsset } : {}),
         },
         formatPreferenceOverride: formatHint === "thread" ? "thread" : null,
         appendUserMessage: true,
@@ -184,6 +191,8 @@ export function useComposerInteractions<
       prompt: string,
       options?: {
         contentFocusOverride?: TContentFocus | null;
+        intentOverride?: "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit";
+        formatPreferenceOverride?: "shortform" | "longform" | "thread" | null;
       },
     ) => {
       const submission = prepareComposerSubmission({
@@ -219,6 +228,8 @@ export function useComposerInteractions<
         prompt: submission.trimmedPrompt,
         appendUserMessage: true,
         turnSource: "free_text",
+        intent: options?.intentOverride,
+        formatPreferenceOverride: options?.formatPreferenceOverride ?? null,
         strategyInputOverride: activeStrategyInputs as TStrategyInputs,
         toneInputOverride: activeToneInputs as TToneInputs,
         contentFocusOverride: options?.contentFocusOverride ?? activeContentFocus,
@@ -242,6 +253,20 @@ export function useComposerInteractions<
 
   const handleQuickReplySelect = useCallback(
     async (quickReply: TQuickReply) => {
+      if (quickReply.kind === "ideation_angle") {
+        if (isMainChatLocked) {
+          return;
+        }
+
+        setErrorMessage(null);
+        await handleAngleSelect(
+          quickReply.angle || quickReply.label,
+          quickReply.formatHint || "post",
+          quickReply.supportAsset,
+        );
+        return;
+      }
+
       const quickReplyUpdate = resolveComposerQuickReplyUpdate({
         quickReply,
         isMainChatLocked,
@@ -266,6 +291,7 @@ export function useComposerInteractions<
     },
     [
       activeContentFocus,
+      handleAngleSelect,
       isMainChatLocked,
       setActiveContentFocus,
       setDraftInput,
@@ -301,6 +327,7 @@ export function useComposerInteractions<
 
   return {
     latestAssistantMessageId,
+    submitComposerPrompt,
     defaultQuickReplies,
     handleAngleSelect,
     handleReplyOptionSelect,

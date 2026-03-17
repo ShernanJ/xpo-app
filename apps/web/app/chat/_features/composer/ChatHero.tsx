@@ -1,9 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { Square } from "lucide-react";
 
 import { useChatHeroCanvas } from "../chat-page/ChatCanvasContext";
+import { ChatComposerSurface } from "./ChatComposerSurface";
 
 export function ChatHero() {
   const {
@@ -14,18 +14,9 @@ export function ChatHero() {
     heroGreeting,
     isVerifiedAccount,
     isLeavingHero,
-    draftInput,
-    composerModeLabel,
-    onCancelComposerMode,
-    onDraftInputChange,
-    onComposerKeyDown,
-    onSubmit,
-    onInterruptReply,
-    isComposerDisabled,
-    isSubmitDisabled,
-    isSending,
     heroQuickActions,
     onQuickAction,
+    ...composerSurfaceProps
   } = useChatHeroCanvas();
 
   if (!isVisible) {
@@ -33,7 +24,7 @@ export function ChatHero() {
   }
 
   const composerChromeClassName =
-    "relative flex w-full items-end overflow-hidden border border-white/10 bg-white/[0.06] backdrop-blur-[24px] shadow-[0_16px_48px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-500 ease-out focus-within:border-white/15 focus-within:ring-1 focus-within:ring-white/15";
+    "relative w-full overflow-hidden border border-white/10 bg-white/[0.06] backdrop-blur-[24px] shadow-[0_16px_48px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-500 ease-out focus-within:border-white/15 focus-within:ring-1 focus-within:ring-white/15";
   const heroInlineComposerSurfaceClassName = `${composerChromeClassName} rounded-[1.4rem] p-1.5 sm:p-2`;
   const heroProfileMotionClassName = `flex flex-col items-center gap-4 transition-all duration-500 ease-out ${
     isLeavingHero
@@ -82,76 +73,20 @@ export function ChatHero() {
           </div>
         </div>
 
-        <form onSubmit={onSubmit} className={heroComposerMotionClassName}>
-          <div className={heroInlineComposerSurfaceClassName}>
-            {composerModeLabel ? (
-              <div className="absolute left-3 top-2 z-10 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                <span>{composerModeLabel}</span>
-                <button
-                  type="button"
-                  onClick={onCancelComposerMode}
-                  className="rounded-full border border-white/10 px-2 py-0.5 text-[9px] text-zinc-400 transition hover:border-white/20 hover:text-zinc-200"
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : null}
-            <textarea
-              value={draftInput}
-              onChange={(event) => onDraftInputChange(event.target.value)}
-              onKeyDown={onComposerKeyDown}
-              placeholder="What are we creating today?"
-              disabled={isComposerDisabled}
-              className={`max-h-[180px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 pb-10 text-[14px] leading-5 text-white outline-none placeholder:text-zinc-400 disabled:opacity-50 sm:pr-14 ${
-                composerModeLabel ? "pt-8" : ""
-              }`}
-              rows={1}
-            />
-            <div className="absolute bottom-2.5 right-2.5 sm:bottom-3 sm:right-3">
-              {isSending ? (
-                <button
-                  type="button"
-                  onClick={onInterruptReply}
-                  className="group flex h-8 w-8 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 sm:h-9 sm:w-9"
-                  aria-label="Stop generating"
-                >
-                  <Square className="h-3.5 w-3.5 fill-current" />
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={isSubmitDisabled}
-                  className="group flex h-8 w-8 items-center justify-center rounded-full bg-white text-black transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:bg-white/10 sm:h-9 sm:w-9"
-                  aria-label="Send message"
-                >
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    className="translate-x-[1px] translate-y-[-1px] transition-transform group-hover:translate-x-[2px] group-hover:translate-y-[-2px]"
-                  >
-                    <path
-                      d="M12 20L12 4M12 4L5 11M12 4L19 11"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
-              )}
-            </div>
-          </div>
-        </form>
+        <div className={heroComposerMotionClassName}>
+          <ChatComposerSurface
+            {...composerSurfaceProps}
+            surfaceClassName={heroInlineComposerSurfaceClassName}
+          />
+        </div>
 
         <div className={`${heroChipsMotionClassName} mt-4`}>
           {heroQuickActions.map((action) => (
             <button
-              key={action.prompt}
+              key={action.label}
               type="button"
-              onClick={() => onQuickAction(action.prompt)}
-              disabled={isComposerDisabled}
+              onClick={() => onQuickAction(action)}
+              disabled={composerSurfaceProps.isComposerDisabled}
               className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[12px] font-medium text-zinc-300 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600 sm:px-3.5 sm:text-[13px]"
             >
               {action.label}

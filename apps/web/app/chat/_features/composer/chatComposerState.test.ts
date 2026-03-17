@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  consumeExactLeadingSlashCommand,
+  dismissSlashCommandInput,
+  filterSlashCommands,
   prepareComposerSubmission,
+  resolveSlashCommandQuery,
   resolveComposerQuickReplyUpdate,
 } from "./chatComposerState.ts";
 
@@ -138,4 +142,60 @@ test("prepareComposerSubmission skips blank or locked prompts", () => {
       shouldAnimateHeroExit: false,
     },
   );
+});
+
+test("resolveSlashCommandQuery detects only leading slash tokens", () => {
+  assert.equal(resolveSlashCommandQuery("/thread build this out"), "thread");
+  assert.equal(resolveSlashCommandQuery("   /thread"), "thread");
+  assert.equal(resolveSlashCommandQuery("hello /thread"), null);
+});
+
+test("filterSlashCommands matches by command token and description", () => {
+  const commands = [
+    {
+      id: "thread",
+      command: "/thread",
+      label: "/thread",
+      description: "Draft a multi-post X thread from the context you type next.",
+    },
+  ] as const;
+
+  assert.deepEqual(filterSlashCommands({ commands, query: "thr" }), [...commands]);
+  assert.deepEqual(filterSlashCommands({ commands, query: "multi-post" }), [...commands]);
+  assert.deepEqual(filterSlashCommands({ commands, query: "missing" }), []);
+});
+
+test("consumeExactLeadingSlashCommand strips the command and preserves the remainder", () => {
+  const commands = [
+    {
+      id: "thread",
+      command: "/thread",
+      label: "/thread",
+      description: "Draft a multi-post X thread from the context you type next.",
+    },
+  ] as const;
+
+  assert.deepEqual(
+    consumeExactLeadingSlashCommand({
+      input: " /thread break down my playbook",
+      commands,
+    }),
+    {
+      command: commands[0],
+      remainder: "break down my playbook",
+    },
+  );
+  assert.equal(
+    consumeExactLeadingSlashCommand({
+      input: "/unknown test",
+      commands,
+    }),
+    null,
+  );
+});
+
+test("dismissSlashCommandInput removes the leading slash marker", () => {
+  assert.equal(dismissSlashCommandInput("/thread"), "thread");
+  assert.equal(dismissSlashCommandInput(" /thread plan"), "thread plan");
+  assert.equal(dismissSlashCommandInput("write a post"), "write a post");
 });

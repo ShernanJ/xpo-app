@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  CopywriterPostOptionsSchema,
+  ImagePostAngleOptionsSchema,
   ImageVisionContextSchema,
 } from "./imagePostGeneration.ts";
 
@@ -30,20 +30,20 @@ test("ImageVisionContextSchema rejects malformed vision payloads", () => {
   assert.equal(result.success, false);
 });
 
-test("CopywriterPostOptionsSchema requires exactly three drafted posts", () => {
+test("ImagePostAngleOptionsSchema requires exactly three image-backed directions", () => {
   assert.equal(
-    CopywriterPostOptionsSchema.safeParse([
-      "What if the thing slowing your growth isn't the algorithm but the way your proof looks on the timeline?",
-      "There is something weirdly effective about sharing the messy middle instead of the polished ending.",
-      "Proof beats polish on X. Show the work, give the lesson, let the right people self-select.",
+    ImagePostAngleOptionsSchema.safeParse([
+      "the question this image quietly raises about shipping in public",
+      "why this kind of screenshot works better than a polished launch graphic",
+      "proof beats polish when the work is real",
     ]).success,
     true,
   );
 
   assert.equal(
-    CopywriterPostOptionsSchema.safeParse([
-      "Only one post",
-      "Only two posts",
+    ImagePostAngleOptionsSchema.safeParse([
+      "Only one direction",
+      "Only two directions",
     ]).success,
     false,
   );

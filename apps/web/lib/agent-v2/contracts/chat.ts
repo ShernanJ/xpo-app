@@ -75,12 +75,16 @@ export interface CreatorChatQuickReply {
   | "content_focus"
   | "example_reply"
   | "planner_action"
-  | "clarification_choice";
+  | "clarification_choice"
+  | "ideation_angle";
   value: string;
   label: string;
   suggestedFocus?: string;
   explicitIntent?: V2ChatIntent;
   formatPreference?: DraftFormatPreference;
+  angle?: string;
+  formatHint?: "post" | "thread";
+  supportAsset?: string;
 }
 
 export interface ClarificationState {

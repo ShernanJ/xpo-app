@@ -1,8 +1,18 @@
+import type { SlashCommandDefinition } from "./composerTypes";
+
 export interface ComposerQuickReplyLike<TFocus extends string> {
-  kind: "content_focus" | "example_reply" | "planner_action" | "clarification_choice";
+  kind:
+    | "content_focus"
+    | "example_reply"
+    | "planner_action"
+    | "clarification_choice"
+    | "ideation_angle";
   value: string;
   label: string;
   suggestedFocus?: TFocus;
+  angle?: string;
+  formatHint?: "post" | "thread";
+  supportAsset?: string;
 }
 
 export type ComposerQuickReplyUpdate<TFocus extends string> =
@@ -102,4 +112,75 @@ export function prepareComposerSubmission(args: {
     trimmedPrompt,
     shouldAnimateHeroExit: !args.activeThreadId && args.messagesLength === 0,
   };
+}
+
+export function resolveSlashCommandQuery(input: string): string | null {
+  const normalized = input.trimStart();
+  if (!normalized.startsWith("/")) {
+    return null;
+  }
+
+  const [token] = normalized.slice(1).split(/\s+/, 1);
+  return token ?? "";
+}
+
+export function filterSlashCommands(args: {
+  commands: readonly SlashCommandDefinition[];
+  query: string | null;
+}): SlashCommandDefinition[] {
+  const normalizedQuery = (args.query || "").trim().toLowerCase();
+  if (!normalizedQuery) {
+    return [...args.commands];
+  }
+
+  return args.commands.filter((command) => {
+    const commandToken = command.command.slice(1).toLowerCase();
+    return (
+      commandToken.includes(normalizedQuery) ||
+      command.label.toLowerCase().includes(normalizedQuery) ||
+      command.description.toLowerCase().includes(normalizedQuery)
+    );
+  });
+}
+
+export function consumeExactLeadingSlashCommand(args: {
+  input: string;
+  commands: readonly SlashCommandDefinition[];
+}):
+  | {
+      command: SlashCommandDefinition;
+      remainder: string;
+    }
+  | null {
+  const normalized = args.input.trimStart();
+  if (!normalized.startsWith("/")) {
+    return null;
+  }
+
+  const match = normalized.match(/^\/([^\s]+)(?:\s+(.*))?$/);
+  if (!match) {
+    return null;
+  }
+
+  const [, rawCommand, rawRemainder] = match;
+  const command = args.commands.find(
+    (entry) => entry.command.slice(1).toLowerCase() === rawCommand.toLowerCase(),
+  );
+  if (!command) {
+    return null;
+  }
+
+  return {
+    command,
+    remainder: rawRemainder?.trimStart() ?? "",
+  };
+}
+
+export function dismissSlashCommandInput(input: string): string {
+  const normalized = input.trimStart();
+  if (!normalized.startsWith("/")) {
+    return input;
+  }
+
+  return normalized.slice(1);
 }

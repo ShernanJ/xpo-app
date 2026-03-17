@@ -26,6 +26,17 @@ test("buildSelectedAngleDraftPrompt frames non-question angles as chosen directi
   );
 });
 
+test("buildSelectedAngleDraftPrompt threads image grounding into the draft brief", () => {
+  assert.equal(
+    buildSelectedAngleDraftPrompt({
+      angle: "screenshots like this outperform polished launch art because the proof feels real",
+      formatHint: "post",
+      supportAsset: "Image anchor: product analytics dashboard on a laptop.",
+    }),
+    "use this image context as grounding:\nImage anchor: product analytics dashboard on a laptop.\n\ndraft a post from this chosen direction in the user's voice: screenshots like this outperform polished launch art because the proof feels real",
+  );
+});
+
 test("stripSelectedAnglePromptPrefix removes legacy and current selected-angle wrappers", () => {
   assert.equal(
     stripSelectedAnglePromptPrefix(

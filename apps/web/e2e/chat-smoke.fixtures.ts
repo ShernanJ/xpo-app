@@ -14,6 +14,8 @@ export interface ChatSmokeRequestCounts {
   chat: number;
   context: number;
   contract: number;
+  imagePosts: number;
+  lastChatRequestBody: Record<string, unknown> | null;
   preferences: number;
   profileScrape: number;
   threads: number;
@@ -313,6 +315,44 @@ function buildProfileScrape() {
   };
 }
 
+function buildCreatedThread() {
+  return {
+    ok: true,
+    data: {
+      thread: {
+        id: "thread-smoke-image-1",
+        title: "New Chat",
+      },
+    },
+  };
+}
+
+function buildImagePostReply() {
+  return {
+    ok: true,
+    data: {
+      xHandle: CHAT_SMOKE_HANDLE,
+      visualContext: {
+        primary_subject: "founder at a laptop",
+        setting: "a bright home office",
+        lighting_and_mood: "warm and focused",
+        any_readable_text: "ship the update",
+        key_details: ["coffee mug", "analytics dashboard", "notebook"],
+      },
+      posts: [
+        "Question hook post from the image.",
+        "Relatable take post from the image.",
+        "Bold statement post from the image.",
+      ],
+      idea: null,
+      models: {
+        vision: "fixture-vision",
+        copy: "fixture-copy",
+      },
+    },
+  };
+}
+
 async function fulfillJson(route: Route, payload: unknown, status = 200) {
   await route.fulfill({
     status,
@@ -325,6 +365,75 @@ export async function installChatSmokeApiMocks(
   page: Page,
   counts: ChatSmokeRequestCounts,
 ) {
+  let currentSession: {
+    user: {
+      id: string;
+      name?: string | null;
+      email?: string | null;
+      handle?: string;
+      activeXHandle?: string | null;
+    };
+  } | null = null;
+
+  await page.route("**/api/test/session", async (route) => {
+    const payload = route.request().postDataJSON() as
+      | {
+          userId?: string;
+          email?: string;
+          name?: string;
+          handle?: string;
+          activeXHandle?: string;
+        }
+      | undefined;
+    currentSession = {
+      user: {
+        id: payload?.userId ?? "playwright-chat-user",
+        name: payload?.name ?? "Playwright Chat",
+        email: payload?.email ?? "playwright-chat@example.com",
+        handle: payload?.handle ?? "playwright",
+        activeXHandle: payload?.activeXHandle ?? CHAT_SMOKE_HANDLE,
+      },
+    };
+
+    await fulfillJson(route, {
+      ok: true,
+    });
+  });
+
+  await page.route("**/api/auth/session", async (route) => {
+    if (route.request().method() === "PATCH") {
+      const patch = route.request().postDataJSON() as
+        | {
+            handle?: string;
+            activeXHandle?: string | null;
+          }
+        | undefined;
+      currentSession = currentSession
+        ? {
+            user: {
+              ...currentSession.user,
+              ...(patch?.handle !== undefined ? { handle: patch.handle } : {}),
+              ...(patch?.activeXHandle !== undefined
+                ? { activeXHandle: patch.activeXHandle }
+                : {}),
+            },
+          }
+        : currentSession;
+    }
+
+    await fulfillJson(route, {
+      ok: true,
+      session: currentSession,
+    });
+  });
+
+  await page.route("**/api/auth/logout", async (route) => {
+    currentSession = null;
+    await fulfillJson(route, {
+      ok: true,
+    });
+  });
+
   await page.route("**/api/creator/context", async (route) => {
     counts.context += 1;
     await fulfillJson(route, {
@@ -343,12 +452,27 @@ export async function installChatSmokeApiMocks(
 
   await page.route("**/api/creator/v2/chat", async (route) => {
     counts.chat += 1;
+    try {
+      counts.lastChatRequestBody = route.request().postDataJSON() as Record<string, unknown>;
+    } catch {
+      counts.lastChatRequestBody = null;
+    }
     await fulfillJson(route, buildChatSmokeReply());
   });
 
   await page.route("**/api/creator/v2/threads", async (route) => {
     counts.threads += 1;
+    if (route.request().method() === "POST") {
+      await fulfillJson(route, buildCreatedThread());
+      return;
+    }
+
     await fulfillJson(route, buildThreads());
+  });
+
+  await page.route("**/api/creator/v2/image-posts", async (route) => {
+    counts.imagePosts += 1;
+    await fulfillJson(route, buildImagePostReply());
   });
 
   await page.route("**/api/creator/v2/preferences", async (route) => {

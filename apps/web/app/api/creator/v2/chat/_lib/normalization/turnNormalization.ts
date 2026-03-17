@@ -45,6 +45,10 @@ function parseSelectedAngleArtifactContext(
   const record = value as Record<string, unknown>;
   const angle = typeof record.angle === "string" ? record.angle.trim() : "";
   const formatHint = record.formatHint === "thread" ? "thread" : "post";
+  const supportAsset =
+    typeof record.supportAsset === "string" && record.supportAsset.trim()
+      ? record.supportAsset.trim()
+      : null;
   if (record.kind !== "selected_angle" || !angle) {
     return null;
   }
@@ -53,6 +57,7 @@ function parseSelectedAngleArtifactContext(
     kind: "selected_angle",
     angle,
     formatHint,
+    ...(supportAsset ? { supportAsset } : {}),
   };
 }
 
@@ -300,6 +305,7 @@ export function normalizeChatTurn(args: {
     orchestrationMessage = buildSelectedAngleDraftPrompt({
       angle: artifactContext.angle,
       formatHint: artifactContext.formatHint,
+      supportAsset: artifactContext.supportAsset ?? null,
     });
     planSeedSource = "selected_angle";
   } else if (artifactContext?.kind === "reply_option_select") {

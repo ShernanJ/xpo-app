@@ -13,7 +13,7 @@ export const IMAGE_TO_POST_VISION_SYSTEM_PROMPT =
   "Analyze this image and extract its core components. Return a strict JSON object with these keys: `primary_subject` (string), `setting` (string), `lighting_and_mood` (string), `any_readable_text` (string), and `key_details` (array of strings). Do not write a description, only return the JSON.";
 
 export const IMAGE_TO_POST_COPYWRITER_SYSTEM_PROMPT =
-  "You are an elite ghostwriter for X (Twitter) focused on high-engagement, organic growth. Using the visual context provided in the JSON, generate 3 distinct post options to accompany this image. The posts must sound natural, punchy, and avoid cringe or overly corporate language. Option 1: A thought-provoking question or hook to drive replies. Option 2: A short, relatable observation. Option 3: A bold, value-driven statement. Return the output as a JSON array of strings containing the 3 drafted posts.";
+  "You are an elite X (Twitter) ideation partner. Using the visual context provided in the JSON, generate exactly 3 short, distinct post directions for this image. Each direction should read like a clickable ideation chip, not a finished post. Keep them concise, specific, and naturally phrased. Direction 1 should lean question-led, direction 2 should lean observational, direction 3 should lean bold or contrarian. Return the output as a JSON array of exactly 3 strings.";
 
 export interface ImageVisionContext {
   primary_subject: string;
@@ -23,7 +23,7 @@ export interface ImageVisionContext {
   key_details: string[];
 }
 
-export type CopywriterPostOptions = [string, string, string];
+export type ImagePostAngleOptions = [string, string, string];
 
 export interface ImageToPostGenerationInput {
   imageDataUrl: string;
@@ -34,7 +34,7 @@ export interface ImageToPostGenerationInput {
 
 export interface ImageToPostGenerationResult {
   visualContext: ImageVisionContext;
-  posts: CopywriterPostOptions;
+  angles: ImagePostAngleOptions;
   idea: string | null;
   models: {
     vision: string;
@@ -50,7 +50,7 @@ export const ImageVisionContextSchema: z.ZodType<ImageVisionContext> = z.object(
   key_details: z.array(z.string().trim().min(1)).max(12),
 });
 
-export const CopywriterPostOptionsSchema: z.ZodType<CopywriterPostOptions> = z.tuple([
+export const ImagePostAngleOptionsSchema: z.ZodType<ImagePostAngleOptions> = z.tuple([
   z.string().trim().min(1),
   z.string().trim().min(1),
   z.string().trim().min(1),
@@ -87,7 +87,7 @@ function buildCopywriterUserPrompt(args: {
     args.idea
       ? `User niche or rough idea: ${args.idea}`
       : "User niche or rough idea: none provided.",
-    "Generate the 3 post options now.",
+    "Generate the 3 image-backed post directions now.",
   ].join("\n\n");
 }
 
@@ -142,7 +142,7 @@ export async function generateImageToPostOptions(
     );
   }
 
-  const rawPostOptions = await fetchJsonFromGroq<unknown>({
+  const rawAngleOptions = await fetchJsonFromGroq<unknown>({
     model: copyModel,
     reasoning_effort: "medium",
     temperature: 0.7,
@@ -164,15 +164,15 @@ export async function generateImageToPostOptions(
     ],
   });
 
-  if (!rawPostOptions) {
+  if (!rawAngleOptions) {
     throw new ImageToPostGenerationError(
       "Copywriting model did not return a JSON response.",
       "copy_request_failed",
     );
   }
 
-  const parsedPostOptions = CopywriterPostOptionsSchema.safeParse(rawPostOptions);
-  if (!parsedPostOptions.success) {
+  const parsedAngleOptions = ImagePostAngleOptionsSchema.safeParse(rawAngleOptions);
+  if (!parsedAngleOptions.success) {
     throw new ImageToPostGenerationError(
       "Copywriting model returned an invalid JSON shape.",
       "copy_response_invalid",
@@ -181,7 +181,7 @@ export async function generateImageToPostOptions(
 
   return {
     visualContext: parsedVisionContext.data,
-    posts: parsedPostOptions.data,
+    angles: parsedAngleOptions.data,
     idea,
     models: {
       vision: visionModel,

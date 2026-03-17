@@ -11,6 +11,7 @@ import type { ConversationServices } from "./services.ts";
 import type { V2ChatIntent } from "../contracts/chat.ts";
 import { resolveRuntimeAction } from "./resolveRuntimeAction.ts";
 import { summarizeRuntimeWorkerExecutions } from "./runtimeTrace.ts";
+import { isBareDraftRequest } from "../core/conversationHeuristics.ts";
 
 export interface RoutingPolicyResult {
   isFastReply: boolean;
@@ -152,8 +153,12 @@ export async function resolveRoutingPolicy(
   const mode = classifiedIntent;
   routingTrace.classifiedIntent = classifiedIntent;
   routingTrace.resolvedMode = mode;
+  const shouldForceDraftIdeation = !explicitIntent && isBareDraftRequest(userMessage);
 
-  if ((turnPlan && !turnPlan.shouldGenerate) || runtimeAction.workflow === "answer_question") {
+  if (
+    !shouldForceDraftIdeation &&
+    ((turnPlan && !turnPlan.shouldGenerate) || runtimeAction.workflow === "answer_question")
+  ) {
     // We already have styleCard and anchors from context building!
     const fastReply = await respondConversationally({
       userMessage,

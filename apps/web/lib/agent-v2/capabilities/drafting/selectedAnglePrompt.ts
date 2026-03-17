@@ -20,17 +20,26 @@ export function isQuestionShapedSelectedAngle(value: string): boolean {
 export function buildSelectedAngleDraftPrompt(args: {
   angle: string;
   formatHint: SelectedAngleFormatHint;
+  supportAsset?: string | null;
 }): string {
   const normalized = args.angle.trim().replace(/\s+/g, " ");
   if (!normalized) {
     return normalized;
   }
 
+  const supportAsset =
+    typeof args.supportAsset === "string" && args.supportAsset.trim()
+      ? args.supportAsset.trim()
+      : null;
+  const groundingPrefix = supportAsset
+    ? `use this image context as grounding:\n${supportAsset}\n\n`
+    : "";
+
   if (isQuestionShapedSelectedAngle(normalized)) {
-    return `draft a ${args.formatHint} in the user's voice that answers this question with a strong hook, at least one concrete detail, and a clean ending. do not repeat the question or answer it in a single flat sentence: ${normalized}`;
+    return `${groundingPrefix}draft a ${args.formatHint} in the user's voice that answers this question with a strong hook, at least one concrete detail, and a clean ending. do not repeat the question or answer it in a single flat sentence: ${normalized}`;
   }
 
-  return `draft a ${args.formatHint} from this chosen direction in the user's voice: ${normalized}`;
+  return `${groundingPrefix}draft a ${args.formatHint} from this chosen direction in the user's voice: ${normalized}`;
 }
 
 export function stripSelectedAnglePromptPrefix(value: string): string {

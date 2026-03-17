@@ -33,6 +33,7 @@ export interface SelectedAngleArtifactContext {
   kind: "selected_angle";
   angle: string;
   formatHint: SelectedAngleFormatHint;
+  supportAsset?: string;
 }
 
 export interface DraftSelectionArtifactContext {

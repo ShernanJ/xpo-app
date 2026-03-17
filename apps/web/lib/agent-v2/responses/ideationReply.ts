@@ -5,6 +5,7 @@ interface BuildIdeationReplyArgs {
   close?: string | null;
   userMessage: string;
   styleCard?: VoiceStyleCard | null;
+  primaryAngleChipMode?: boolean;
 }
 
 type IdeationArtifact = "post" | "thread" | null;
@@ -382,6 +383,19 @@ export function buildIdeationReply(args: BuildIdeationReplyArgs): string {
   const warm = inferWarmPreference(args.styleCard, args.userMessage);
   const moreIdeasRequest = isMoreIdeasRequest(args.userMessage);
   const artifact = inferRequestedArtifact(args.userMessage);
+
+  if (args.primaryAngleChipMode) {
+    const lead =
+      artifact === "thread"
+        ? "i pulled three thread directions."
+        : artifact === "post"
+          ? "i pulled three post directions."
+          : "i pulled three directions.";
+    const closeLine = pickCasualClose({ seed, concise, warm });
+
+    return applyCase(`${lead}\n\n${closeLine}`, lowercase);
+  }
+
   const fallbackClose = pickCasualClose({ seed, concise, warm });
   const closeLine = moreIdeasRequest
     ? pickMoreIdeasClose({ seed, concise, warm })

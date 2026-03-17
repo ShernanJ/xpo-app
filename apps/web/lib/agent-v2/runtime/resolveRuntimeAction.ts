@@ -14,6 +14,7 @@ import type {
   AgentRuntimeWorkflow,
   RuntimeResolutionSource,
 } from "./runtimeContracts.ts";
+import { isBareDraftRequest } from "../core/conversationHeuristics.ts";
 
 export interface RuntimeActionResolution {
   workflow: AgentRuntimeWorkflow;
@@ -153,6 +154,18 @@ export async function resolveRuntimeAction(args: {
   });
   if (structuredResolution) {
     return structuredResolution;
+  }
+
+  if (!args.explicitIntent && isBareDraftRequest(args.userMessage)) {
+    return {
+      workflow: "plan_then_draft",
+      classifiedIntent: "plan",
+      source: "structured_turn",
+      decision: buildStructuredDecision({
+        action: "plan",
+        rationale: "deterministic bare draft ideation",
+      }),
+    };
   }
 
   const topLevelResolution = await resolveTopLevelAction({

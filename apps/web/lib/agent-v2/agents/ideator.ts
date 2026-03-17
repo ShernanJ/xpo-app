@@ -12,7 +12,7 @@ import {
 import { dedupeAngleTitlesForRetry } from "../core/angleNovelty";
 
 export const IdeaSchema = z.object({
-  title: z.string().describe("A broad, conversational, open-ended question that prompts the user for a story. Keep it general and simple. e.g. 'Are there any recent projects you worked on that you can talk about?' or 'What is a common misconception about building AI tools?'"),
+  title: z.string().describe("A concise, draftable angle title for the post idea. Keep it short, specific, and immediately usable as a direction, not an open-ended question. e.g. 'the hiring filter that kept our team lean' or 'why founder-led sales breaks when the process stays tribal'"),
   why_this_works: z.string().describe("Conversational explanation of why this fits their profile/audience. e.g. 'Your audience loves raw, behind-the-scenes building stories...'"),
   opening_lines: z.any().describe("2 distinct options for opening sentences to show them how it could start"),
   subtopics: z.any().describe("What they should talk about in the reply, e.g. 'The specific bug • The frustrated caffeine-fueled moment • The fix'"),
@@ -242,7 +242,7 @@ function extractRecentAngleTitles(recentHistory: string): string[] {
       continue;
     }
 
-    const inlineMatch = line.match(/^(?:assistant(?:_angles)?\s*:\s*)?\d+\.\s+(.+\?)$/i);
+    const inlineMatch = line.match(/^(?:assistant(?:_angles)?\s*:\s*)?\d+\.\s+(.+)$/i);
     if (inlineMatch?.[1]) {
       titles.push(inlineMatch[1].trim().replace(/\s+/g, " "));
       continue;
@@ -250,7 +250,7 @@ function extractRecentAngleTitles(recentHistory: string): string[] {
 
     if (/^(?:assistant(?:_angles)?\s*:\s*)?\d+\.\s*$/i.test(line)) {
       const nextLine = (lines[index + 1] || "").trim();
-      if (nextLine && /\?$/.test(nextLine)) {
+      if (nextLine) {
         titles.push(nextLine.replace(/\s+/g, " "));
       }
     }
@@ -358,11 +358,11 @@ function titleTouchesFocusTopic(title: string, focusTopic: string | null): boole
 
 function buildAnchoredQuestion(focusTopic: string, index: number): string {
   const patterns = [
-    `what's the biggest tension you see with ${focusTopic}?`,
-    `what do most people get wrong about ${focusTopic}?`,
-    `where does ${focusTopic} break down in real life?`,
-    `what's one thing you've learned the hard way about ${focusTopic}?`,
-    `what part of ${focusTopic} feels most misunderstood?`,
+    `the hard lesson behind ${focusTopic}`,
+    `the mistake most people make with ${focusTopic}`,
+    `where ${focusTopic} breaks down in real life`,
+    `the playbook behind ${focusTopic}`,
+    `why ${focusTopic} gets misunderstood`,
   ];
 
   return patterns[index % patterns.length];
@@ -370,11 +370,11 @@ function buildAnchoredQuestion(focusTopic: string, index: number): string {
 
 function buildSafeBroadQuestion(index: number): string {
   const patterns = [
-    "what's the real tension here?",
-    "what do people get wrong about this?",
-    "where does this break down in practice?",
-    "what's one lesson hiding in this?",
-    "what feels most overlooked here?",
+    "the hard lesson behind a recent win",
+    "the mistake people keep repeating",
+    "where this breaks down in practice",
+    "the playbook behind the result",
+    "why this gets overlooked",
   ];
 
   return patterns[index % patterns.length];
@@ -545,7 +545,7 @@ THE IDEATION FORMAT (CRITICAL):
 You MUST follow this exact structure for your output:
 1. Provide a conversational "intro" paragraph acknowledging what they asked for or evaluating their recent content trends. 
 2. Provide 2-5 distinct "angles" (ideas). For each angle, you must NOT write a formal post title or hook. Instead, you must provide:
-   - title: A very SIMPLE, broad, conversational QUESTION to ask the user. Do not make hyper-specific assumptions about them crying or quitting. (e.g. "What is a project you've worked on recently?" or "What's a common mistake you see beginners make?")
+   - title: A concise, draftable ANGLE TITLE. It should read like a post direction someone could instantly pick, not a question to ask the user. (e.g. "the hiring filter that kept our team lean" or "why onboarding breaks when nobody owns the first week")
    - why_this_works: An explanation of why this specific angle fits their authority/niche.
    - opening_lines: 2 different scroll-stopping first-sentence options to give them a taste of the final post.
    - subtopics: A short list of talking points they should include in their response.
@@ -563,12 +563,12 @@ INTRO ALIGNMENT RULES:
 - Keep intro short and grounded. No hype claims like "people love this" unless supported by the provided context.
 
 NICHE ENFORCEMENT:
-- Ideas MUST be highly personalized to their niche, but keep the questions BROAD enough that anyone in that niche could answer them.
+- Ideas MUST be highly personalized to their niche, but the title should still feel broadly usable as a post direction rather than a one-off anecdote.
 - NEVER invent generic topics like "5 ways to be productive".
 - If the user already gave a concrete topic, every angle should feel like a sharper slice of that topic, not a total reset.
 - Do not invent hyper-specific emotional scenarios (like "the moment you cried"). Keep it professional but casual.
 - Do not invent exact dollar amounts, percentages, company policies, or made-up events unless the user or retrieved context already mentioned them.
-- If you're not sure, stay broad and ask a safer question instead of creating a specific story premise.
+- If you're not sure, stay broad and choose a safer angle instead of creating a specific story premise.
 
 ${userContextString || ""}
 

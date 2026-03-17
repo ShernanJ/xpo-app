@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 
-import { MessageArtifactSections } from "./MessageArtifactSections";
+import { AssistantResultFooter, MessageArtifactSections } from "./MessageArtifactSections";
 
 test("angle picks use the durable ideation format hint instead of parsing reply copy", async () => {
   const user = userEvent.setup();
@@ -142,6 +142,115 @@ test("selected draft direction renders highlighted and disables the ideation opt
   expect(unselectedOption.className).toContain("opacity-60");
 });
 
+test("primary ideation angle chips replace the duplicate angle list", async () => {
+  const user = userEvent.setup();
+  const onQuickReplySelect = vi.fn();
+  const onAngleSelect = vi.fn();
+
+  render(
+    <>
+      <MessageArtifactSections
+        message={{
+          id: "assistant-1",
+          role: "assistant",
+          content: "i pulled three post directions.\n\npick one and i'll draft it.",
+          outputShape: "ideation_angles",
+          angles: [{ title: "The hiring filter that kept our team lean" }],
+          quickReplies: [
+            {
+              kind: "ideation_angle",
+              value: "The hiring filter that kept our team lean",
+              label: "The hiring filter that kept our team lean",
+              angle: "The hiring filter that kept our team lean",
+              formatHint: "post",
+            },
+          ],
+          ideationFormatHint: "post",
+          feedbackValue: null,
+        }}
+        index={0}
+        messagesLength={1}
+        composerCharacterLimit={280}
+        isVerifiedAccount={false}
+        isMainChatLocked={false}
+        showDevTools={false}
+        selectedDraftMessageId={null}
+        selectedDraftVersionId={null}
+        selectedThreadPreviewPostIndex={undefined}
+        expandedInlineThreadPreviewId={null}
+        copiedPreviewDraftMessageId={null}
+        dismissedAutoSavedSource={false}
+        autoSavedSourceUndoPending={false}
+        messageFeedbackPending={false}
+        canRunReplyActions={true}
+        contextIdentity={{
+          username: "vitddnv",
+          displayName: "Vitalii Dodonov",
+          avatarUrl: null,
+        }}
+        getRevealClassName={() => ""}
+        shouldAnimateRevealLines={() => false}
+        shouldShowQuickReplies={() => true}
+        shouldShowOptionArtifacts={() => true}
+        shouldShowDraftOutput={() => false}
+        onOpenSourceMaterialEditor={() => {}}
+        onUndoAutoSavedSourceMaterials={() => {}}
+        onSubmitAssistantMessageFeedback={() => {}}
+        onQuickReplySelect={onQuickReplySelect}
+        onAngleSelect={onAngleSelect}
+        onReplyOptionSelect={() => {}}
+        onSelectDraftBundleOption={() => {}}
+        onOpenDraftEditor={() => {}}
+        onRequestDraftCardRevision={() => {}}
+        onToggleExpandedInlineThreadPreview={() => {}}
+        onCopyPreviewDraft={() => {}}
+        onShareDraftEditor={() => {}}
+      />
+      <AssistantResultFooter
+        message={{
+          id: "assistant-1",
+          role: "assistant",
+          content: "i pulled three post directions.\n\npick one and i'll draft it.",
+          outputShape: "ideation_angles",
+          quickReplies: [
+            {
+              kind: "ideation_angle",
+              value: "The hiring filter that kept our team lean",
+              label: "The hiring filter that kept our team lean",
+              angle: "The hiring filter that kept our team lean",
+              formatHint: "post",
+            },
+          ],
+          angles: [{ title: "The hiring filter that kept our team lean" }],
+          feedbackValue: null,
+        }}
+        isLatestMessage={true}
+        isMainChatLocked={false}
+        messageFeedbackPending={false}
+        canRunReplyActions={true}
+        shouldShowQuickReplies={() => true}
+        onSubmitAssistantMessageFeedback={() => {}}
+        onQuickReplySelect={onQuickReplySelect}
+      />
+    </>,
+  );
+
+  await user.click(
+    screen.getByRole("button", {
+      name: /The hiring filter that kept our team lean/i,
+    }),
+  );
+
+  expect(onQuickReplySelect).toHaveBeenCalledWith(
+    expect.objectContaining({
+      kind: "ideation_angle",
+      angle: "The hiring filter that kept our team lean",
+    }),
+  );
+  expect(onAngleSelect).not.toHaveBeenCalled();
+  expect(screen.queryByText("1.")).not.toBeInTheDocument();
+});
+
 test("generated result messages keep footer controls out of the artifact section", () => {
   render(
     <MessageArtifactSections
@@ -259,5 +368,5 @@ test("generated result messages keep footer controls out of the artifact section
 
   expect(screen.queryByLabelText("Thumbs up")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /rewrite bio/i })).not.toBeInTheDocument();
-  expect(screen.getByText("Profile Audit")).toBeInTheDocument();
+  expect(screen.getByText("Conversion Score")).toBeInTheDocument();
 });

@@ -27,6 +27,33 @@ test("ideation picks normalize into structured draft turns with a server-side pl
   assert.equal(normalized.diagnostics.resolvedWorkflow, "plan_then_draft");
 });
 
+test("image-backed ideation picks preserve supportAsset in the normalized turn", () => {
+  const normalized = normalizeChatTurn({
+    body: {
+      turnSource: "ideation_pick",
+      artifactContext: {
+        kind: "selected_angle",
+        angle: "screenshots like this outperform polished launch art because the proof feels real",
+        formatHint: "post",
+        supportAsset: "Image anchor: analytics dashboard on a laptop.",
+      },
+    },
+  });
+
+  assert.equal(normalized.source, "ideation_pick");
+  assert.equal(normalized.artifactContext?.kind, "selected_angle");
+  assert.equal(
+    normalized.artifactContext?.kind === "selected_angle"
+      ? normalized.artifactContext.supportAsset
+      : null,
+    "Image anchor: analytics dashboard on a laptop.",
+  );
+  assert.equal(
+    normalized.orchestrationMessage,
+    "use this image context as grounding:\nImage anchor: analytics dashboard on a laptop.\n\ndraft a post from this chosen direction in the user's voice: screenshots like this outperform polished launch art because the proof feels real",
+  );
+});
+
 test("legacy selectedAngle payloads still normalize into ideation picks during migration", () => {
   const normalized = normalizeChatTurn({
     body: {

@@ -89,6 +89,29 @@ test("controller analyze actions map into analyze_post even though the classifie
   assert.equal(result.source, "controller");
 });
 
+test("bare draft requests bypass conversational controller fallbacks and stay in plan_then_draft", async () => {
+  const result = await resolveRuntimeAction({
+    explicitIntent: null,
+    turnPlan: null,
+    userMessage: "write a post",
+    recentHistory: "",
+    memory: buildMemory({
+      topicSummary: "hiring systems",
+      concreteAnswerCount: 3,
+    }),
+    controlTurnImpl: async () => ({
+      action: "answer",
+      needs_memory_update: false,
+      confidence: 0.98,
+      rationale: "incorrect conversational fallback",
+    }),
+  });
+
+  assert.equal(result.workflow, "plan_then_draft");
+  assert.equal(result.classifiedIntent, "plan");
+  assert.equal(result.decision.action, "plan");
+});
+
 test("mapIntentToRuntimeWorkflow keeps edit/review inside revise_draft", () => {
   assert.equal(
     mapIntentToRuntimeWorkflow({
