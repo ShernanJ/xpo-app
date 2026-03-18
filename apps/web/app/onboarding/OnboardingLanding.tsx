@@ -386,6 +386,13 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
   const visibleFaqItems = monetizationEnabled
     ? FAQ_ITEMS
     : FAQ_ITEMS.filter((item) => item.question !== "Can I switch plans later?");
+
+  function toggleFaq(index: number) {
+    setOpenFaqIndexes((current) =>
+      current.includes(index) ? current.filter((item) => item !== index) : [...current, index],
+    );
+  }
+
   const autofillStyles = (
     <style jsx>{`
       .landingAccountInput:-webkit-autofill,
@@ -1806,46 +1813,48 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
           <div className="mt-6 space-y-3">
             {visibleFaqItems.map((item, index) => {
               const isOpen = openFaqIndexes.includes(index);
+              const faqAnswerId = `landing-faq-answer-${index}`;
               return (
                 <motion.article
                   key={item.question}
                   whileHover={LANDING_CARD_HOVER}
-                  className="landing-card-motion rounded-2xl border border-white/10 bg-black/20 px-5 py-4"
+                  className="landing-card-motion rounded-2xl border border-white/10 bg-black/20"
                 >
                   <button
                     type="button"
-                    onClick={() => {
-                      setOpenFaqIndexes((current) =>
-                        current.includes(index)
-                          ? current.filter((item) => item !== index)
-                          : [...current, index],
-                      );
-                    }}
-                    className="flex w-full items-center justify-between gap-4 text-left"
+                    onClick={() => toggleFaq(index)}
+                    aria-expanded={isOpen}
+                    aria-controls={faqAnswerId}
+                    className="w-full rounded-2xl px-5 py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                   >
-                    <span className="text-sm font-semibold text-white">{item.question}</span>
-                    <motion.span
-                      animate={{ rotate: isOpen ? 45 : 0 }}
-                      transition={{ duration: 0.2, ease: "easeOut" }}
-                      className="text-lg leading-none text-zinc-400"
-                    >
-                      +
-                    </motion.span>
-                  </button>
-                  <AnimatePresence initial={false}>
-                    {isOpen ? (
-                      <motion.div
-                        key="faq-answer"
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: "auto", opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.24, ease: "easeOut" }}
-                        className="overflow-hidden"
+                    <span className="flex items-center justify-between gap-4">
+                      <span className="text-sm font-semibold text-white">{item.question}</span>
+                      <motion.span
+                        animate={{ rotate: isOpen ? 45 : 0 }}
+                        transition={{ duration: 0.2, ease: "easeOut" }}
+                        className="text-lg leading-none text-zinc-400"
                       >
-                        <p className="mt-3 text-sm leading-6 text-zinc-300">{item.answer}</p>
-                      </motion.div>
-                    ) : null}
-                  </AnimatePresence>
+                        +
+                      </motion.span>
+                    </span>
+                    <AnimatePresence initial={false}>
+                      {isOpen ? (
+                        <motion.span
+                          id={faqAnswerId}
+                          key="faq-answer"
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.24, ease: "easeOut" }}
+                          className="block overflow-hidden"
+                        >
+                          <span className="mt-3 block text-sm leading-6 text-zinc-300">
+                            {item.answer}
+                          </span>
+                        </motion.span>
+                      ) : null}
+                    </AnimatePresence>
+                  </button>
                 </motion.article>
               );
             })}
