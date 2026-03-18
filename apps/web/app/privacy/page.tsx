@@ -17,7 +17,7 @@ export default function PrivacyPage() {
   const monetizationEnabled = isMonetizationEnabled();
 
   return (
-    <main className="page-safe-inset min-h-app-screen bg-black text-white">
+    <main className="min-h-screen bg-black px-6 py-12 text-white">
       <div className="mx-auto w-full max-w-3xl">
         <BackHomeButton className="mb-5" />
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">

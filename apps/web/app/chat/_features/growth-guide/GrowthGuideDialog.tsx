@@ -101,7 +101,7 @@ export function GrowthGuideDialog(props: GrowthGuideDialogProps) {
         }
       }}
     >
-      <div className="relative my-auto flex w-full max-w-5xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-4rem)]">
+      <div className="relative my-auto flex w-full max-w-5xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]">
         <div className="space-y-4 border-b border-white/10 px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
@@ -343,7 +343,7 @@ export function GrowthGuideDialog(props: GrowthGuideDialogProps) {
                     <div className="flex items-center gap-3">
                       <List className="h-4 w-4 text-zinc-500" />
                       <div>
-                        <p className="text-sm font-semibold text-white">Today&apos;s checklist</p>
+                        <p className="text-sm font-semibold text-white">Today's checklist</p>
                         <p className="text-xs text-zinc-500">Daily + weekly loop to keep reps high.</p>
                       </div>
                     </div>

@@ -1247,7 +1247,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
           initial="hidden"
           animate="visible"
           variants={sectionReveal(0.08)}
-          className={`relative mx-auto flex min-h-app-screen w-full max-w-5xl flex-col justify-start gap-8 pt-2 transition-all duration-700 ease-out sm:pt-4 ${
+          className={`relative mx-auto flex min-h-screen w-full max-w-5xl flex-col justify-start gap-8 pt-2 transition-all duration-700 ease-out sm:pt-4 ${
             isLaunchingLoading
               ? "translate-y-2 scale-[0.99] opacity-0 blur-[2px]"
               : "translate-y-0 scale-100 opacity-100 blur-0"

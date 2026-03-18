@@ -90,7 +90,7 @@ export function ChatSidebar() {
         }`}
       >
         {sidebarOpen ? (
-          <div className="chat-sidebar-safe-top flex items-center px-3 pb-4">
+          <div className="flex items-center px-3 py-4">
             <button
               type="button"
               onClick={onCloseSidebar}
@@ -299,10 +299,7 @@ export function ChatSidebar() {
         </div>
 
         {sidebarOpen ? (
-          <div
-            ref={accountMenuRef}
-            className="chat-sidebar-safe-bottom relative border-t border-white/10 px-3 pt-4"
-          >
+          <div ref={accountMenuRef} className="relative border-t border-white/10 px-3 py-4">
             <button
               type="button"
               onClick={onToggleAccountMenu}

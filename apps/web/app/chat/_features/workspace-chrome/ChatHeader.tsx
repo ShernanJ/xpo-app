@@ -16,7 +16,7 @@ export function ChatHeader() {
   } = useChatHeaderChrome();
 
   return (
-    <header className="chat-header-safe shrink-0 border-b border-white/10 px-4 pb-3 sm:px-6">
+    <header className="shrink-0 border-b border-white/10 px-4 py-3 sm:px-6">
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <button
