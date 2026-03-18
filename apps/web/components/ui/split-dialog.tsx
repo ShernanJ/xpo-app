@@ -211,7 +211,7 @@ export function SplitDialog(props: SplitDialogProps) {
         tabIndex={-1}
         className={
           panelClassName ??
-          "fixed left-1/2 top-1/2 flex w-full max-w-[1600px] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#0B0B0B] shadow-[0_32px_120px_rgba(0,0,0,0.58)] focus:outline-none md:w-[calc(100dvw-32px)] lg:w-5/6"
+          "fixed inset-x-2 bottom-2 top-2 flex flex-col overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#0B0B0B] shadow-[0_32px_120px_rgba(0,0,0,0.58)] focus:outline-none sm:inset-x-4 sm:bottom-4 sm:top-4 sm:rounded-[1.75rem] md:bottom-auto md:left-1/2 md:top-1/2 md:w-[calc(100dvw-32px)] md:max-w-[1600px] md:-translate-x-1/2 md:-translate-y-1/2 lg:w-5/6"
         }
       >
         <div className="sr-only">
@@ -227,7 +227,7 @@ export function SplitDialog(props: SplitDialogProps) {
           ref={panesRef}
           style={panesStyle}
           className={[
-            "relative grid h-[calc(100dvh-2rem)] min-h-0 grid-cols-1 md:h-[min(80dvh,820px)]",
+            "relative grid min-h-0 flex-1 grid-cols-1 md:h-[min(80dvh,820px)]",
             resizable
               ? "md:[grid-template-columns:var(--split-left-pane-width)_minmax(0,1fr)]"
               : "md:grid-cols-[minmax(320px,44%)_minmax(0,1fr)]",

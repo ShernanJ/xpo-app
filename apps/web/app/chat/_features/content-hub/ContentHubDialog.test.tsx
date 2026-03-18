@@ -316,6 +316,63 @@ test("keeps the search bar and browse-mode controls visible after selecting a pr
   expect(screen.getAllByRole("button", { name: "Group" }).length).toBeGreaterThan(0);
 });
 
+test("renders a single mobile back action in the header while previewing a draft", async () => {
+  const user = userEvent.setup();
+  const fetchWorkspace = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const method = init?.method ?? "GET";
+
+    if (method === "GET" && url === "/api/creator/v2/content") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          items: [
+            buildItem({
+              id: "draft_mobile_header",
+              title: "Mobile header draft",
+              status: "DRAFT",
+              createdAt: buildRelativeIso(0),
+              content: "Keep the mobile back action in the dialog header.",
+            }),
+          ],
+        },
+      });
+    }
+
+    if (method === "GET" && url === "/api/creator/v2/folders") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          folders: [],
+        },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${method} ${url}`);
+  });
+
+  render(
+    <ContentHubDialog
+      open
+      onOpenChange={vi.fn()}
+      fetchWorkspace={fetchWorkspace}
+      initialHandle="standev"
+      identity={{
+        displayName: "Stanley",
+        username: "standev",
+        avatarUrl: null,
+      }}
+      isVerifiedAccount
+    />,
+  );
+
+  expect(await screen.findByText("Mobile header draft")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /Mobile header draft/i }));
+
+  expect(screen.getAllByRole("button", { name: "Back to content list" })).toHaveLength(1);
+  expect(screen.getAllByRole("button", { name: "Close posts and threads" })).toHaveLength(2);
+});
+
 test("moves a card between status columns with drag and drop", async () => {
   const user = userEvent.setup();
   const fetchWorkspace = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {

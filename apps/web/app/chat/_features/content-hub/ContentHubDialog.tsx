@@ -265,8 +265,9 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
     () => groupContentItemsByGroup(filteredItems, sortedFolders),
     [filteredItems, sortedFolders],
   );
+  const isPreviewPaneVisibleOnMobile = mobilePane === "preview" && Boolean(selectedItem);
   const mobileDialogPane =
-    mobilePane === "preview" && selectedItem ? "right" : "left";
+    isPreviewPaneVisibleOnMobile ? "right" : "left";
   const selectedItemAction = selectedItem ? actionById[selectedItem.id] ?? null : null;
 
   useEffect(() => {
@@ -420,7 +421,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
   }
 
   const viewModeToggle = (
-    <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1">
+    <div className="flex w-full items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1 md:w-auto">
       {VIEW_MODE_OPTIONS.map((option) => {
         const Icon = option.icon;
 
@@ -429,7 +430,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
             key={option.value}
             type="button"
             onClick={() => setViewMode(option.value)}
-            className={`inline-flex items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+            className={`inline-flex flex-1 items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition md:flex-none ${
               viewMode === option.value
                 ? "bg-white text-black"
                 : "text-zinc-400 hover:text-white"
@@ -443,20 +444,55 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
     </div>
   );
 
+  function renderBackButton() {
+    return (
+      <button
+        type="button"
+        onClick={showBrowsePane}
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-400 transition hover:bg-white/[0.05] hover:text-white"
+        aria-label="Back to content list"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </button>
+    );
+  }
+
+  function renderCloseButton(className?: string) {
+    return (
+      <button
+        type="button"
+        onClick={() => onOpenChange(false)}
+        className={[
+          "h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-400 transition hover:bg-white/[0.05] hover:text-white",
+          className ?? "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        aria-label="Close posts and threads"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    );
+  }
+
   const headerSlot = (
     <div className="py-3">
-      <div className="flex items-center gap-3">
-        {mobilePane === "preview" && selectedItem ? (
-          <button
-            type="button"
-            onClick={showBrowsePane}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-zinc-400 transition hover:bg-white/[0.05] hover:text-white md:hidden"
-            aria-label="Back to content list"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-        ) : null}
+      <div className="flex items-center justify-between gap-3 md:hidden">
+        <div className="flex min-w-0 items-center gap-2">
+          {isPreviewPaneVisibleOnMobile ? renderBackButton() : null}
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-white">Posts &amp; Threads</p>
+            <p className="text-[11px] text-zinc-500">
+              {isPreviewPaneVisibleOnMobile
+                ? "Preview your selected draft"
+                : "Browse and organize drafts"}
+            </p>
+          </div>
+        </div>
+        {renderCloseButton("inline-flex")}
+      </div>
 
+      <div className="mt-3 flex items-center gap-3 md:mt-0">
         <div className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2">
           <Search className="h-4 w-4 shrink-0 text-zinc-500" />
           <input
@@ -470,14 +506,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
 
         <div className="hidden md:flex">{viewModeToggle}</div>
 
-        <button
-          type="button"
-          onClick={() => onOpenChange(false)}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full text-zinc-400 transition hover:bg-white/[0.05] hover:text-white"
-          aria-label="Close posts and threads"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        {renderCloseButton("hidden md:inline-flex")}
       </div>
 
       <div className="mt-3 md:hidden">{viewModeToggle}</div>
@@ -621,14 +650,6 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div className="min-w-0 flex-[999_1_18rem]">
                         <div className="flex items-start gap-2">
-                          <button
-                            type="button"
-                            onClick={showBrowsePane}
-                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-zinc-400 transition hover:bg-white/[0.05] hover:text-white md:hidden"
-                            aria-label="Back to content list"
-                          >
-                            <ChevronLeft className="h-4 w-4" />
-                          </button>
                           <h3 className="min-w-0 flex-1 text-lg font-semibold text-white">
                             {selectedItem.title}
                           </h3>
@@ -731,7 +752,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                     onClick={() => onOpenChange(false)}
                     aria-label="Open in Chat"
                     title="Open in Chat"
-                    className="absolute bottom-4 right-4 z-10 inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-[#101010]/95 text-zinc-200 shadow-[0_12px_30px_rgba(0,0,0,0.45)] transition hover:bg-white/[0.08] hover:text-white"
+                    className="absolute bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-10 inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-[#101010]/95 text-zinc-200 shadow-[0_12px_30px_rgba(0,0,0,0.45)] transition hover:bg-white/[0.08] hover:text-white"
                   >
                     <ExternalLink className="h-4 w-4" />
                     <span className="sr-only">Open in Chat</span>
@@ -743,7 +764,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                     rel="noreferrer"
                     aria-label="View Live Post"
                     title="View Live Post"
-                    className="absolute bottom-4 right-4 z-10 inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-[#101010]/95 text-zinc-200 shadow-[0_12px_30px_rgba(0,0,0,0.45)] transition hover:bg-white/[0.08] hover:text-white"
+                    className="absolute bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-10 inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-[#101010]/95 text-zinc-200 shadow-[0_12px_30px_rgba(0,0,0,0.45)] transition hover:bg-white/[0.08] hover:text-white"
                   >
                     <ExternalLink className="h-4 w-4" />
                     <span className="sr-only">View Live Post</span>

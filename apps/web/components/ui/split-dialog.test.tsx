@@ -89,3 +89,25 @@ test("renders a resize handle when the split dialog is resizable", () => {
 
   expect(screen.getByTestId("split-dialog-resize-handle")).toBeInTheDocument();
 });
+
+test("uses viewport insets on mobile so header and footer controls stay inside the panel", () => {
+  render(
+    <SplitDialog
+      open
+      onOpenChange={vi.fn()}
+      title="Mobile sizing"
+      headerSlot={<div>Header</div>}
+      leftPane={<div>Browse pane</div>}
+      rightPane={<div>Preview pane</div>}
+      footerSlot={<div>Footer</div>}
+    />,
+  );
+
+  const dialog = screen.getByRole("dialog", { name: "Mobile sizing" });
+  const browsePane = screen.getByText("Browse pane");
+  const paneGrid = browsePane.closest("section")?.parentElement;
+
+  expect(dialog.className).toContain("top-2");
+  expect(dialog.className).toContain("bottom-2");
+  expect(paneGrid?.className).toContain("flex-1");
+});
