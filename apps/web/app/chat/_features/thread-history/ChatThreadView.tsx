@@ -52,56 +52,58 @@ export function ChatThreadView(props: ChatThreadViewProps) {
           </div>
         ) : (
           <div className={threadContentTransitionClassName}>
-            {errorMessage ? (
-              <div className="rounded-3xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-                {errorMessage}
-              </div>
-            ) : null}
+            <div className="mx-auto w-full max-w-4xl">
+              {errorMessage ? (
+                <div className="rounded-3xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+                  {errorMessage}
+                </div>
+              ) : null}
 
-            {statusMessage ? (
-              <div className="rounded-3xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-zinc-200">
-                {statusMessage}
-              </div>
-            ) : null}
+              {statusMessage ? (
+                <div className="rounded-3xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-zinc-200">
+                  {statusMessage}
+                </div>
+              ) : null}
 
-            {showBillingWarningBanner ? (
-              <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-zinc-300">
-                    <span
-                      className={`mr-2 inline-block h-1.5 w-1.5 rounded-full align-middle ${
-                        billingWarningLevel === "critical" ? "bg-rose-300" : "bg-amber-300"
-                      }`}
-                    />
-                    {billingWarningLevel === "critical"
-                      ? "Critical credits remaining."
-                      : "Low credits remaining."}{" "}
-                    <span className="text-zinc-500">({billingCreditsLabel})</span>
-                  </p>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={onOpenPricing}
-                      className="inline-flex items-center gap-1 rounded-full border border-white/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-200 transition hover:bg-white/[0.06] hover:text-white"
-                    >
-                      Upgrade
-                      <ArrowUpRight className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onDismissBillingWarning}
-                      className="inline-flex h-6 w-6 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-zinc-200"
-                      aria-label="Dismiss billing warning"
-                    >
-                      ×
-                    </button>
+              {showBillingWarningBanner ? (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-zinc-300">
+                      <span
+                        className={`mr-2 inline-block h-1.5 w-1.5 rounded-full align-middle ${
+                          billingWarningLevel === "critical" ? "bg-rose-300" : "bg-amber-300"
+                        }`}
+                      />
+                      {billingWarningLevel === "critical"
+                        ? "Critical credits remaining."
+                        : "Low credits remaining."}{" "}
+                      <span className="text-zinc-500">({billingCreditsLabel})</span>
+                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={onOpenPricing}
+                        className="inline-flex items-center gap-1 rounded-full border border-white/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-200 transition hover:bg-white/[0.06] hover:text-white"
+                      >
+                        Upgrade
+                        <ArrowUpRight className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onDismissBillingWarning}
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-full text-zinc-500 transition hover:bg-white/[0.05] hover:text-zinc-200"
+                        aria-label="Dismiss billing warning"
+                      >
+                        ×
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
 
-            {hero}
-            {threadContent}
+              {hero}
+              {threadContent}
+            </div>
           </div>
         )}
       </div>

@@ -27,7 +27,7 @@ export function ChatComposerDock() {
     <div className={dockComposerWrapperClassName}>
       <div className="mx-auto w-full max-w-4xl px-4 pb-6 pt-4 sm:px-6 sm:pb-8">
         {showScrollToLatest && !shouldCenterHero ? (
-          <div className="mb-3 flex justify-end">
+          <div className="mb-3 flex justify-center">
             <button
               type="button"
               onClick={onScrollToBottom}

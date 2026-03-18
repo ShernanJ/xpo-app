@@ -48,7 +48,7 @@ function AssistantTypingBubble(props: { label?: string | null }) {
 
   return (
     <div
-      className="max-w-[88%] px-0 py-1 text-zinc-100"
+      className="w-full px-0 py-1 text-zinc-100"
       aria-live="polite"
       aria-label="Assistant is typing"
     >
@@ -75,7 +75,7 @@ function PendingDraftShell(props: { progress: AgentProgressRun }) {
 
   return (
     <div
-      className="max-w-[88%] px-4 py-3 text-zinc-100 animate-fade-in-slide-up"
+      className="w-full px-4 py-3 text-zinc-100 animate-fade-in-slide-up"
       aria-live="polite"
       aria-label={title}
     >
@@ -309,7 +309,7 @@ export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
       {activeAgentProgress?.phase === "active" && activePendingDraftWorkflow ? (
         <PendingDraftShell progress={activeAgentProgress} />
       ) : activeAgentProgress ? (
-        <div className="max-w-[88%] px-0 py-1 text-zinc-100">
+        <div className="w-full px-0 py-1 text-zinc-100">
           <AgentProgressCard progress={activeAgentProgress} variant="bubble" />
         </div>
       ) : null}

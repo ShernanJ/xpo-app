@@ -22,12 +22,12 @@ export function ChatMessageRow(props: ChatMessageRowProps) {
   const roleClassName =
     props.role === "assistant"
       ? "text-zinc-100"
-      : "ml-auto w-fit rounded-[1.15rem] bg-[#202327] px-4 py-2 text-white";
+      : "ml-auto w-fit max-w-[88%] rounded-[1.15rem] bg-[#202327] px-4 py-2 text-white";
 
   return (
     <div
       ref={(node) => props.onRegisterRef(props.messageId, node)}
-      className={`${spacingClassName} group relative max-w-[88%] px-4 py-3 text-sm leading-8 animate-fade-in-slide-up`}
+      className={`${spacingClassName} group relative w-full px-4 py-3 text-sm leading-8 animate-fade-in-slide-up`}
       style={{
         contentVisibility: "auto",
         containIntrinsicSize: props.role === "assistant" ? "0 320px" : "0 72px",
