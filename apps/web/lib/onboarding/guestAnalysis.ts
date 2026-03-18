@@ -1,3 +1,11 @@
+import {
+  PLAYBOOK_LIBRARY,
+  PLAYBOOK_STAGE_META,
+  buildRecommendedPlaybooksFromSignals,
+  type PlaybookDefinition,
+  type PlaybookStageKey,
+} from "@/lib/creator/playbooks";
+
 import { buildProfileConversionAudit } from "./profile/profileConversionAudit";
 import type { XPublicPost, XPublicProfile, XPinnedPost } from "./types";
 
@@ -11,21 +19,11 @@ export type OnboardingPreviewSource =
 
 export type GuestAnalysisStage = "0 → 1k" | "1k → 10k" | "10k → 50k" | "50k+";
 export type GuestAnalysisStatus = "pass" | "warn" | "fail" | "unknown";
-export type GuestAnalysisEvidenceKey =
-  | "bio"
-  | "banner"
-  | "pinned_post"
-  | "recent_posts"
-  | "source_coverage";
-export type GuestAnalysisPriorityKey =
-  | "bio"
-  | "banner"
-  | "pinned_post"
-  | "recent_posts"
-  | "stage";
+export type GuestAnalysisSurfaceCheckKey = "bio" | "banner" | "pinned_post" | "recent_posts";
+export type GuestAnalysisPriorityKey = "bio" | "banner" | "pinned_post" | "recent_posts";
 
-export interface GuestAnalysisEvidence {
-  key: GuestAnalysisEvidenceKey;
+export interface GuestAnalysisSurfaceCheck {
+  key: GuestAnalysisSurfaceCheckKey;
   label: string;
   status: GuestAnalysisStatus;
   summary: string;
@@ -36,75 +34,57 @@ export interface GuestAnalysisPriority {
   status: GuestAnalysisStatus;
   title: string;
   why: string;
-  howXpoHelps: string;
 }
 
-export interface GuestAnalysisCoverage {
-  source: OnboardingPreviewSource;
-  hasRecentPosts: boolean;
-  recentPostCount: number;
-  hasPinnedPost: boolean;
-  hasHeaderImage: boolean;
-  completeness: "full" | "partial";
-  summary: string;
+export interface GuestOnboardingProfileAudit {
+  score: number;
+  headline: string;
+  surfaceChecks: GuestAnalysisSurfaceCheck[];
+  strengths: string[];
+  gaps: string[];
+  unknowns: string[];
 }
 
-export interface GuestAnalysisVoicePreview {
-  shortform: string;
-  longform: string;
+export interface GuestOnboardingPlaybookGuide {
+  stageMeta: {
+    label: string;
+    highlight: string;
+    winCondition: string;
+    priorities: string[];
+    contentMix: {
+      replies: number;
+      posts: number;
+      threads: number;
+    };
+  };
+  recommendedPlaybook: {
+    id: string;
+    name: string;
+    outcome: string;
+    whyFit: string;
+    loop: PlaybookDefinition["loop"];
+    quickStart: string[];
+    checklist: {
+      daily: string[];
+      weekly: string[];
+    };
+  };
 }
 
 export interface GuestOnboardingAnalysis {
   profile: XPublicProfile;
   stage: GuestAnalysisStage;
+  playbookStage: PlaybookStageKey;
   verdict: string;
-  coverage: GuestAnalysisCoverage;
-  evidence: GuestAnalysisEvidence[];
+  profileAudit: GuestOnboardingProfileAudit;
   priorities: GuestAnalysisPriority[];
   profileSnapshot: {
     pinnedPost: XPinnedPost | null;
     recentPosts: XPublicPost[];
   };
-  voicePreview: GuestAnalysisVoicePreview;
-  source: OnboardingPreviewSource;
+  playbookGuide: GuestOnboardingPlaybookGuide;
+  dataNotice: string | null;
 }
-
-const STAGE_METADATA: Record<
-  GuestAnalysisStage,
-  {
-    focus: string;
-    executionPriority: string;
-    stageSupportLine: string;
-  }
-> = {
-  "0 → 1k": {
-    focus: "Distribution + proof",
-    executionPriority: "Build a profile people can classify instantly, then repeat one or two clear lanes.",
-    stageSupportLine:
-      "Xpo keeps early-stage accounts focused on profile clarity, repeatable lanes, and reply-led distribution.",
-  },
-  "1k → 10k": {
-    focus: "Retention + positioning",
-    executionPriority:
-      "Sharpen the positioning so profile visits and recent posts reinforce the same promise.",
-    stageSupportLine:
-      "Xpo helps mid-stage accounts turn scattered traction into stronger positioning, better hooks, and clearer recall.",
-  },
-  "10k → 50k": {
-    focus: "Depth + leverage",
-    executionPriority:
-      "Turn the strongest ideas into repeatable signature takes, sequels, and higher-leverage profile assets.",
-    stageSupportLine:
-      "Xpo pushes growth-stage accounts toward stronger authority signals, deeper pillars, and clearer sequel loops.",
-  },
-  "50k+": {
-    focus: "Product + ecosystem",
-    executionPriority:
-      "Make the profile and pinned assets point clearly toward the offer, product, or ecosystem you want to compound.",
-    stageSupportLine:
-      "Xpo helps larger accounts connect profile conversion surfaces to launches, offers, and ecosystem growth.",
-  },
-};
 
 const STOPWORDS = new Set([
   "about",
@@ -165,29 +145,33 @@ function tokenize(value: string): string[] {
     .filter((token) => token.length >= 4 && !STOPWORDS.has(token));
 }
 
-function resolvePlaybookStage(followersCount: number): GuestAnalysisStage {
+function resolvePlaybookStage(followersCount: number): PlaybookStageKey {
   if (followersCount < 1_000) {
-    return "0 → 1k";
+    return "0-1k";
   }
 
   if (followersCount < 10_000) {
-    return "1k → 10k";
+    return "1k-10k";
   }
 
   if (followersCount < 50_000) {
-    return "10k → 50k";
+    return "10k-50k";
   }
 
   return "50k+";
 }
 
-function clampPreviewCopy(text: string, maxChars: number): string {
-  const normalized = text.replace(/\s+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-  if (normalized.length <= maxChars) {
-    return normalized;
+function formatGuestStage(stage: PlaybookStageKey): GuestAnalysisStage {
+  switch (stage) {
+    case "0-1k":
+      return "0 → 1k";
+    case "1k-10k":
+      return "1k → 10k";
+    case "10k-50k":
+      return "10k → 50k";
+    default:
+      return "50k+";
   }
-
-  return `${normalized.slice(0, maxChars - 1).trimEnd()}...`;
 }
 
 function extractTopicHint(bio: string): string | null {
@@ -210,246 +194,6 @@ function extractTopicHint(bio: string): string | null {
     .find((segment) => segment.length >= 8 && segment.length <= 80);
 
   return candidate ? truncate(candidate, 64) : null;
-}
-
-type VoiceCasing = "lowercase" | "normal";
-
-function getDeterministicSeed(value: string): number {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) | 0;
-  }
-
-  return Math.abs(hash);
-}
-
-function pickSeededOption(options: readonly string[], seed: number, offset: number): string {
-  if (options.length === 0) {
-    return "";
-  }
-
-  return options[(seed + offset) % options.length] ?? options[0] ?? "";
-}
-
-function applyVoiceCasing(value: string, casing: VoiceCasing): string {
-  if (casing === "lowercase") {
-    return value.toLowerCase();
-  }
-
-  return value;
-}
-
-function inferVoiceCasing(profile: XPublicProfile, recentPosts: XPublicPost[]): VoiceCasing {
-  const samples = recentPosts
-    .map((post) => post.text)
-    .filter(Boolean)
-    .slice(0, 8);
-
-  if (samples.length === 0 && profile.bio) {
-    samples.push(profile.bio);
-  }
-
-  let alphaCount = 0;
-  let lowercaseCount = 0;
-
-  for (const sample of samples) {
-    for (const character of sample) {
-      if (!/[a-z]/i.test(character)) {
-        continue;
-      }
-
-      alphaCount += 1;
-      if (character === character.toLowerCase()) {
-        lowercaseCount += 1;
-      }
-    }
-  }
-
-  if (alphaCount < 40) {
-    return "normal";
-  }
-
-  return lowercaseCount / alphaCount >= 0.82 ? "lowercase" : "normal";
-}
-
-function normalizePostSample(text: string): string {
-  return text
-    .replace(/https?:\/\/\S+/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function extractLeadSample(recentPosts: XPublicPost[]): string | null {
-  for (const post of recentPosts.slice(0, 8)) {
-    const normalized = normalizePostSample(post.text);
-    if (!normalized) {
-      continue;
-    }
-
-    const candidate = normalized.split("\n")[0]?.split(/[.!?]/)[0]?.trim() ?? "";
-    if (candidate.length < 18 || candidate.length > 90) {
-      continue;
-    }
-
-    return candidate;
-  }
-
-  return null;
-}
-
-function detectCommentCtaKeyword(recentPosts: XPublicPost[], bio: string): string | null {
-  const invalidKeywords = new Set([
-    "below",
-    "this",
-    "that",
-    "here",
-    "there",
-    "link",
-    "it",
-    "me",
-    "yes",
-    "done",
-  ]);
-  const keywordPattern =
-    /\b(?:comment|reply)\s+["'“”]?([A-Za-z0-9]{2,20})["'“”]?(?:\s|$)/i;
-
-  for (const post of recentPosts.slice(0, 12)) {
-    const text = post.text ?? "";
-    const match = text.match(keywordPattern);
-    if (!match?.[1]) {
-      continue;
-    }
-
-    const keyword = match[1].replace(/[^A-Za-z0-9]/g, "");
-    if (!keyword) {
-      continue;
-    }
-
-    if (invalidKeywords.has(keyword.toLowerCase())) {
-      return "XPO";
-    }
-
-    return keyword.toUpperCase();
-  }
-
-  const hasGenericCommentCta =
-    recentPosts.some((post) => /\b(?:comment|reply)\b/i.test(post.text ?? "")) ||
-    /\bcomment\b/i.test(bio);
-  return hasGenericCommentCta ? "XPO" : null;
-}
-
-function buildVoicePreviewDraft(args: {
-  profile: XPublicProfile;
-  stage: GuestAnalysisStage;
-  focus: string;
-  recentPosts: XPublicPost[];
-}): GuestAnalysisVoicePreview {
-  const { profile, stage, focus, recentPosts } = args;
-  const topicHint = extractTopicHint(profile.bio);
-  const casing = inferVoiceCasing(profile, recentPosts);
-  const leadSample = extractLeadSample(recentPosts);
-  const commentCtaKeyword = detectCommentCtaKeyword(recentPosts, profile.bio);
-  const seed = getDeterministicSeed(
-    `${profile.username}:${stage}:${focus}:${recentPosts.map((post) => post.id).join(",")}`,
-  );
-
-  const topicOptions = topicHint
-    ? ([
-        `I am doubling down on ${topicHint}.`,
-        `I am staying focused on ${topicHint} instead of random swings.`,
-        `I am anchoring on ${topicHint} and cutting noise.`,
-      ] as const)
-    : ([
-        "I am done posting random takes with no system.",
-        "No more guessing what to post next.",
-        "I finally have a repeatable loop instead of vibes.",
-      ] as const);
-
-  const shortOpenOptions = leadSample
-    ? ([
-        `${leadSample} - now I run that same voice through Xpo before posting.`,
-        `Still writing how I usually write (${leadSample}), but now with Xpo as my prep layer.`,
-        `${leadSample}. Xpo helps me keep that tone and ship faster.`,
-      ] as const)
-    : ([
-        "Xpo is now part of my weekly writing workflow.",
-        "I run every content sprint through Xpo first.",
-        "Before posting, I map ideas through Xpo.",
-      ] as const);
-
-  const shortMapOptions = [
-    `Xpo mapped me to ${stage} and showed me the next move to execute.`,
-    `Xpo tagged me at ${stage} and gave me a clearer priority.`,
-    `Xpo put me in ${stage} and pointed me at the highest-leverage step.`,
-  ] as const;
-  const shortCloseOptions = [
-    "Already feels less random and way more repeatable.",
-    "My output feels cleaner and I waste less time.",
-    "Less guesswork, better cadence, stronger signal.",
-  ] as const;
-
-  const longOpenOptions = [
-    "Xpo is now my pre-post check before I publish.",
-    "I run Xpo before every posting sprint.",
-    "I use Xpo as my planning layer before I write.",
-  ] as const;
-
-  const longMapOptions = [
-    `It mapped @${profile.username} to ${stage} and flagged ${focus.toLowerCase()} as the lever to push right now.`,
-    `Xpo mapped @${profile.username} to ${stage} and highlighted ${focus.toLowerCase()} as the main pressure point.`,
-    `Xpo put @${profile.username} in ${stage} and surfaced ${focus.toLowerCase()} as the priority to compound.`,
-  ] as const;
-
-  const longBodyOptions = [
-    "I am using Xpo to tighten hooks, prioritize what to ship, and keep cadence consistent.",
-    "Xpo helps me pick the next post, tighten framing, and stay on cadence.",
-    "I use Xpo to pressure-test ideas before posting so momentum compounds.",
-  ] as const;
-
-  const longSignalOptions = [
-    "Early signal is cleaner positioning and less guesswork every week.",
-    "I am seeing clearer direction and fewer wasted posts already.",
-    "It feels more intentional, and the momentum is easier to sustain.",
-  ] as const;
-
-  const longCloseOptions = [
-    "I will keep sharing results as this compounds.",
-    "Sticking with this workflow for the next month.",
-    "Going to keep shipping through Xpo and track how it compounds.",
-  ] as const;
-
-  const commentCtaLine = commentCtaKeyword
-    ? `Comment "${commentCtaKeyword}" for the app link.`
-    : null;
-
-  const shortLines = [
-    pickSeededOption(shortOpenOptions, seed, 0),
-    pickSeededOption(shortMapOptions, seed, 1),
-    pickSeededOption(topicOptions, seed, 2),
-    pickSeededOption(shortCloseOptions, seed, 3),
-    stage !== "0 → 1k" ? commentCtaLine : null,
-  ].filter((line): line is string => Boolean(line));
-
-  const longLines = [
-    pickSeededOption(longOpenOptions, seed, 0),
-    pickSeededOption(longMapOptions, seed, 1),
-    pickSeededOption(topicOptions, seed, 2),
-    pickSeededOption(longBodyOptions, seed, 3),
-    pickSeededOption(longSignalOptions, seed, 4),
-    pickSeededOption(longCloseOptions, seed, 5),
-    commentCtaLine,
-  ].filter((line): line is string => Boolean(line));
-
-  return {
-    shortform: clampPreviewCopy(
-      shortLines.map((line) => applyVoiceCasing(line, casing)).join("\n\n"),
-      250,
-    ),
-    longform: clampPreviewCopy(
-      longLines.map((line) => applyVoiceCasing(line, casing)).join("\n"),
-      700,
-    ),
-  };
 }
 
 function extractDominantKeywords(recentPosts: XPublicPost[]): string[] {
@@ -507,25 +251,25 @@ function buildStrategyTerms(knownFor: string, targetAudience: string, contentPil
   );
 }
 
-function buildRecentPostEvidence(args: {
+function buildRecentPostSurfaceCheck(args: {
   recentPosts: XPublicPost[];
   knownFor: string;
   targetAudience: string;
   contentPillars: string[];
-}): GuestAnalysisEvidence {
+}): GuestAnalysisSurfaceCheck {
   const { recentPosts } = args;
   if (recentPosts.length === 0) {
     return {
       key: "recent_posts",
       label: "Recent posts",
       status: "unknown",
-      summary: "Recent-post coherence could not be checked yet because no scrape capture is available.",
+      summary: "Recent-post coherence could not be checked because no recent-post snapshot is available yet.",
     };
   }
 
   const strategyTerms = buildStrategyTerms(args.knownFor, args.targetAudience, args.contentPillars);
   const matchingPosts = recentPosts.filter((post) =>
-    strategyTerms.some((term) => term && post.text.toLowerCase().includes(term.toLowerCase())),
+    strategyTerms.some((term) => term && (post.text ?? "").toLowerCase().includes(term.toLowerCase())),
   );
   const coherenceRate = matchingPosts.length / recentPosts.length;
 
@@ -534,7 +278,7 @@ function buildRecentPostEvidence(args: {
       key: "recent_posts",
       label: "Recent posts",
       status: "pass",
-      summary: `${matchingPosts.length} of the last ${recentPosts.length} posts reinforce the same positioning model.`,
+      summary: `${matchingPosts.length} of the last ${recentPosts.length} posts reinforce the same positioning.`,
     };
   }
 
@@ -543,7 +287,7 @@ function buildRecentPostEvidence(args: {
       key: "recent_posts",
       label: "Recent posts",
       status: "warn",
-      summary: `Recent posts show partial coherence, but only ${matchingPosts.length} of the last ${recentPosts.length} clearly reinforce the profile promise.`,
+      summary: `The timeline is partially aligned, but only ${matchingPosts.length} of the last ${recentPosts.length} posts reinforce the profile promise.`,
     };
   }
 
@@ -551,82 +295,57 @@ function buildRecentPostEvidence(args: {
     key: "recent_posts",
     label: "Recent posts",
     status: "fail",
-    summary: `Only ${matchingPosts.length} of the last ${recentPosts.length} posts clearly ladder back to the positioning this profile is trying to convert.`,
+    summary: `Only ${matchingPosts.length} of the last ${recentPosts.length} posts clearly ladder back to the profile positioning.`,
   };
 }
 
-function buildCoverage(args: {
-  source: OnboardingPreviewSource;
-  profile: XPublicProfile;
-  pinnedPost: XPinnedPost | null;
+function buildDataNotice(args: {
   recentPosts: XPublicPost[];
-}): GuestAnalysisCoverage {
-  const { source, profile, pinnedPost, recentPosts } = args;
+  pinnedPost: XPinnedPost | null;
+}): string | null {
+  const { recentPosts, pinnedPost } = args;
   const hasRecentPosts = recentPosts.length > 0;
   const hasPinnedPost = Boolean(pinnedPost);
-  const hasHeaderImage = Boolean(profile.headerImageUrl);
-  const completeness = hasRecentPosts ? "full" : "partial";
-  let summary = `Using ${source === "cache" ? "live profile fields plus scrape cache" : "live profile fields"} `;
 
   if (hasRecentPosts && hasPinnedPost) {
-    summary += `with ${recentPosts.length} recent posts and a pinned post in view.`;
-  } else if (hasRecentPosts) {
-    summary += `with ${recentPosts.length} recent posts, but pinned-post coverage is limited.`;
-  } else {
-    summary += "without recent-post or pinned-post coverage yet.";
+    return null;
   }
 
-  return {
-    source,
-    hasRecentPosts,
-    recentPostCount: recentPosts.length,
-    hasPinnedPost,
-    hasHeaderImage,
-    completeness,
-    summary,
-  };
-}
+  if (hasRecentPosts) {
+    return "This guide is based on live profile fields and recent posts. A pinned post was not available in the latest snapshot.";
+  }
 
-function buildSourceCoverageEvidence(coverage: GuestAnalysisCoverage): GuestAnalysisEvidence {
-  return {
-    key: "source_coverage",
-    label: "Coverage",
-    status: coverage.completeness === "full" ? "pass" : "warn",
-    summary: coverage.summary,
-  };
+  if (hasPinnedPost) {
+    return "This guide is based on live profile fields and a pinned post. Recent-post coverage was not available in the latest snapshot.";
+  }
+
+  return "This guide is based on live profile fields only. Recent posts and a pinned post were not available in the latest snapshot.";
 }
 
 function buildPriorityCandidates(args: {
-  stage: GuestAnalysisStage;
-  recentPostEvidence: GuestAnalysisEvidence;
+  recentPostSurfaceCheck: GuestAnalysisSurfaceCheck;
   audit: ReturnType<typeof buildProfileConversionAudit>;
 }): GuestAnalysisPriority[] {
-  const { stage, recentPostEvidence, audit } = args;
+  const { recentPostSurfaceCheck, audit } = args;
   const candidates: GuestAnalysisPriority[] = [];
 
   const stepToPriority = {
     bio_formula: {
       key: "bio" as const,
       title: "Sharpen the bio promise",
-      howXpoHelps:
-        "Xpo rewrites the bio into a tighter who/what/proof formula so the account is legible in one glance.",
     },
     visual_real_estate: {
       key: "banner" as const,
       title: "Upgrade the banner real estate",
-      howXpoHelps:
-        "Xpo turns the banner into a clearer value-prop surface instead of dead visual space.",
     },
     pinned_tweet: {
       key: "pinned_post" as const,
       title: "Fix the pinned-post handoff",
-      howXpoHelps:
-        "Xpo suggests the right pinned asset for this stage, usually a stronger origin story, thesis, or authority post.",
     },
   };
 
   for (const step of audit.steps) {
-    if (step.status === "pass") {
+    if (step.status === "pass" || step.status === "unknown") {
       continue;
     }
 
@@ -636,29 +355,17 @@ function buildPriorityCandidates(args: {
       status: step.status,
       title: mapping.title,
       why: step.findings[0] ?? step.summary,
-      howXpoHelps: mapping.howXpoHelps,
     });
   }
 
-  if (recentPostEvidence.status === "fail" || recentPostEvidence.status === "warn") {
+  if (recentPostSurfaceCheck.status === "fail" || recentPostSurfaceCheck.status === "warn") {
     candidates.push({
       key: "recent_posts",
-      status: recentPostEvidence.status,
+      status: recentPostSurfaceCheck.status,
       title: "Make the timeline match the profile",
-      why: recentPostEvidence.summary,
-      howXpoHelps:
-        "Xpo turns the strongest recurring ideas into repeatable pillars so profile visits and recent posts tell the same story.",
+      why: recentPostSurfaceCheck.summary,
     });
   }
-
-  const stageMeta = STAGE_METADATA[stage];
-  candidates.push({
-    key: "stage",
-    status: "pass",
-    title: `Pressure the ${stageMeta.focus.toLowerCase()} lever`,
-    why: stageMeta.executionPriority,
-    howXpoHelps: stageMeta.stageSupportLine,
-  });
 
   const statusRank: Record<GuestAnalysisStatus, number> = {
     fail: 0,
@@ -671,7 +378,6 @@ function buildPriorityCandidates(args: {
     banner: 1,
     pinned_post: 2,
     recent_posts: 3,
-    stage: 4,
   };
 
   return candidates
@@ -683,22 +389,108 @@ function buildPriorityCandidates(args: {
 }
 
 function buildVerdict(args: {
-  stage: GuestAnalysisStage;
   audit: ReturnType<typeof buildProfileConversionAudit>;
-  recentPostEvidence: GuestAnalysisEvidence;
+  recentPostSurfaceCheck: GuestAnalysisSurfaceCheck;
 }): string {
-  const { stage, audit, recentPostEvidence } = args;
-  const stageMeta = STAGE_METADATA[stage];
+  const { audit, recentPostSurfaceCheck } = args;
 
-  if (audit.score >= 76 && recentPostEvidence.status === "pass") {
-    return `${audit.headline} The profile already has a usable ${stageMeta.focus.toLowerCase()} foundation; the next upside is compounding it more intentionally.`;
+  if (audit.score >= 76 && recentPostSurfaceCheck.status === "pass") {
+    return `${audit.headline} The profile is already coherent; the next upside is compounding the strongest lane more intentionally.`;
   }
 
   if (audit.score >= 58) {
-    return `${audit.headline} For this ${stage} account, the biggest gain is tightening the profile surfaces before pushing harder on distribution.`;
+    return `${audit.headline} The clearest gain is tightening the profile surfaces before pushing harder on distribution.`;
   }
 
-  return `${audit.headline} Right now Xpo would fix the conversion leaks before asking this ${stage} account to scale output harder.`;
+  return `${audit.headline} Fix the conversion leaks before trying to scale output harder.`;
+}
+
+function buildProfileAudit(args: {
+  audit: ReturnType<typeof buildProfileConversionAudit>;
+  recentPostSurfaceCheck: GuestAnalysisSurfaceCheck;
+}): GuestOnboardingProfileAudit {
+  const { audit, recentPostSurfaceCheck } = args;
+  const strengths = audit.strengths.slice(0, 2);
+  const gaps =
+    audit.gaps.length > 0
+      ? audit.gaps.slice(0, 3)
+      : audit.steps.filter((step) => step.status !== "pass").map((step) => step.summary).slice(0, 3);
+
+  return {
+    score: audit.score,
+    headline: audit.headline,
+    surfaceChecks: [
+      {
+        key: "bio",
+        label: "Bio",
+        status: audit.bioFormulaCheck.status,
+        summary: audit.bioFormulaCheck.summary,
+      },
+      {
+        key: "banner",
+        label: "Banner",
+        status: audit.visualRealEstateCheck.status,
+        summary: audit.visualRealEstateCheck.summary,
+      },
+      {
+        key: "pinned_post",
+        label: "Pinned post",
+        status: audit.pinnedTweetCheck.status,
+        summary: audit.pinnedTweetCheck.summary,
+      },
+      recentPostSurfaceCheck,
+    ],
+    strengths:
+      strengths.length > 0
+        ? strengths
+        : ["The account already has enough visible identity to make the next profile iteration clearer."],
+    gaps,
+    unknowns: audit.unknowns.slice(0, 2),
+  };
+}
+
+function buildPlaybookGuide(args: {
+  playbookStage: PlaybookStageKey;
+  audit: GuestOnboardingProfileAudit;
+  priorities: GuestAnalysisPriority[];
+}): GuestOnboardingPlaybookGuide {
+  const { playbookStage, audit, priorities } = args;
+  const topRecommendation =
+    buildRecommendedPlaybooksFromSignals({
+      currentStage: playbookStage,
+      gapText: [audit.headline, ...audit.gaps, ...priorities.map((item) => item.why)].join(" "),
+      priorityKeys: priorities.map((item) => item.key),
+      limit: 1,
+      includeAdjacentStages: false,
+      primaryGapLabel: audit.gaps[0] ?? audit.headline,
+    })[0] ?? null;
+  const fallbackPlaybook = PLAYBOOK_LIBRARY[playbookStage][0];
+  const playbook = topRecommendation?.playbook ?? fallbackPlaybook;
+  const whyFit =
+    topRecommendation?.whyFit ??
+    `this aligns with the current ${PLAYBOOK_STAGE_META[playbookStage].label} bottleneck.`;
+
+  return {
+    stageMeta: {
+      label: PLAYBOOK_STAGE_META[playbookStage].label,
+      highlight: PLAYBOOK_STAGE_META[playbookStage].highlight,
+      winCondition: PLAYBOOK_STAGE_META[playbookStage].winCondition,
+      priorities: PLAYBOOK_STAGE_META[playbookStage].priorities,
+      contentMix: PLAYBOOK_STAGE_META[playbookStage].contentMix,
+    },
+    recommendedPlaybook: {
+      id: playbook.id,
+      name: playbook.name,
+      outcome: playbook.outcome,
+      whyFit,
+      loop: playbook.loop,
+      quickStart: playbook.quickStart.slice(0, 3),
+      checklist: {
+        daily: playbook.checklist.daily.slice(0, 3),
+        weekly: playbook.checklist.weekly.slice(0, 2),
+      },
+    },
+  };
 }
 
 export function buildGuestOnboardingAnalysis(args: {
@@ -709,8 +501,8 @@ export function buildGuestOnboardingAnalysis(args: {
 }): GuestOnboardingAnalysis {
   const recentPosts = (args.recentPosts ?? []).slice(0, 5);
   const pinnedPost = args.pinnedPost ?? null;
-  const stage = resolvePlaybookStage(args.profile.followersCount);
-  const stageMeta = STAGE_METADATA[stage];
+  const playbookStage = resolvePlaybookStage(args.profile.followersCount);
+  const stage = formatGuestStage(playbookStage);
   const knownFor = deriveKnownFor(args.profile, recentPosts);
   const targetAudience = deriveTargetAudience(args.profile, recentPosts);
   const contentPillars = deriveContentPillars(knownFor, recentPosts);
@@ -735,66 +527,43 @@ export function buildGuestOnboardingAnalysis(args: {
     } as never,
     profileAuditState: null,
   });
-  const recentPostEvidence = buildRecentPostEvidence({
+  const recentPostSurfaceCheck = buildRecentPostSurfaceCheck({
     recentPosts,
     knownFor,
     targetAudience,
     contentPillars,
   });
-  const coverage = buildCoverage({
-    source: args.source,
-    profile: args.profile,
-    pinnedPost,
-    recentPosts,
+  const profileAudit = buildProfileAudit({
+    audit,
+    recentPostSurfaceCheck,
   });
-  const evidence: GuestAnalysisEvidence[] = [
-    {
-      key: "bio",
-      label: "Bio",
-      status: audit.bioFormulaCheck.status,
-      summary: audit.bioFormulaCheck.summary,
-    },
-    {
-      key: "banner",
-      label: "Banner",
-      status: audit.visualRealEstateCheck.status,
-      summary: audit.visualRealEstateCheck.summary,
-    },
-    {
-      key: "pinned_post",
-      label: "Pinned post",
-      status: audit.pinnedTweetCheck.status,
-      summary: audit.pinnedTweetCheck.summary,
-    },
-    recentPostEvidence,
-    buildSourceCoverageEvidence(coverage),
-  ];
+  const priorities = buildPriorityCandidates({
+    recentPostSurfaceCheck,
+    audit,
+  });
 
   return {
     profile: args.profile,
     stage,
+    playbookStage,
     verdict: buildVerdict({
-      stage,
       audit,
-      recentPostEvidence,
+      recentPostSurfaceCheck,
     }),
-    coverage,
-    evidence,
-    priorities: buildPriorityCandidates({
-      stage,
-      recentPostEvidence,
-      audit,
-    }),
+    profileAudit,
+    priorities,
     profileSnapshot: {
       pinnedPost,
       recentPosts,
     },
-    voicePreview: buildVoicePreviewDraft({
-      profile: args.profile,
-      stage,
-      focus: stageMeta.focus,
-      recentPosts,
+    playbookGuide: buildPlaybookGuide({
+      playbookStage,
+      audit: profileAudit,
+      priorities,
     }),
-    source: args.source,
+    dataNotice: buildDataNotice({
+      recentPosts,
+      pinnedPost,
+    }),
   };
 }

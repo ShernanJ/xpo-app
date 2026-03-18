@@ -56,7 +56,7 @@ describe("GET /api/onboarding/analysis", () => {
     expect(payload.ok).toBe(false);
   });
 
-  test("returns analysis when preview and scrape coverage are both available", async () => {
+  test("returns the guide payload when preview and scrape data are both available", async () => {
     mocks.resolveOnboardingProfilePreview.mockResolvedValue({
       profile: createProfile(),
       source: "cache",
@@ -82,11 +82,15 @@ describe("GET /api/onboarding/analysis", () => {
 
     expect(response.status).toBe(200);
     expect(payload.ok).toBe(true);
-    expect(payload.analysis.coverage.hasRecentPosts).toBe(true);
+    expect(payload.analysis.profileAudit).toBeTruthy();
+    expect(payload.analysis.playbookGuide).toBeTruthy();
     expect(payload.analysis.profileSnapshot.pinnedPost).toBeTruthy();
+    expect(payload.analysis).not.toHaveProperty("coverage");
+    expect(payload.analysis).not.toHaveProperty("evidence");
+    expect(payload.analysis).not.toHaveProperty("voicePreview");
   });
 
-  test("returns partial analysis when only preview data exists", async () => {
+  test("returns a partial guide with unknown surface checks when only preview data exists", async () => {
     mocks.resolveOnboardingProfilePreview.mockResolvedValue({
       profile: createProfile(),
       source: "user_by_screen_name",
@@ -101,10 +105,11 @@ describe("GET /api/onboarding/analysis", () => {
 
     expect(response.status).toBe(200);
     expect(payload.ok).toBe(true);
-    expect(payload.analysis.source).toBe("user_by_screen_name");
-    expect(payload.analysis.coverage.completeness).toBe("partial");
+    expect(payload.analysis.dataNotice).toMatch(/live profile fields only/i);
     expect(
-      payload.analysis.evidence.find((item: { key: string }) => item.key === "pinned_post")?.status,
+      payload.analysis.profileAudit.surfaceChecks.find(
+        (item: { key: string }) => item.key === "pinned_post",
+      )?.status,
     ).toBe("unknown");
   });
 });

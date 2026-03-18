@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getServerSession } from "@/lib/auth/serverSession";
 import { redirect } from "next/navigation";
 
+const CHAT_BACKGROUND = "#050505";
 
 export const metadata: Metadata = {
   title: "Workspace",
@@ -20,5 +21,15 @@ export default async function ChatLayout({
     redirect("/");
   }
 
-  return <div className="[color-scheme:dark]">{children}</div>;
+  return (
+    <>
+      <style>{`
+        html,
+        body {
+          background-color: ${CHAT_BACKGROUND};
+        }
+      `}</style>
+      <div className="[color-scheme:dark]">{children}</div>
+    </>
+  );
 }

@@ -18,9 +18,9 @@ export function XShell({ children, footerContent, backgroundOverlay }: XShellPro
   const monetizationEnabled = isMonetizationEnabled();
 
   return (
-    <main className="min-h-screen bg-black text-white">
-      <div className="mx-auto min-h-screen max-w-7xl px-2 py-2 sm:px-4 sm:py-4">
-        <div className="relative flex min-h-[calc(100vh-1rem)] flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-[#050505] sm:min-h-[calc(100vh-2rem)]">
+    <main className="min-h-app-screen bg-black text-white">
+      <div className="app-shell-inset mx-auto flex min-h-app-screen max-w-7xl flex-col sm:px-4 sm:py-4">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-[#050505]">
           <div className="pointer-events-none absolute inset-0 opacity-20" style={scanlineStyle} />
           {backgroundOverlay ? (
             <div className="pointer-events-none absolute inset-0 overflow-hidden">

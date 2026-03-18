@@ -13,6 +13,10 @@
 }
 
 :root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
   --font-sans:
     "Geist Sans", "SF Pro Display", "SF Pro Text", "Helvetica Neue", "Segoe UI",
     Arial, sans-serif;
@@ -352,6 +356,42 @@ body {
 }
 
 @layer utilities {
+  .h-app-screen {
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  .min-h-app-screen {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  .app-shell-inset {
+    padding-top: calc(var(--safe-area-top) + 0.5rem);
+    padding-right: calc(var(--safe-area-right) + 0.5rem);
+    padding-bottom: calc(var(--safe-area-bottom) + 0.5rem);
+    padding-left: calc(var(--safe-area-left) + 0.5rem);
+  }
+
+  .page-safe-inset {
+    padding-top: calc(var(--safe-area-top) + 3rem);
+    padding-right: calc(var(--safe-area-right) + 1.5rem);
+    padding-bottom: calc(var(--safe-area-bottom) + 3rem);
+    padding-left: calc(var(--safe-area-left) + 1.5rem);
+  }
+
+  .chat-header-safe {
+    padding-top: calc(var(--safe-area-top) + 0.75rem);
+  }
+
+  .chat-sidebar-safe-top {
+    padding-top: calc(var(--safe-area-top) + 1rem);
+  }
+
+  .chat-sidebar-safe-bottom {
+    padding-bottom: calc(var(--safe-area-bottom) + 1rem);
+  }
+
   .scrollbar-minimal {
     color-scheme: dark;
     scrollbar-width: thin;

@@ -1,7 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { APP_DESCRIPTION, APP_NAME, APP_TAGLINE, resolveMetadataBase } from "@/lib/seo";
 import { Providers } from "@/components/providers";
+
+const APP_BACKGROUND = "#050505";
 
 export const metadata: Metadata = {
   metadataBase: resolveMetadataBase(),
@@ -65,14 +67,20 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  themeColor: APP_BACKGROUND,
+  colorScheme: "dark",
+  viewportFit: "cover",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="font-sans">
-      <body className="antialiased">
+    <html lang="en" className="bg-[#050505] font-sans">
+      <body className="bg-[#050505] antialiased">
         <Providers>{children}</Providers>
       </body>
     </html>

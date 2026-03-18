@@ -289,12 +289,12 @@ export default function PricingPageContent() {
   const isSelectedProCheckoutLoading = loadingOffer === selectedProOffer;
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-black text-white">
+    <main className="min-h-app-screen relative overflow-hidden bg-black text-white">
       <div className="pointer-events-none absolute -left-28 top-10 h-80 w-80 rounded-full bg-sky-500/10 blur-3xl animate-pulse" />
       <div className="pointer-events-none absolute -right-24 top-40 h-72 w-72 rounded-full bg-amber-400/10 blur-3xl animate-pulse" />
       <div className="pointer-events-none absolute bottom-0 left-1/3 h-64 w-64 rounded-full bg-zinc-500/10 blur-3xl animate-pulse" />
 
-      <div className="relative mx-auto w-full max-w-6xl px-6 py-12">
+      <div className="page-safe-inset relative mx-auto w-full max-w-6xl">
         <BackHomeButton className="mb-5" />
 
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">

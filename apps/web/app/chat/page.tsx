@@ -122,7 +122,7 @@ const monetizationEnabled = isMonetizationEnabled();
 export default function ChatPage() {
   return (
     <Suspense fallback={
-      <div className="flex h-screen items-center justify-center bg-[#050505] text-white">
+      <div className="min-h-app-screen flex items-center justify-center bg-[#050505] text-white">
         <div className="animate-pulse text-zinc-500">Loading workspace...</div>
       </div>
     }>
@@ -1760,7 +1760,7 @@ function ChatPageContent() {
   );
 
   return (
-    <main className="relative h-screen overflow-hidden bg-[#050505] text-white">
+    <main className="h-app-screen relative overflow-hidden bg-[#050505] text-white">
       <ChatWorkspaceCanvas
         workspaceChromeProps={{
           toolsMenuRef,

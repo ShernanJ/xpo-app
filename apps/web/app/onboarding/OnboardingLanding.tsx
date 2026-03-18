@@ -351,9 +351,6 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
   const [guestAnalysisPreview, setGuestAnalysisPreview] = useState<GuestOnboardingAnalysis | null>(
     null,
   );
-  const [voicePreviewFormat, setVoicePreviewFormat] = useState<"shortform" | "longform">(
-    "shortform",
-  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isAccountFocused, setIsAccountFocused] = useState(false);
   const [openFaqIndexes, setOpenFaqIndexes] = useState<number[]>([0]);
@@ -897,7 +894,6 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
 
   function resetGuestAnalysisPreview() {
     setGuestAnalysisPreview(null);
-    setVoicePreviewFormat("shortform");
     setIsLoading(false);
     setIsLaunchingLoading(false);
     setErrorMessage(null);
@@ -954,7 +950,6 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
     setIsLaunchingLoading(true);
     setErrorMessage(null);
     setGuestAnalysisPreview(null);
-    setVoicePreviewFormat("shortform");
     await new Promise<void>((resolve) => {
       window.setTimeout(resolve, LANDING_LOADING_TRANSITION_MS);
     });
@@ -1236,8 +1231,6 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
           <GuestAnalysisPreview
             analysis={guestAnalysisPreview}
             signupHref={`/login?${signupParams.toString()}`}
-            voicePreviewFormat={voicePreviewFormat}
-            onVoicePreviewFormatChange={setVoicePreviewFormat}
             onBack={resetGuestAnalysisPreview}
           />
           {autofillStyles}
@@ -1254,7 +1247,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
           initial="hidden"
           animate="visible"
           variants={sectionReveal(0.08)}
-          className={`relative mx-auto flex min-h-screen w-full max-w-5xl flex-col justify-start gap-8 pt-2 transition-all duration-700 ease-out sm:pt-4 ${
+          className={`relative mx-auto flex min-h-app-screen w-full max-w-5xl flex-col justify-start gap-8 pt-2 transition-all duration-700 ease-out sm:pt-4 ${
             isLaunchingLoading
               ? "translate-y-2 scale-[0.99] opacity-0 blur-[2px]"
               : "translate-y-0 scale-100 opacity-100 blur-0"
@@ -1353,7 +1346,25 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                     Enter your X Handle
                   </p>
 
-                  <form className="mt-4 space-y-3" onSubmit={handleSubmit}>
+                  <form
+                    className="mt-4 space-y-3"
+                    onSubmit={handleSubmit}
+                    autoComplete="off"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                  >
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute -left-[9999px] top-auto h-px w-px overflow-hidden opacity-0"
+                    >
+                      <input type="text" name="username" tabIndex={-1} autoComplete="username" />
+                      <input
+                        type="password"
+                        name="password"
+                        tabIndex={-1}
+                        autoComplete="current-password"
+                      />
+                    </div>
                     <div className="flex flex-col gap-4 sm:grid sm:grid-cols-[1fr_auto] sm:items-start">
                       <div className="min-w-0 flex-1">
                         <div
@@ -1369,20 +1380,27 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                             <span className="mr-2 text-lg font-medium text-zinc-500">@</span>
                             <input
                               id="account"
+                              type="text"
+                              name="x_handle_lookup"
                               value={account}
                               disabled={isLaunchingLoading}
                               onChange={(event) => {
                                 setAccount(event.target.value);
                                 setErrorMessage(null);
                                 setGuestAnalysisPreview(null);
-                                setVoicePreviewFormat("shortform");
                               }}
                               onFocus={() => setIsAccountFocused(true)}
                               onBlur={() => setIsAccountFocused(false)}
                               placeholder="username"
                               autoComplete="off"
+                              autoCorrect="off"
                               autoCapitalize="none"
                               spellCheck={false}
+                              inputMode="text"
+                              enterKeyHint="go"
+                              data-form-type="other"
+                              data-lpignore="true"
+                              data-1p-ignore="true"
                               className="landingAccountInput w-full bg-transparent text-base text-white outline-none placeholder:text-zinc-400"
                               aria-label="X username"
                             />

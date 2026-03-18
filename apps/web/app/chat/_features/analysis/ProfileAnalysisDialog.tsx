@@ -192,15 +192,16 @@ export function ProfileAnalysisDialog(props: ProfileAnalysisDialogProps) {
     onOpenGrowthGuide,
     onOpenGrowthGuideForRecommendation,
   } = props;
+  const audit = context.profileConversionAudit ?? null;
+  const defaultBioAlternativeId = audit?.bioFormulaCheck.alternatives[0]?.id ?? null;
   const [expandedPriorityIndex, setExpandedPriorityIndex] = useState<number | null>(null);
   const [selectedBioAlternativeId, setSelectedBioAlternativeId] = useState<string | null>(
-    context.profileConversionAudit?.bioFormulaCheck.alternatives[0]?.id ?? null,
+    defaultBioAlternativeId,
   );
   const [copiedBioAlternativeId, setCopiedBioAlternativeId] = useState<string | null>(null);
   const [pendingHeaderClarity, setPendingHeaderClarity] = useState<
     "clear" | "unclear" | "unsure" | null
   >(null);
-  const audit = context.profileConversionAudit ?? null;
   const selectedBioAlternative =
     audit?.bioFormulaCheck.alternatives.find(
       (alternative) => alternative.id === selectedBioAlternativeId,
@@ -209,10 +210,10 @@ export function ProfileAnalysisDialog(props: ProfileAnalysisDialogProps) {
     null;
 
   useEffect(() => {
-    setSelectedBioAlternativeId(context.profileConversionAudit?.bioFormulaCheck.alternatives[0]?.id ?? null);
+    setSelectedBioAlternativeId(defaultBioAlternativeId);
     setCopiedBioAlternativeId(null);
     setPendingHeaderClarity(null);
-  }, [context.profileConversionAudit?.fingerprint]);
+  }, [defaultBioAlternativeId, context.profileConversionAudit?.fingerprint]);
 
   if (!open) {
     return null;
@@ -227,7 +228,7 @@ export function ProfileAnalysisDialog(props: ProfileAnalysisDialogProps) {
         }
       }}
     >
-      <div className="relative my-auto flex w-full max-w-5xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]">
+      <div className="relative my-auto flex w-full max-w-5xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-4rem)]">
         <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
           <div className="flex min-w-0 items-start gap-4">
             <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-700 to-zinc-900 text-base font-semibold text-white uppercase">

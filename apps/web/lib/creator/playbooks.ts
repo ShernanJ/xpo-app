@@ -653,6 +653,172 @@ export function buildPlaybookTemplateGroups(
   return groups;
 }
 
+function buildPlaybookCandidatePool(args: {
+  currentStage: PlaybookStageKey;
+  includeAdjacentStages: boolean;
+}): Array<{ stage: PlaybookStageKey; playbook: PlaybookDefinition }> {
+  const { currentStage, includeAdjacentStages } = args;
+  const candidateStages = includeAdjacentStages
+    ? (() => {
+        const currentStageIndex = PLAYBOOK_STAGE_ORDER.indexOf(currentStage);
+        return [
+          currentStage,
+          PLAYBOOK_STAGE_ORDER[Math.min(PLAYBOOK_STAGE_ORDER.length - 1, currentStageIndex + 1)],
+          PLAYBOOK_STAGE_ORDER[Math.max(0, currentStageIndex - 1)],
+        ].filter((stage): stage is PlaybookStageKey => Boolean(stage));
+      })()
+    : [currentStage];
+
+  const candidatePool: Array<{ stage: PlaybookStageKey; playbook: PlaybookDefinition }> = [];
+  const seen = new Set<string>();
+
+  for (const stage of candidateStages) {
+    for (const playbook of PLAYBOOK_LIBRARY[stage]) {
+      const key = `${stage}:${playbook.id}`;
+      if (seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      candidatePool.push({ stage, playbook });
+    }
+  }
+
+  return candidatePool;
+}
+
+function scorePlaybookCandidate(args: {
+  playbookId: string;
+  stage: PlaybookStageKey;
+  currentStage: PlaybookStageKey;
+  gapText: string;
+  priorityKeys: string[];
+}): number {
+  const { playbookId, stage, currentStage, gapText, priorityKeys } = args;
+  let score = stage === currentStage ? 35 : 10;
+  const prioritySet = new Set(priorityKeys);
+
+  if (/\breply|conversation|discovery|reach\b/.test(gapText)) {
+    if (playbookId.includes("reply") || playbookId.includes("network")) {
+      score += 22;
+    }
+  }
+
+  if (/\bformat|topic|position|consisten|identity|clarity\b/.test(gapText)) {
+    if (playbookId.includes("weekly") || playbookId.includes("content-ip")) {
+      score += 18;
+    }
+  }
+
+  if (/\btrust|retention|community|conversion\b/.test(gapText)) {
+    if (playbookId.includes("community") || playbookId.includes("narrative")) {
+      score += 16;
+    }
+  }
+
+  if (/\bproof|story|hook\b/.test(gapText)) {
+    if (playbookId.includes("daily") || playbookId.includes("contrarian")) {
+      score += 14;
+    }
+  }
+
+  if (prioritySet.has("bio") || prioritySet.has("banner") || prioritySet.has("recent_posts")) {
+    if (playbookId.includes("weekly") || playbookId.includes("content-ip")) {
+      score += 8;
+    }
+  }
+
+  if (prioritySet.has("pinned_post")) {
+    if (
+      playbookId.includes("daily") ||
+      playbookId.includes("contrarian") ||
+      playbookId.includes("narrative")
+    ) {
+      score += 8;
+    }
+  }
+
+  if (prioritySet.has("reply_activity") || prioritySet.has("distribution")) {
+    if (playbookId.includes("reply") || playbookId.includes("network")) {
+      score += 10;
+    }
+  }
+
+  return score;
+}
+
+function buildPlaybookWhyFit(args: {
+  playbook: PlaybookDefinition;
+  primaryGapLabel: string;
+}): string {
+  const { playbook, primaryGapLabel } = args;
+  const normalizedGap = primaryGapLabel.trim().toLowerCase() || "the current growth bottleneck";
+
+  if (playbook.id.includes("reply")) {
+    return `your gap is ${normalizedGap}, and this strengthens discovery from replies.`;
+  }
+
+  if (playbook.id.includes("weekly") || playbook.id.includes("content-ip")) {
+    return "your current signals need clearer repetition, and this builds a recognizable format.";
+  }
+
+  if (playbook.id.includes("network")) {
+    return "you already have a base signal; this helps expand reach through collaboration.";
+  }
+
+  if (playbook.id.includes("daily") || playbook.id.includes("contrarian")) {
+    return "this directly sharpens proof and positioning without adding complexity.";
+  }
+
+  if (playbook.id.includes("community") || playbook.id.includes("narrative")) {
+    return "this aligns with a trust-first growth path and tighter audience retention.";
+  }
+
+  return `this targets the current gap: ${normalizedGap}.`;
+}
+
+export function buildRecommendedPlaybooksFromSignals(args: {
+  currentStage: PlaybookStageKey;
+  gapText: string;
+  priorityKeys?: string[];
+  limit?: number;
+  includeAdjacentStages?: boolean;
+  primaryGapLabel?: string;
+}): PlaybookRecommendation[] {
+  const {
+    currentStage,
+    gapText,
+    priorityKeys = [],
+    limit = 3,
+    includeAdjacentStages = true,
+    primaryGapLabel,
+  } = args;
+  const normalizedGapText = gapText.toLowerCase();
+  const candidatePool = buildPlaybookCandidatePool({
+    currentStage,
+    includeAdjacentStages,
+  });
+
+  return candidatePool
+    .map(({ stage, playbook }) => ({
+      stage,
+      playbook,
+      score: scorePlaybookCandidate({
+        playbookId: playbook.id,
+        stage,
+        currentStage,
+        gapText: normalizedGapText,
+        priorityKeys,
+      }),
+      whyFit: buildPlaybookWhyFit({
+        playbook,
+        primaryGapLabel: primaryGapLabel ?? gapText,
+      }),
+    }))
+    .sort((left, right) => right.score - left.score)
+    .slice(0, limit);
+}
+
 export function buildRecommendedPlaybooks(
   context: CreatorAgentContext | null,
   limit = 3,
@@ -662,100 +828,18 @@ export function buildRecommendedPlaybooks(
   }
 
   const currentPlaybookStage = inferCurrentPlaybookStage(context);
-  const currentStageIndex = PLAYBOOK_STAGE_ORDER.indexOf(currentPlaybookStage);
-  const stageCandidates: PlaybookStageKey[] = [
-    currentPlaybookStage,
-    PLAYBOOK_STAGE_ORDER[Math.min(PLAYBOOK_STAGE_ORDER.length - 1, currentStageIndex + 1)],
-    PLAYBOOK_STAGE_ORDER[Math.max(0, currentStageIndex - 1)],
-  ].filter((stage): stage is PlaybookStageKey => Boolean(stage));
-
-  const candidatePool: Array<{ stage: PlaybookStageKey; playbook: PlaybookDefinition }> = [];
-  const seen = new Set<string>();
-
-  for (const stage of stageCandidates) {
-    for (const playbook of PLAYBOOK_LIBRARY[stage]) {
-      const key = `${stage}:${playbook.id}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        candidatePool.push({ stage, playbook });
-      }
-    }
-  }
-
-  if (candidatePool.length < limit) {
-    for (const stage of PLAYBOOK_STAGE_ORDER) {
-      for (const playbook of PLAYBOOK_LIBRARY[stage]) {
-        const key = `${stage}:${playbook.id}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          candidatePool.push({ stage, playbook });
-        }
-      }
-    }
-  }
-
   const gapText = `${context.strategyDelta.primaryGap} ${context.strategyDelta.adjustments
     .map((item) => `${item.area} ${item.note}`)
-    .join(" ")}`.toLowerCase();
+    .join(" ")}`;
 
-  const scorePlaybook = (playbookId: string, stage: PlaybookStageKey): number => {
-    let score = stage === currentPlaybookStage ? 35 : 10;
-
-    if (/\breply|conversation|discovery|reach\b/.test(gapText)) {
-      if (playbookId.includes("reply") || playbookId.includes("network")) {
-        score += 22;
-      }
-    }
-
-    if (/\bformat|topic|position|consisten|identity|clarity\b/.test(gapText)) {
-      if (playbookId.includes("weekly") || playbookId.includes("content-ip")) {
-        score += 18;
-      }
-    }
-
-    if (/\btrust|retention|community|conversion\b/.test(gapText)) {
-      if (playbookId.includes("community") || playbookId.includes("narrative")) {
-        score += 16;
-      }
-    }
-
-    if (/\bproof|story|hook\b/.test(gapText)) {
-      if (playbookId.includes("daily") || playbookId.includes("contrarian")) {
-        score += 14;
-      }
-    }
-
-    return score;
-  };
-
-  const buildWhyFit = (playbook: PlaybookDefinition): string => {
-    if (playbook.id.includes("reply")) {
-      return `your gap is ${context.strategyDelta.primaryGap.toLowerCase()}, and this strengthens discovery from replies.`;
-    }
-    if (playbook.id.includes("weekly") || playbook.id.includes("content-ip")) {
-      return "your current signals need clearer repetition, and this builds a recognizable format.";
-    }
-    if (playbook.id.includes("network")) {
-      return "you already have a base signal; this helps expand reach through collaboration.";
-    }
-    if (playbook.id.includes("daily") || playbook.id.includes("contrarian")) {
-      return "this directly sharpens proof and positioning without adding complexity.";
-    }
-    if (playbook.id.includes("community") || playbook.id.includes("narrative")) {
-      return "this aligns with a trust-first growth path and tighter audience retention.";
-    }
-    return `this targets the current gap: ${context.strategyDelta.primaryGap.toLowerCase()}.`;
-  };
-
-  return candidatePool
-    .map(({ stage, playbook }) => ({
-      stage,
-      playbook,
-      score: scorePlaybook(playbook.id, stage),
-      whyFit: buildWhyFit(playbook),
-    }))
-    .sort((left, right) => right.score - left.score)
-    .slice(0, limit);
+  return buildRecommendedPlaybooksFromSignals({
+    currentStage: currentPlaybookStage,
+    gapText,
+    priorityKeys: context.strategyDelta.adjustments.map((item) => item.area),
+    limit,
+    includeAdjacentStages: true,
+    primaryGapLabel: context.strategyDelta.primaryGap,
+  });
 }
 
 export function buildRecommendedPlaybookSummaries(

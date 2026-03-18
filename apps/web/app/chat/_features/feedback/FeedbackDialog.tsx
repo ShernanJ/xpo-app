@@ -212,7 +212,7 @@ export function FeedbackDialog(props: FeedbackDialogProps) {
         }
       }}
     >
-      <div className="relative my-auto flex w-full max-w-6xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]">
+      <div className="relative my-auto flex w-full max-w-6xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-4rem)]">
         <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
