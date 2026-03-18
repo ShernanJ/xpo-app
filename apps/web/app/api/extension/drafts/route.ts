@@ -5,10 +5,15 @@ import {
   listContentItemsForWorkspace,
   serializeContentItem,
 } from "../../../../lib/content/contentHub.ts";
+import { normalizeWorkspaceHandle } from "../../../../lib/workspaceHandle.ts";
 import { assertExtensionDraftsResponseShape } from "./route.logic.ts";
 import { handleExtensionDraftsGet } from "./route.handler.ts";
 
 export async function GET(request: NextRequest) {
+  const requestedHandle = normalizeWorkspaceHandle(
+    request.nextUrl.searchParams.get("handle"),
+  );
+
   return handleExtensionDraftsGet(request, {
     authenticateExtensionRequest,
     listDrafts: async ({ userId, xHandle }) =>
@@ -50,5 +55,5 @@ export async function GET(request: NextRequest) {
         };
       }),
     assertExtensionDraftsResponseShape,
-  });
+  }, requestedHandle);
 }

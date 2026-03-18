@@ -19,12 +19,40 @@ test("GET /api/extension/drafts returns 401 when auth fails", async () => {
       listDrafts: async () => [],
       assertExtensionDraftsResponseShape,
     },
+    "standev",
   );
 
   assert.equal(response.status, 401);
 });
 
-test("GET /api/extension/drafts scopes to the active handle and returns only valid draft payloads", async () => {
+test("GET /api/extension/drafts returns 400 when handle is missing", async () => {
+  const response = await handleExtensionDraftsGet(
+    new Request("http://localhost/api/extension/drafts", {
+      method: "GET",
+      headers: {
+        authorization: "Bearer token_123",
+      },
+    }),
+    {
+      authenticateExtensionRequest: async () => ({
+        user: {
+          id: "user_1",
+        },
+      }),
+      listDrafts: async () => [],
+      assertExtensionDraftsResponseShape,
+    },
+    null,
+  );
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), {
+    ok: false,
+    errors: [{ field: "handle", message: "A handle query parameter is required." }],
+  });
+});
+
+test("GET /api/extension/drafts scopes to the requested handle and returns only valid draft payloads", async () => {
   const calls = [];
 
   const response = await handleExtensionDraftsGet(
@@ -38,7 +66,6 @@ test("GET /api/extension/drafts scopes to the active handle and returns only val
       authenticateExtensionRequest: async () => ({
         user: {
           id: "user_1",
-          activeXHandle: "@StanDev",
         },
       }),
       listDrafts: async (args) => {
@@ -80,6 +107,7 @@ test("GET /api/extension/drafts scopes to the active handle and returns only val
       },
       assertExtensionDraftsResponseShape,
     },
+    "@StanDev",
   );
 
   assert.equal(response.status, 200);

@@ -3,7 +3,6 @@ import type { ExtensionDraftsResponse } from "../../../../lib/extension/types.ts
 interface ExtensionAuthResult {
   user: {
     id: string;
-    activeXHandle?: string | null;
   };
 }
 
@@ -62,15 +61,16 @@ function normalizeHandle(value: string | null | undefined): string | null {
 export async function handleExtensionDraftsGet(
   request: Request,
   deps: ExtensionDraftsHandlerDeps,
+  requestedHandle: string | null | undefined,
 ) {
   const auth = await deps.authenticateExtensionRequest(request);
   if (!auth?.user?.id) {
     return jsonError(401, "auth", "Unauthorized");
   }
 
-  const xHandle = normalizeHandle(auth.user.activeXHandle);
+  const xHandle = normalizeHandle(requestedHandle);
   if (!xHandle) {
-    return jsonError(409, "profile", "No active X handle is connected for this token.");
+    return jsonError(400, "handle", "A handle query parameter is required.");
   }
 
   const drafts = await deps.listDrafts({

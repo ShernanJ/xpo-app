@@ -1,5 +1,6 @@
 import type { XPublicPost } from "../onboarding/contracts/types";
 import type { DraftArtifactDetails } from "../onboarding/shared/draftArtifacts";
+import { normalizeWorkspaceHandle } from "../workspaceHandle";
 import {
   listPendingContentForMatching,
   updateContentItemById,
@@ -217,4 +218,21 @@ export async function detectAutoPublishedDrafts(args: {
   }
 
   return matches;
+}
+
+export async function checkNewTweetsAgainstDrafts(args: {
+  userId: string;
+  activeXHandle: string | null | undefined;
+  newTweets: XPublicPost[];
+}) {
+  const xHandle = normalizeWorkspaceHandle(args.activeXHandle);
+  if (!xHandle) {
+    return [];
+  }
+
+  return detectAutoPublishedDrafts({
+    userId: args.userId,
+    xHandle,
+    posts: args.newTweets,
+  });
 }

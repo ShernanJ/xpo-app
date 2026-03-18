@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import type { OnboardingInput, OnboardingResult, XPublicPost } from "../types";
 import { Prisma } from "../../generated/prisma/client";
 import { prisma } from "../../db";
-import { detectAutoPublishedDrafts } from "../../content/autoPublishMatcher";
+import { checkNewTweetsAgainstDrafts } from "../../content/autoPublishMatcher";
 
 export interface StoredOnboardingRun {
   runId: string;
@@ -92,10 +92,10 @@ export async function syncPostsToDb(params: {
     .filter((entry) => entry.lane === "original")
     .map((entry) => entry.post);
   if (newlyObservedOriginalPosts.length > 0) {
-    await detectAutoPublishedDrafts({
+    await checkNewTweetsAgainstDrafts({
       userId: params.userId,
-      xHandle: normalizedXHandle,
-      posts: newlyObservedOriginalPosts,
+      activeXHandle: normalizedXHandle,
+      newTweets: newlyObservedOriginalPosts,
     }).catch((error) =>
       console.error("Failed to detect auto-published drafts after post sync:", error),
     );
