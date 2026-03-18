@@ -111,6 +111,7 @@ import {
 } from "../capabilities/revision/activeDraftTurn.ts";
 import { executeReplyingCapability } from "../capabilities/reply/replyingCapability.ts";
 import { executeAnalysisCapability } from "../capabilities/analysis/analysisCapability.ts";
+import { isRevisionRetryApproval } from "./turnRelation.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -500,6 +501,19 @@ export async function executeDraftPipeline(args: {
       : {}),
   });
   let draftInstruction = planSeedMessage || userMessage;
+  let revisionUserMessage = userMessage;
+
+  if (
+    activeDraft &&
+    memory.latestRefinementInstruction?.trim() &&
+    isRevisionRetryApproval({
+      message: userMessage,
+      recentHistory,
+    })
+  ) {
+    draftInstruction = memory.latestRefinementInstruction.trim();
+    revisionUserMessage = draftInstruction;
+  }
 
   function buildLooseDraftIdeationPrompt(args: {
     formatPreference: DraftFormatPreference;
@@ -1273,7 +1287,7 @@ export async function executeDraftPipeline(args: {
     return handleDraftEditReviewTurn({
       memory,
       getMemory: () => memory,
-      userMessage,
+      userMessage: revisionUserMessage,
       mode,
       runtimeWorkflow,
       threadId,

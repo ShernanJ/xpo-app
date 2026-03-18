@@ -558,6 +558,385 @@ test("routing fast replies greet on simple social turns without reviving stale d
   assert.equal(result.memory.pendingPlan?.objective, "hiring systems");
 });
 
+test("draft pipeline reuses the stored opener edit instruction after a malformed revision retry approval", async () => {
+  enableExtensionlessTsResolution();
+  const { executeDraftPipeline } = await import("./draftPipeline.ts");
+  const originalThread = [
+    "built it solo, launched a beta, and asked for feedback.",
+    "i thought posting frequency mattered most, but the numbers showed early engagement spikes were the real growth driver.",
+    'comment "growth" to get access to the resource.',
+  ].join("\n\n---\n\n");
+
+  const memory = {
+    conversationState: "editing",
+    activeConstraints: [],
+    topicSummary: "growth tracker thread",
+    lastIdeationAngles: [],
+    concreteAnswerCount: 2,
+    currentDraftArtifactId: "draft_1",
+    activeDraftRef: null,
+    rollingSummary: null,
+    pendingPlan: null,
+    clarificationState: null,
+    assistantTurnCount: 3,
+    latestRefinementInstruction: "needs an intro in post 1",
+    unresolvedQuestion: null,
+    clarificationQuestionsAsked: 0,
+    preferredSurfaceMode: null,
+    formatPreference: "thread",
+    activeReplyContext: null,
+    activeReplyArtifactRef: null,
+    selectedReplyOptionId: null,
+    voiceFidelity: "balanced",
+  };
+  let capturedRevisionArgs = null;
+  let updatedMemoryArgs = null;
+
+  const response = await executeDraftPipeline({
+    context: {
+      userId: "user_1",
+      xHandle: "shernan",
+      effectiveXHandle: "shernan",
+      runId: "run_1",
+      threadId: "thread_1",
+      userMessage: "yes",
+      planSeedMessage: null,
+      recentHistory:
+        "user: needs an intro in post 1\nassistant: that revision came back malformed twice. want me to try again cleanly with the same edit goal?",
+      activeDraft: originalThread,
+      focusedThreadPostIndex: null,
+      turnSource: "free_text",
+      artifactContext: null,
+      planSeedSource: null,
+      resolvedWorkflow: null,
+      replyHandlingBypassedReason: null,
+      formatPreference: "thread",
+      threadFramingStyle: "soft_signal",
+      explicitIntent: null,
+      diagnosticContext: null,
+      creatorProfileHints: null,
+      userContextString: "",
+      profileReplyContext: null,
+      memory,
+      effectiveActiveConstraints: [],
+      turnPlan: null,
+      styleCard: null,
+      anchors: {
+        topicAnchors: [],
+        laneAnchors: [],
+        formatAnchors: [],
+        rankedAnchors: [],
+      },
+      initialWorkerExecutions: [],
+    },
+    routing: {
+      isFastReply: false,
+      classifiedIntent: "edit",
+      resolvedMode: "edit",
+      memory,
+      routingTrace: {
+        normalizedTurn: {
+          turnSource: "free_text",
+          artifactKind: null,
+          planSeedSource: null,
+          replyHandlingBypassedReason: null,
+          resolvedWorkflow: null,
+        },
+        runtimeResolution: {
+          workflow: "revise_draft",
+          source: "structured_turn",
+        },
+        workerExecutions: [],
+        workerExecutionSummary: {
+          total: 0,
+          parallel: 0,
+          sequential: 0,
+          completed: 0,
+          skipped: 0,
+          failed: 0,
+          groups: [],
+        },
+        persistedStateChanges: null,
+        validations: [],
+        turnPlan: null,
+        controllerAction: "revise",
+        classifiedIntent: "edit",
+        resolvedMode: "edit",
+        routerState: null,
+        planInputSource: null,
+        clarification: null,
+        draftGuard: null,
+        planFailure: null,
+      },
+    },
+    services: {
+      updateConversationMemory: async (args) => {
+        updatedMemoryArgs = args;
+        return createStoredMemoryRecord({
+          topicSummary: args.topicSummary ?? memory.topicSummary,
+          concreteAnswerCount: args.concreteAnswerCount ?? memory.concreteAnswerCount,
+          lastDraftArtifactId: args.lastDraftArtifactId ?? memory.currentDraftArtifactId,
+          activeConstraints: {
+            constraints: args.activeConstraints ?? memory.activeConstraints,
+            conversationState: args.conversationState ?? memory.conversationState,
+            pendingPlan: args.pendingPlan ?? memory.pendingPlan,
+            clarificationState: args.clarificationState ?? memory.clarificationState,
+            lastIdeationAngles: args.lastIdeationAngles ?? memory.lastIdeationAngles,
+            rollingSummary: args.rollingSummary ?? memory.rollingSummary,
+            assistantTurnCount: args.assistantTurnCount ?? memory.assistantTurnCount,
+            activeDraftRef: args.activeDraftRef ?? memory.activeDraftRef,
+            latestRefinementInstruction:
+              args.latestRefinementInstruction ?? memory.latestRefinementInstruction,
+            unresolvedQuestion: args.unresolvedQuestion ?? memory.unresolvedQuestion,
+            clarificationQuestionsAsked:
+              args.clarificationQuestionsAsked ?? memory.clarificationQuestionsAsked,
+            preferredSurfaceMode: args.preferredSurfaceMode ?? memory.preferredSurfaceMode,
+            formatPreference: args.formatPreference ?? memory.formatPreference,
+            activeReplyContext: null,
+            activeReplyArtifactRef: null,
+            selectedReplyOptionId: null,
+          },
+        });
+      },
+      generateRevisionDraft: async (args) => {
+        capturedRevisionArgs = args;
+        return {
+          revisedDraft:
+            "building this in a week taught me something fast: beta feedback compounds when the first post earns the click.",
+          supportAsset: null,
+          issuesFixed: ["added a clearer opener"],
+        };
+      },
+      critiqueDrafts: async ({ draft }) => ({
+        approved: true,
+        finalAngle: "same angle",
+        finalDraft: draft,
+        issues: [],
+      }),
+    },
+    extractedFacts: [],
+    extractedRules: [],
+    sourceMaterialAssets: [],
+    autoSavedSourceMaterials: undefined,
+    antiPatternResult: {
+      antiPatterns: [],
+      remembered: false,
+    },
+    rememberedStyleRuleCount: 0,
+    rememberedFactCount: 0,
+  });
+
+  assert.equal(capturedRevisionArgs?.options?.sourceUserMessage, "needs an intro in post 1");
+  assert.equal(
+    capturedRevisionArgs?.activeDraft,
+    "built it solo, launched a beta, and asked for feedback.",
+  );
+  assert.equal(capturedRevisionArgs?.revision.threadIntent, "opening");
+  assert.deepEqual(capturedRevisionArgs?.revision.targetSpan, {
+    startIndex: 0,
+    endIndex: 0,
+  });
+  assert.equal(
+    response.response.includes("which part of the thread should i change"),
+    false,
+  );
+  assert.equal(
+    response.data?.draft,
+    [
+      "building this in a week taught me something fast: beta feedback compounds when the first post earns the click.",
+      "i thought posting frequency mattered most, but the numbers showed early engagement spikes were the real growth driver.",
+      'comment "growth" to get access to the resource.',
+    ].join("\n\n---\n\n"),
+  );
+  assert.equal(updatedMemoryArgs?.latestRefinementInstruction, "needs an intro in post 1");
+});
+
+test("draft pipeline treats entire post replies as a whole-thread revision after thread-scope clarification", async () => {
+  enableExtensionlessTsResolution();
+  const { executeDraftPipeline } = await import("./draftPipeline.ts");
+  const originalThread = [
+    "i need real-world feedback to shape it.",
+    "i thought posting frequency mattered most, but the numbers showed early engagement spikes were the real growth driver.",
+    'comment "growth" to get access to the resource.',
+  ].join("\n\n---\n\n");
+
+  const memory = {
+    conversationState: "editing",
+    activeConstraints: [],
+    topicSummary: "growth tracker thread",
+    lastIdeationAngles: [],
+    concreteAnswerCount: 2,
+    currentDraftArtifactId: "draft_2",
+    activeDraftRef: null,
+    rollingSummary: null,
+    pendingPlan: null,
+    clarificationState: null,
+    assistantTurnCount: 4,
+    latestRefinementInstruction: "make it more specific",
+    unresolvedQuestion: null,
+    clarificationQuestionsAsked: 1,
+    preferredSurfaceMode: null,
+    formatPreference: "thread",
+    activeReplyContext: null,
+    activeReplyArtifactRef: null,
+    selectedReplyOptionId: null,
+    voiceFidelity: "balanced",
+  };
+  let capturedRevisionArgs = null;
+
+  const response = await executeDraftPipeline({
+    context: {
+      userId: "user_1",
+      xHandle: "shernan",
+      effectiveXHandle: "shernan",
+      runId: "run_1",
+      threadId: "thread_1",
+      userMessage: "the entire post",
+      planSeedMessage: null,
+      recentHistory:
+        "user: make it more specific\nassistant: which part of the thread should i change: the opener, a specific post, the ending, or the whole thread?",
+      activeDraft: originalThread,
+      focusedThreadPostIndex: null,
+      turnSource: "free_text",
+      artifactContext: null,
+      planSeedSource: null,
+      resolvedWorkflow: null,
+      replyHandlingBypassedReason: null,
+      formatPreference: "thread",
+      threadFramingStyle: "natural",
+      explicitIntent: null,
+      diagnosticContext: null,
+      creatorProfileHints: null,
+      userContextString: "",
+      profileReplyContext: null,
+      memory,
+      effectiveActiveConstraints: [],
+      turnPlan: null,
+      styleCard: null,
+      anchors: {
+        topicAnchors: [],
+        laneAnchors: [],
+        formatAnchors: [],
+        rankedAnchors: [],
+      },
+      initialWorkerExecutions: [],
+    },
+    routing: {
+      isFastReply: false,
+      classifiedIntent: "edit",
+      resolvedMode: "edit",
+      memory,
+      routingTrace: {
+        normalizedTurn: {
+          turnSource: "free_text",
+          artifactKind: null,
+          planSeedSource: null,
+          replyHandlingBypassedReason: null,
+          resolvedWorkflow: null,
+        },
+        runtimeResolution: {
+          workflow: "revise_draft",
+          source: "structured_turn",
+        },
+        workerExecutions: [],
+        workerExecutionSummary: {
+          total: 0,
+          parallel: 0,
+          sequential: 0,
+          completed: 0,
+          skipped: 0,
+          failed: 0,
+          groups: [],
+        },
+        persistedStateChanges: null,
+        validations: [],
+        turnPlan: null,
+        controllerAction: "revise",
+        classifiedIntent: "edit",
+        resolvedMode: "edit",
+        routerState: null,
+        planInputSource: null,
+        clarification: null,
+        draftGuard: null,
+        planFailure: null,
+      },
+    },
+    services: {
+      updateConversationMemory: async (args) =>
+        createStoredMemoryRecord({
+          topicSummary: args.topicSummary ?? memory.topicSummary,
+          concreteAnswerCount: args.concreteAnswerCount ?? memory.concreteAnswerCount,
+          lastDraftArtifactId: args.lastDraftArtifactId ?? memory.currentDraftArtifactId,
+          activeConstraints: {
+            constraints: args.activeConstraints ?? memory.activeConstraints,
+            conversationState: args.conversationState ?? memory.conversationState,
+            pendingPlan: args.pendingPlan ?? memory.pendingPlan,
+            clarificationState: args.clarificationState ?? memory.clarificationState,
+            lastIdeationAngles: args.lastIdeationAngles ?? memory.lastIdeationAngles,
+            rollingSummary: args.rollingSummary ?? memory.rollingSummary,
+            assistantTurnCount: args.assistantTurnCount ?? memory.assistantTurnCount,
+            activeDraftRef: args.activeDraftRef ?? memory.activeDraftRef,
+            latestRefinementInstruction:
+              args.latestRefinementInstruction ?? memory.latestRefinementInstruction,
+            unresolvedQuestion: args.unresolvedQuestion ?? memory.unresolvedQuestion,
+            clarificationQuestionsAsked:
+              args.clarificationQuestionsAsked ?? memory.clarificationQuestionsAsked,
+            preferredSurfaceMode: args.preferredSurfaceMode ?? memory.preferredSurfaceMode,
+            formatPreference: args.formatPreference ?? memory.formatPreference,
+            activeReplyContext: null,
+            activeReplyArtifactRef: null,
+            selectedReplyOptionId: null,
+          },
+        }),
+      generateRevisionDraft: async (args) => {
+        capturedRevisionArgs = args;
+        return {
+          revisedDraft: [
+            "i need feedback from teams actually trying this in the wild, because their first-day friction will shape the beta.",
+            "i thought posting frequency mattered most, but the numbers showed early engagement spikes in the first hour were the real growth driver.",
+            'comment "growth" if you want the exact prompt and tracking sheet.',
+          ].join("\n\n---\n\n"),
+          supportAsset: null,
+          issuesFixed: ["made the whole thread more specific"],
+        };
+      },
+      critiqueDrafts: async ({ draft }) => ({
+        approved: true,
+        finalAngle: "same angle",
+        finalDraft: draft,
+        issues: [],
+      }),
+    },
+    extractedFacts: [],
+    extractedRules: [],
+    sourceMaterialAssets: [],
+    autoSavedSourceMaterials: undefined,
+    antiPatternResult: {
+      antiPatterns: [],
+      remembered: false,
+    },
+    rememberedStyleRuleCount: 0,
+    rememberedFactCount: 0,
+  });
+
+  assert.equal(capturedRevisionArgs?.options?.sourceUserMessage, "the entire post");
+  assert.equal(capturedRevisionArgs?.revision.scope, "whole_draft");
+  assert.equal(capturedRevisionArgs?.revision.threadIntent, "whole_thread");
+  assert.equal(capturedRevisionArgs?.revision.preserveThreadStructure, true);
+  assert.equal(
+    response.response.includes("which part of the thread should i change"),
+    false,
+  );
+  assert.equal(
+    response.data?.draft,
+    [
+      "i need feedback from teams actually trying this in the wild, because their first-day friction will shape the beta.",
+      "i thought posting frequency mattered most, but the numbers showed early engagement spikes in the first hour were the real growth driver.",
+      'comment "growth" if you want the exact prompt and tracking sheet.',
+    ].join("\n\n---\n\n"),
+  );
+});
+
 test("draft pipeline keeps continuation inside the chosen workflow instead of rewriting runtime resolution", () => {
   const draftPipelineSource = readFileSync(new URL("./draftPipeline.ts", import.meta.url), "utf8");
 

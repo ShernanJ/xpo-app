@@ -18,6 +18,7 @@ import type {
 } from "./runtimeContracts.ts";
 import { isBareDraftRequest } from "../core/conversationHeuristics.ts";
 import { looksLikeSimpleSocialTurn } from "../core/simpleSocialTurn.ts";
+import { isRevisionRetryApproval } from "./turnRelation.ts";
 
 export interface RuntimeActionResolution {
   workflow: AgentRuntimeWorkflow;
@@ -160,6 +161,25 @@ export async function resolveRuntimeAction(args: {
   }
 
   if (!args.explicitIntent) {
+    if (
+      args.memory.hasActiveDraft &&
+      Boolean(args.memory.latestRefinementInstruction?.trim()) &&
+      isRevisionRetryApproval({
+        message: args.userMessage,
+        recentHistory: args.recentHistory,
+      })
+    ) {
+      return {
+        workflow: "revise_draft",
+        classifiedIntent: "edit",
+        source: "structured_turn",
+        decision: buildStructuredDecision({
+          action: "revise",
+          rationale: "deterministic malformed revision retry approval",
+        }),
+      };
+    }
+
     const continuationAction = resolveArtifactContinuationAction({
       userMessage: args.userMessage,
       memory: args.memory,

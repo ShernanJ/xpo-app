@@ -185,7 +185,7 @@ export async function handleDraftEditReviewTurn(args: {
     if (revision.scope === "thread_span" && !revision.targetSpan) {
       return args.returnClarificationQuestion({
         question:
-          "which part of the thread should i change: the opener, a specific post, or the ending?",
+          "which part of the thread should i change: the opener, a specific post, the ending, or the whole thread?",
         traceReason: "ambiguous_thread_revision_target",
       });
     }

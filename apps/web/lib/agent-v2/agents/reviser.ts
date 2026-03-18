@@ -269,9 +269,13 @@ function buildThreadLocalRevisionBlock(args: {
     targetPostCount === 1
       ? `post ${args.targetSpan.startIndex + 1}`
       : `posts ${args.targetSpan.startIndex + 1}-${args.targetSpan.endIndex + 1}`;
-  const intentLine =
+  const intentLines =
     args.threadIntent === "opening"
-      ? "- This span is the opener, so the first targeted post should still function as a hook."
+      ? [
+          "- This span is the opener, so the first targeted post should still function as a hook.",
+          "- Return one clean opener post only. Do not include thread separators, a table of contents, or a summary block for the whole thread.",
+          "- Make the opener feel like a native hook/introduction with forward pull, not a recap of everything that follows.",
+        ].join("\n")
       : args.threadIntent === "ending"
         ? "- This span is the ending, so the final targeted post should still land as a deliberate close or CTA."
         : "";
@@ -283,7 +287,7 @@ THREAD-LOCAL REVISION MODE:
 - Keep untouched posts out of the output. The caller will reassemble the full thread around your revised span.
 - Maintain continuity with the surrounding posts so the stitched thread reads naturally.
 ${args.preserveThreadStructure ? "- Do not change the number of posts in the targeted span." : ""}
-${intentLine}
+${intentLines}
 - Previous post context: ${args.previousPost || "None"}
 - Next post context: ${args.nextPost || "None"}
   `.trim();

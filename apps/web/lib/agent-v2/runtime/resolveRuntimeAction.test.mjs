@@ -119,6 +119,67 @@ test("pending plan approvals bypass the controller and stay structured", async (
   assert.equal(result.decision.action, "draft");
 });
 
+test("malformed revision retry approvals bypass the controller and stay on revise_draft", async () => {
+  let controlTurnCalled = false;
+
+  const result = await resolveRuntimeAction({
+    explicitIntent: null,
+    turnPlan: null,
+    userMessage: "yes",
+    recentHistory:
+      "user: needs an intro in post 1\nassistant: that revision came back malformed twice. want me to try again cleanly with the same edit goal?",
+    memory: buildMemory({
+      conversationState: "editing",
+      hasActiveDraft: true,
+      latestRefinementInstruction: "needs an intro in post 1",
+    }),
+    controlTurnImpl: async () => {
+      controlTurnCalled = true;
+      return {
+        action: "answer",
+        needs_memory_update: false,
+        confidence: 0.1,
+        rationale: "should not run",
+      };
+    },
+  });
+
+  assert.equal(controlTurnCalled, false);
+  assert.equal(result.workflow, "revise_draft");
+  assert.equal(result.classifiedIntent, "edit");
+  assert.equal(result.source, "structured_turn");
+  assert.equal(result.decision.action, "revise");
+});
+
+test("generic approvals outside malformed revision retry prompts still fall through to the controller", async () => {
+  let controlTurnCalled = false;
+
+  const result = await resolveRuntimeAction({
+    explicitIntent: null,
+    turnPlan: null,
+    userMessage: "yes",
+    recentHistory: "assistant: drafted a version. tune tone, hook, or length?",
+    memory: buildMemory({
+      conversationState: "editing",
+      hasActiveDraft: true,
+      latestRefinementInstruction: "needs an intro in post 1",
+    }),
+    controlTurnImpl: async () => {
+      controlTurnCalled = true;
+      return {
+        action: "answer",
+        needs_memory_update: false,
+        confidence: 0.8,
+        rationale: "generic approval",
+      };
+    },
+  });
+
+  assert.equal(controlTurnCalled, true);
+  assert.equal(result.workflow, "answer_question");
+  assert.equal(result.source, "controller");
+});
+
 test("controller analyze actions map into analyze_post even though the classified intent stays answer_question", async () => {
   const result = await resolveRuntimeAction({
     explicitIntent: null,

@@ -118,7 +118,7 @@ function extractChoiceFragment(question: string): string {
     .filter(Boolean)
     .pop() || "";
 
-  const separatorMatches = [...lastLine.matchAll(/\s[-:]\s/g)];
+  const separatorMatches = [...lastLine.matchAll(/:\s|\s-\s/g)];
   if (separatorMatches.length > 0) {
     const lastMatch = separatorMatches[separatorMatches.length - 1];
     const fragment = lastLine.slice((lastMatch.index || 0) + lastMatch[0].length).trim();
@@ -187,7 +187,7 @@ export function buildDraftClarificationQuickReplies(args: {
   const parsedChoices = extractQuestionChoices(args.question);
 
   if (parsedChoices.length > 0 && parsedChoices.every(looksGrammarSafeParsedChoice)) {
-    return parsedChoices.slice(0, 3).map((choice) => ({
+    return parsedChoices.slice(0, 4).map((choice) => ({
       kind: "clarification_choice",
       value: applyQuickReplyVoiceCase(normalizeLine(choice), voice),
       label: normalizeQuickReplyLabel(stripLeadingArticle(choice), voice),

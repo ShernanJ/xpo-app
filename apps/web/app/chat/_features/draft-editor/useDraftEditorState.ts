@@ -178,6 +178,12 @@ export function useDraftEditorState<TMessage extends DraftEditorMessageLike>(
     createPromotionAssistantMessage,
   } = options;
 
+  const selectedDraftThreadId =
+    typeof selectedDraftMessage?.threadId === "string" && selectedDraftMessage.threadId.trim()
+      ? selectedDraftMessage.threadId.trim()
+      : null;
+  const persistenceThreadId = activeThreadId ?? selectedDraftThreadId;
+
   const [editorDraftText, setEditorDraftText] = useState("");
   const [editorDraftPosts, setEditorDraftPosts] = useState<string[]>([]);
   const [hasCopiedDraftEditorText, setHasCopiedDraftEditorText] = useState(false);
@@ -442,7 +448,7 @@ export function useDraftEditorState<TMessage extends DraftEditorMessageLike>(
       !activeDraftEditor ||
       !selectedDraftMessage ||
       !selectedDraftVersion ||
-      !activeThreadId
+      !persistenceThreadId
     ) {
       return;
     }
@@ -462,7 +468,7 @@ export function useDraftEditorState<TMessage extends DraftEditorMessageLike>(
 
     try {
       const response = await fetchWorkspace(
-        `/api/creator/v2/threads/${encodeURIComponent(activeThreadId)}/draft-promotions`,
+        `/api/creator/v2/threads/${encodeURIComponent(persistenceThreadId)}/draft-promotions`,
         {
           method: "POST",
           headers: {
@@ -484,13 +490,13 @@ export function useDraftEditorState<TMessage extends DraftEditorMessageLike>(
         ...current,
         createPromotionUserMessage({
           id: data.data.userMessage.id,
-          threadId: activeThreadId ?? undefined,
+          threadId: persistenceThreadId,
           content: data.data.userMessage.content,
           createdAt: data.data.userMessage.createdAt,
         }),
         createPromotionAssistantMessage({
           id: data.data.assistantMessage.id,
-          threadId: activeThreadId ?? undefined,
+          threadId: persistenceThreadId,
           content: data.data.assistantMessage.content,
           createdAt: data.data.assistantMessage.createdAt,
           draft: data.data.assistantMessage.draft,
@@ -520,7 +526,6 @@ export function useDraftEditorState<TMessage extends DraftEditorMessageLike>(
     }
   }, [
     activeDraftEditor,
-    activeThreadId,
     createPromotionAssistantMessage,
     createPromotionUserMessage,
     editorDraftPosts,
@@ -529,6 +534,7 @@ export function useDraftEditorState<TMessage extends DraftEditorMessageLike>(
     isSelectedDraftThread,
     mergeSourceMaterials,
     onErrorMessage,
+    persistenceThreadId,
     scrollThreadToBottom,
     selectedDraftArtifact,
     selectedDraftMessage,
@@ -577,13 +583,13 @@ export function useDraftEditorState<TMessage extends DraftEditorMessageLike>(
       revisionChainId: revertUpdate.revisionChainId,
     });
 
-    if (!activeThreadId) {
+    if (!persistenceThreadId) {
       return;
     }
 
     try {
       const response = await fetchWorkspace(
-        `/api/creator/v2/threads/${encodeURIComponent(activeThreadId)}/messages/${encodeURIComponent(selectedDraftMessage.id)}`,
+        `/api/creator/v2/threads/${encodeURIComponent(persistenceThreadId)}/messages/${encodeURIComponent(selectedDraftMessage.id)}`,
         {
           method: "PATCH",
           headers: {
@@ -608,11 +614,11 @@ export function useDraftEditorState<TMessage extends DraftEditorMessageLike>(
     }
   }, [
     activeDraftEditor?.revisionChainId,
-    activeThreadId,
     fetchWorkspace,
     isSelectedDraftThread,
     isVerifiedAccount,
     onErrorMessage,
+    persistenceThreadId,
     selectedDraftBundle,
     selectedDraftMessage,
     selectedDraftVersion,

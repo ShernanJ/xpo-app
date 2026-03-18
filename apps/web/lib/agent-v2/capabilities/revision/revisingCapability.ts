@@ -121,6 +121,10 @@ function buildThreadStructureRetryConstraint(): string {
   return "Preserve the full thread's existing post count and order when applying a local span edit.";
 }
 
+function buildOpeningSpanRetryConstraint(): string {
+  return "Return exactly one opener post for the targeted span. Make it a clean hook/introduction with forward pull, not thread separators, a table of contents, or a summary block.";
+}
+
 function buildSyntheticThreadValidation(args: {
   correctedDraft: string;
   groupId: string;
@@ -670,6 +674,9 @@ export async function executeRevisingCapability(
   const retryConstraints = Array.from(
     new Set([
       ...firstAttempt.validation!.retryConstraints,
+      ...(context.revision.threadIntent === "opening"
+        ? [buildOpeningSpanRetryConstraint()]
+        : []),
       ...(!firstAttemptChanged || !firstAttempt.criticOutput.approved
         ? [
             buildMaterialChangeRetryConstraint({

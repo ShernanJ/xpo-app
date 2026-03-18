@@ -55,6 +55,18 @@ function hasAnyCue(normalized: string, cues: string[]): boolean {
   return cues.some((cue) => normalized.includes(cue));
 }
 
+function hasOpeningCue(normalized: string): boolean {
+  return [
+    /\bopener\b/,
+    /\bopening\b/,
+    /\bhook\b/,
+    /\bintro(?:duction)?\b/,
+    /\blead(?:-in|\s+in)?\b/,
+    /\bopening (?:line|sentence|beat)\b/,
+    /\bfirst (?:post|tweet|line)\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
 function clampThreadPostIndex(index: number, postCount: number): number {
   return Math.max(0, Math.min(index, Math.max(0, postCount - 1)));
 }
@@ -451,14 +463,6 @@ function applyThreadRevisionScope(args: {
   } = args;
 
   const explicitPostIndex = detectExplicitThreadPostIndex(normalized, postCount);
-  if (explicitPostIndex !== null) {
-    return buildThreadSpanDirective({
-      base,
-      targetSpan: buildThreadSpan(explicitPostIndex, explicitPostIndex),
-      threadIntent: "explicit_post",
-    });
-  }
-
   const structuralWholeThreadCues = [
     "reorder",
     "rework the flow",
@@ -476,6 +480,12 @@ function applyThreadRevisionScope(args: {
     "whole thread",
     "entire thread",
     "full thread",
+    "whole post",
+    "entire post",
+    "full post",
+    "whole thing",
+    "entire thing",
+    "all of it",
     "throughout",
     "across the thread",
     "each post",
@@ -504,6 +514,23 @@ function applyThreadRevisionScope(args: {
     "cta",
     "call to action",
   ];
+  const openingCueDetected = hasOpeningCue(normalized);
+
+  if (explicitPostIndex === 0 && openingCueDetected) {
+    return buildThreadSpanDirective({
+      base,
+      targetSpan: buildThreadSpan(0, 0),
+      threadIntent: "opening",
+    });
+  }
+
+  if (explicitPostIndex !== null) {
+    return buildThreadSpanDirective({
+      base,
+      targetSpan: buildThreadSpan(explicitPostIndex, explicitPostIndex),
+      threadIntent: "explicit_post",
+    });
+  }
 
   const wantsWholeThreadStructureChange = hasAnyCue(normalized, structuralWholeThreadCues);
   const wantsWholeThreadEdit =
@@ -521,7 +548,7 @@ function applyThreadRevisionScope(args: {
     });
   }
 
-  if (hasAnyCue(normalized, openingCues)) {
+  if (openingCueDetected || hasAnyCue(normalized, openingCues)) {
     return buildThreadSpanDirective({
       base,
       targetSpan: buildThreadSpan(0, 0),

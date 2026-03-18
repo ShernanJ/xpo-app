@@ -1,6 +1,7 @@
 export type AssistantTurnKind =
   | "question"
   | "draft_offer"
+  | "revision_retry_offer"
   | "diagnostic"
   | "content_direction"
   | "generic";
@@ -21,6 +22,11 @@ const DRAFT_OFFER_PATTERNS = [
   /\bsay the word and i(?:')ll draft it\b/,
   /\bwrite this version now\b/,
   /\bdraft this version\b/,
+];
+
+const REVISION_RETRY_PROMPT_PATTERNS = [
+  /\bthat revision came back malformed twice\b/,
+  /\btry again cleanly with the same edit goal\b/,
 ];
 
 const DIAGNOSTIC_PATTERNS = [
@@ -82,6 +88,10 @@ const EXECUTE_FOLLOW_UP_PATTERNS = [
   /^(?:can you\s+)?turn\s+(?:that|this|it)\s+into\s+(?:a\s+)?(?:post|thread)\b/,
   /^(?:can you\s+)?(?:post|thread)\s+version\b/,
   /^(?:ship|send)\s+it\b/,
+];
+
+const REVISION_RETRY_APPROVAL_PATTERNS = [
+  /^(?:yes|yeah|yep|sure|ok|okay|go ahead|do it|retry it|try again|rerun it|run it again|please do|pls do)[.?!]*$/,
 ];
 
 export interface TurnRelationContext {
@@ -182,6 +192,10 @@ function classifyAssistantTurn(content: string | null): AssistantTurnKind {
     return "draft_offer";
   }
 
+  if (REVISION_RETRY_PROMPT_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return "revision_retry_offer";
+  }
+
   if (DIAGNOSTIC_PATTERNS.some((pattern) => pattern.test(normalized))) {
     return "diagnostic";
   }
@@ -223,6 +237,35 @@ export function getTurnRelationContext(recentHistory: string): TurnRelationConte
     lastUserTurn,
     lastAssistantKind: classifyAssistantTurn(lastAssistantTurn),
   };
+}
+
+export function isMalformedRevisionRetryPrompt(message: string | null): boolean {
+  if (!message) {
+    return false;
+  }
+
+  const normalized = normalizeText(message);
+  if (!normalized) {
+    return false;
+  }
+
+  return REVISION_RETRY_PROMPT_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+export function isRevisionRetryApproval(args: {
+  message: string;
+  recentHistory: string;
+}): boolean {
+  const normalized = normalizeText(args.message);
+  if (!normalized || normalized.length > 40) {
+    return false;
+  }
+
+  if (!REVISION_RETRY_APPROVAL_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return false;
+  }
+
+  return isMalformedRevisionRetryPrompt(getTurnRelationContext(args.recentHistory).lastAssistantTurn);
 }
 
 export function classifyContextualFollowUp(message: string): ContextualFollowUpKind | null {
