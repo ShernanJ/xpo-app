@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fetchJsonFromGroq } from "../../agents/llm";
+import { fetchStructuredJsonFromGroq } from "../../agents/llm";
 import type { StrategyPlan } from "../../contracts/chat";
 
 export type PlannerFeedbackDecision = "approve" | "revise" | "reject" | "unclear";
@@ -73,8 +73,13 @@ export async function interpretPlannerFeedback(
     return "revise";
   }
 
-  const data = await fetchJsonFromGroq<unknown>({
-    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+  const data = await fetchStructuredJsonFromGroq({
+    schema: PlannerFeedbackSchema,
+    modelTier: "control",
+    fallbackModel: "openai/gpt-oss-120b",
+    optionalDefaults: {
+      decision: "unclear",
+    },
     reasoning_effort: "low",
     temperature: 0.1,
     max_tokens: 128,
@@ -97,14 +102,5 @@ export async function interpretPlannerFeedback(
     ],
   });
 
-  if (!data) {
-    return "unclear";
-  }
-
-  try {
-    return PlannerFeedbackSchema.parse(data).decision;
-  } catch (error) {
-    console.error("Planner feedback validation failed", error);
-    return "unclear";
-  }
+  return data?.decision || "unclear";
 }

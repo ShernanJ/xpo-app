@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { fetchJsonFromGroq } from "./llm.ts";
+import { fetchStructuredJsonFromGroq } from "./llm.ts";
 import type { ConversationState, V2ChatIntent } from "../contracts/chat";
 import type { TurnPlan } from "../contracts/chat";
 import { isBareDraftRequest } from "../core/conversationHeuristics.ts";
@@ -479,8 +479,13 @@ Respond ONLY with valid JSON:
 }
   `.trim();
 
-  const data = await fetchJsonFromGroq<unknown>({
-    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+  const data = await fetchStructuredJsonFromGroq({
+    schema: ControllerDecisionSchema,
+    modelTier: "control",
+    fallbackModel: "openai/gpt-oss-120b",
+    optionalDefaults: {
+      rationale: "",
+    },
     reasoning_effort: "low",
     temperature: 0.1,
     top_p: 0.9,
@@ -491,20 +496,11 @@ Respond ONLY with valid JSON:
     ],
   });
 
-  if (!data) {
-    return buildControllerFallbackDecision({
+  return (
+    data ||
+    buildControllerFallbackDecision({
       userMessage: args.userMessage,
       memory: args.memory,
-    });
-  }
-
-  try {
-    return ControllerDecisionSchema.parse(data);
-  } catch (error) {
-    console.error("Controller validation failed", error);
-    return buildControllerFallbackDecision({
-      userMessage: args.userMessage,
-      memory: args.memory,
-    });
-  }
+    })
+  );
 }

@@ -34,6 +34,7 @@ import {
 import { finalizeMainAssistantTurnWithDeps } from "./_lib/main/routeMainFinalize.ts";
 import { finalizeReplyTurnWithDeps } from "./_lib/reply/routeReplyFinalize.ts";
 import {
+  buildChatAcceptedResponse,
   buildChatSuccessResponse,
   buildReplyAssistantMessageData,
   planReplyAssistantTurnProductEvents,
@@ -147,8 +148,8 @@ test("streamed progress events stay on the allowlisted workflow stage ids and or
     [
       "understand_request",
       "gather_context",
-      "draft_response",
-      "polish_response",
+      "generate_output",
+      "persist_response",
     ],
   );
   assert.deepEqual(Object.keys(events[0].data).sort(), ["activeStepId", "workflow"]);
@@ -183,6 +184,39 @@ test("streamed progress event sanitization keeps safe dynamic copy", () => {
       explanation: "This helps pull in recurring themes, like hiring playbooks.",
     },
   );
+});
+
+test("queued accepted responses return the active turn envelope", async () => {
+  const response = buildChatAcceptedResponse({
+    executionMode: "queued",
+    activeTurn: {
+      turnId: "turn_1",
+      threadId: "thread_1",
+      status: "queued",
+      progressStepId: "queued",
+      progressLabel: "Queued for background execution",
+      progressExplanation: "Worker pickup pending.",
+      createdAt: "2026-03-18T12:00:00.000Z",
+      updatedAt: "2026-03-18T12:00:00.000Z",
+    },
+  });
+  const payload = await response.json();
+
+  assert.equal(response.status, 202);
+  assert.deepEqual(payload.data, {
+    accepted: true,
+    executionMode: "queued",
+    activeTurn: {
+      turnId: "turn_1",
+      threadId: "thread_1",
+      status: "queued",
+      progressStepId: "queued",
+      progressLabel: "Queued for background execution",
+      progressExplanation: "Worker pickup pending.",
+      createdAt: "2026-03-18T12:00:00.000Z",
+      updatedAt: "2026-03-18T12:00:00.000Z",
+    },
+  });
 });
 
 test("selected draft revisions bypass embedded reply handling", () => {

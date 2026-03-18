@@ -40,6 +40,7 @@ import {
   isTurnCancellationRequested,
   markTurnCancelled,
   markTurnCompleted,
+  upsertQueuedTurnControl,
   upsertRunningTurnControl,
 } from "./_lib/control/routeTurnControl";
 import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/runtime/diagnostics";
@@ -76,6 +77,7 @@ import {
   type ChatMediaAttachmentRef,
 } from "@/lib/chat/chatMedia";
 import { registerChatRouteHandler } from "./_lib/routeHandlerRegistry";
+import { buildChatAcceptedResponse } from "./_lib/response/routeResponse";
 
 type CreatorChatRequest = CreatorChatTransportRequest & Record<string, unknown>;
 type StreamProgressCallback = (
@@ -92,6 +94,8 @@ interface ChatTurnExecutionControl {
   leaseOwner?: string | null;
   leaseMs?: number;
 }
+
+type ChatTurnExecutionMode = "inline" | "queued";
 
 type RouteProgressCopy = Pick<ChatStreamProgressEventData, "label" | "explanation">;
 
@@ -199,7 +203,6 @@ function buildRouteProgressCopy(args: {
       }
 
       return null;
-    case "scan_context":
     case "gather_context":
       return {
         label: `Looking through ${recentPostsLabel} from ${accountLabel}`,
@@ -207,49 +210,33 @@ function buildRouteProgressCopy(args: {
           ? `This helps pull in recurring themes, like ${lowerCaseFirst(topic)}.`
           : "This helps ground the response in what your account has been posting recently.",
       };
-    case "explore_directions":
-      return {
-        label: topic
-          ? `Exploring directions around ${lowerCaseFirst(topic)}`
-          : "Exploring a few directions that fit your account",
-        explanation: "This helps surface options that already feel natural for your audience.",
-      };
-    case "pick_direction":
+    case "plan_response":
       return {
         label: topic
           ? `Leaning into the strongest angle around ${lowerCaseFirst(topic)}`
           : "Leaning into the strongest angle",
         explanation: "This helps narrow the response to the clearest, most usable direction.",
       };
-    case "write_response":
-    case "draft_response":
+    case "generate_output":
       return {
         label: topic
           ? `Drafting around ${lowerCaseFirst(topic)}`
           : "Turning the direction into a working draft",
         explanation: "This is where the first useful version starts taking shape.",
       };
-    case "revise_response":
+    case "validate_output":
       return {
-        label: topic
-          ? `Reworking it with the ${lowerCaseFirst(topic)} angle in mind`
-          : "Reworking the draft with the requested change in mind",
-        explanation: "This helps make the revision feel intentional instead of just shorter or longer.",
-      };
-    case "package_ideas":
-      return {
-        label: topic
-          ? `Packaging the best idea around ${lowerCaseFirst(topic)}`
-          : "Packaging the best idea into something usable",
-        explanation: "This helps turn the strongest direction into a clean response you can act on.",
-      };
-    case "finalize_response":
-    case "polish_response":
-      return {
-        label: "Tightening the final wording",
+        label: "Checking the final wording",
         explanation: topic
-          ? `This helps the final version stay clear while still feeling connected to ${lowerCaseFirst(topic)}.`
-          : "This helps the final version come back clear, clean, and ready to use.",
+          ? `This helps keep the final version clear while still feeling connected to ${lowerCaseFirst(topic)}.`
+          : "This helps make sure the output reads cleanly before it lands in the thread.",
+      };
+    case "persist_response":
+      return {
+        label: "Saving the result back into the chat",
+        explanation: topic
+          ? `This helps return the finished version cleanly while staying grounded in ${lowerCaseFirst(topic)}.`
+          : "This helps the final version come back clear, clean, and attached to the right turn.",
       };
     default:
       return null;
@@ -297,6 +284,19 @@ function resolveChatTurnCreditCost(args: {
   }
 
   return ACTION_CREDIT_COST.chat_standard;
+}
+
+function resolveChatTurnExecutionMode(): ChatTurnExecutionMode {
+  const configured = process.env.CHAT_TURN_EXECUTION_MODE?.trim().toLowerCase();
+  return configured === "queued" ? "queued" : "inline";
+}
+
+function buildQueuedProgressCopy() {
+  return {
+    label: "Queued for background execution",
+    explanation:
+      "This keeps the request responsive while the background worker picks up the turn.",
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -363,6 +363,16 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  const executionMode = resolveChatTurnExecutionMode();
+  if (executionMode === "queued") {
+    return enqueueChatRouteRequest({
+      request,
+      body,
+      monetizationEnabled,
+      userId: session.user.id,
+    });
+  }
+
   if (body.stream === true) {
     return streamChatRouteResponse({
       execute: async (onProgress) =>
@@ -389,6 +399,208 @@ export async function POST(request: NextRequest) {
       leaseOwner: `route:${randomUUID()}`,
       leaseMs: CHAT_TURN_LEASE_MS,
     },
+  });
+}
+
+async function enqueueChatRouteRequest(args: {
+  request: NextRequest;
+  body: CreatorChatRequest;
+  monetizationEnabled: boolean;
+  userId: string;
+}): Promise<Response> {
+  const loadBillingStateForResponse = () =>
+    args.monetizationEnabled
+      ? getBillingStateForUser(args.userId)
+      : Promise.resolve(null);
+
+  const threadId =
+    typeof args.body.threadId === "string" ? args.body.threadId.trim() : "";
+  const runId = typeof args.body.runId === "string" ? args.body.runId.trim() : "";
+  const clientTurnId = normalizeClientTurnId(args.body.clientTurnId) ?? randomUUID();
+  const normalizedTurn = normalizeChatTurn({ body: args.body });
+  const formatPreference =
+    args.body.formatPreference === "shortform" ||
+    args.body.formatPreference === "longform" ||
+    args.body.formatPreference === "thread"
+      ? args.body.formatPreference
+      : null;
+  const effectiveFormatPreference =
+    formatPreference ??
+    (normalizedTurn.artifactContext?.kind === "selected_angle" &&
+    normalizedTurn.artifactContext.formatHint === "thread"
+      ? "thread"
+      : null);
+  const threadFramingStyle = resolveThreadFramingStyle(args.body.threadFramingStyle);
+  const selectedDraftContext =
+    normalizedTurn.selectedDraftContext ??
+    parseSelectedDraftContext(args.body.selectedDraftContext);
+  const structuredReplyContext =
+    args.body.replyContext &&
+    typeof args.body.replyContext === "object" &&
+    !Array.isArray(args.body.replyContext)
+      ? (args.body.replyContext as {
+          sourceText?: string | null;
+          sourceUrl?: string | null;
+          authorHandle?: string | null;
+        })
+      : null;
+  const routeUserMessage =
+    normalizedTurn.message ||
+    (normalizedTurn.artifactContext?.kind === "selected_angle"
+      ? normalizedTurn.artifactContext.angle
+      : normalizedTurn.transcriptMessage);
+  const effectiveMessage = normalizedTurn.orchestrationMessage;
+
+  if (!effectiveMessage) {
+    return NextResponse.json(
+      { ok: false, errors: [{ field: "message", message: "A message or intent is required." }] },
+      { status: 400 },
+    );
+  }
+
+  const threadState = await resolveRouteThreadState({
+    request: args.request,
+    session: { user: { id: args.userId } },
+    bodyHandle:
+      typeof args.body.workspaceHandle === "string" ? args.body.workspaceHandle : null,
+    threadId,
+  });
+  if (!threadState.ok) {
+    return threadState.response;
+  }
+
+  const { activeHandle, storedThread } = threadState;
+
+  const duplicateReplayResponse = await maybeReplayDuplicateTurn({
+    threadId: storedThread.id,
+    clientTurnId,
+    loadBilling: loadBillingStateForResponse,
+    listThreadMessages: ({ threadId: duplicateThreadId }) =>
+      prisma.chatMessage.findMany({
+        where: {
+          threadId: duplicateThreadId,
+        },
+        orderBy: {
+          createdAt: "asc",
+        },
+        take: 80,
+        select: {
+          id: true,
+          role: true,
+          data: true,
+          createdAt: true,
+        },
+      }),
+  });
+
+  if (duplicateReplayResponse) {
+    return duplicateReplayResponse;
+  }
+
+  const storedRunResult = await resolveRouteStoredRun({
+    runId,
+    userId: args.userId,
+    activeHandle,
+  });
+  if (!storedRunResult.ok) {
+    return storedRunResult.response;
+  }
+
+  const storedRun = storedRunResult.storedRun;
+  const effectiveRunId = storedRun?.id ?? runId;
+  if (!effectiveRunId) {
+    return buildErrorResponse({
+      status: 400,
+      field: "runId",
+      message: "A valid onboarding run is required before sending chat turns.",
+    });
+  }
+
+  const existingTurn = await readTurnByIdentity({
+    userId: args.userId,
+    runId: effectiveRunId,
+    clientTurnId,
+  });
+  if (
+    existingTurn &&
+    (existingTurn.status === "queued" ||
+      existingTurn.status === "running" ||
+      existingTurn.status === "cancel_requested")
+  ) {
+    return buildTurnInProgressResponse({
+      code: "TURN_IN_PROGRESS",
+      message: "This turn is already being processed.",
+      activeTurn: existingTurn,
+    });
+  }
+
+  const activeTurnForThread = await findActiveTurnForThread({
+    userId: args.userId,
+    threadId: storedThread.id,
+    excludeClientTurnId: clientTurnId,
+  });
+  if (activeTurnForThread) {
+    return buildTurnInProgressResponse({
+      code: "ACTIVE_TURN_IN_PROGRESS",
+      message: "Wait for the current reply to finish before sending another message in this chat.",
+      activeTurn: activeTurnForThread,
+    });
+  }
+
+  const conversationContext = await loadRouteConversationContext({
+    storedThread,
+    history: args.body.history,
+    selectedDraftContext,
+    transcriptMessage: normalizedTurn.transcriptMessage,
+    routeUserMessage,
+    clientTurnId,
+    explicitIntent: normalizedTurn.explicitIntent,
+    turnSource: normalizedTurn.source,
+    artifactContext: normalizedTurn.artifactContext,
+    routingDiagnostics: normalizedTurn.diagnostics,
+    formatPreference: effectiveFormatPreference,
+    threadFramingStyle,
+    structuredReplyContext,
+  });
+
+  const queuedBody: CreatorChatRequest = {
+    ...args.body,
+    threadId: storedThread.id,
+    runId: effectiveRunId,
+    clientTurnId,
+    stream: false,
+  };
+  const turnCreditCost = resolveChatTurnCreditCost({
+    explicitIntent: normalizedTurn.explicitIntent,
+    message: effectiveMessage,
+    selectedDraftContext: conversationContext.selectedDraftContext,
+  });
+  const queuedTurn =
+    await upsertQueuedTurnControl({
+      userId: args.userId,
+      runId: effectiveRunId,
+      clientTurnId,
+      threadId: storedThread.id,
+      userMessageId: conversationContext.createdUserMessageId ?? null,
+      requestPayload: {
+        body: queuedBody,
+        activeHandle,
+      },
+      creditCost: turnCreditCost,
+    });
+
+  const queuedTurnWithProgress =
+    queuedTurn &&
+    (await markTurnProgress({
+      turnId: queuedTurn.id,
+      stepId: "queued",
+      label: buildQueuedProgressCopy().label,
+      explanation: buildQueuedProgressCopy().explanation,
+    }).catch(() => queuedTurn));
+
+  return buildChatAcceptedResponse({
+    executionMode: "queued",
+    activeTurn: buildActiveTurnPayload(queuedTurnWithProgress || queuedTurn),
   });
 }
 
@@ -954,7 +1166,7 @@ async function handleChatRouteRequest(args: {
         2,
         buildRouteProgressCopy({
           workflow: progressPlan.workflow,
-          stepId: progressPlan.steps[2]?.id ?? "write_response",
+          stepId: progressPlan.steps[2]?.id ?? "generate_output",
           activeHandle,
           selectedDraftContext,
           structuredReplyContext,
@@ -988,7 +1200,7 @@ async function handleChatRouteRequest(args: {
         3,
         buildRouteProgressCopy({
           workflow: progressPlan.workflow,
-          stepId: progressPlan.steps[3]?.id ?? "finalize_response",
+          stepId: progressPlan.steps[3]?.id ?? "persist_response",
           activeHandle,
           selectedDraftContext,
           structuredReplyContext,
@@ -1063,7 +1275,7 @@ async function handleChatRouteRequest(args: {
       2,
       buildRouteProgressCopy({
         workflow: progressPlan.workflow,
-        stepId: progressPlan.steps[2]?.id ?? "write_response",
+        stepId: progressPlan.steps[2]?.id ?? "generate_output",
         activeHandle,
         selectedDraftContext,
         structuredReplyContext,
@@ -1097,7 +1309,7 @@ async function handleChatRouteRequest(args: {
         3,
         buildRouteProgressCopy({
           workflow: progressPlan.workflow,
-          stepId: progressPlan.steps[3]?.id ?? "finalize_response",
+          stepId: progressPlan.steps[3]?.id ?? "persist_response",
           activeHandle,
           selectedDraftContext,
           structuredReplyContext,
@@ -1165,7 +1377,7 @@ async function handleChatRouteRequest(args: {
       3,
       buildRouteProgressCopy({
         workflow: progressPlan.workflow,
-        stepId: progressPlan.steps[3]?.id ?? "finalize_response",
+        stepId: progressPlan.steps[3]?.id ?? "persist_response",
         activeHandle,
         selectedDraftContext,
         structuredReplyContext,

@@ -226,6 +226,40 @@ export async function readTurnById(args: {
   );
 }
 
+export async function readTurnProgressById(args: {
+  turnId: string;
+  userId: string;
+}) {
+  return withMissingTurnControlFallback(
+    () =>
+      prisma.chatTurnControl.findFirst({
+        where: {
+          id: args.turnId,
+          userId: args.userId,
+        },
+        select: {
+          id: true,
+          threadId: true,
+          status: true,
+          progressStepId: true,
+          progressLabel: true,
+          progressExplanation: true,
+          assistantMessageId: true,
+          userMessageId: true,
+          errorCode: true,
+          errorMessage: true,
+          startedAt: true,
+          heartbeatAt: true,
+          failedAt: true,
+          completedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+    null,
+  );
+}
+
 export async function readTurnByIdentity(args: TurnControlIdentity) {
   const where = buildIdentityWhere(args);
   if (!where) {

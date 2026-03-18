@@ -36,6 +36,8 @@ type RawOrchestratorResponse = Omit<
   "surfaceMode" | "responseShapePlan"
 >;
 
+const MAX_INTERNAL_ATTEMPTS = 2;
+
 export interface DraftingAttemptResult {
   writerOutput: WriterOutput | null;
   criticOutput: CriticOutput | null;
@@ -90,6 +92,20 @@ export async function runGroundedDraftRetry(
   const localWorkers: RuntimeWorkerExecution[] = [];
   const localValidations: RuntimeValidationResult[] = [];
   let routingTracePatch: RoutingTracePatch | undefined;
+  const decorateAttemptWorkers = (
+    executions: RuntimeWorkerExecution[],
+    attemptCount: number,
+    fallbackReason: "delivery_validation_failed" | "clarification_required" | null,
+  ): RuntimeWorkerExecution[] =>
+    executions.map((execution) => ({
+      ...execution,
+      details: {
+        ...(execution.details || {}),
+        attemptCount,
+        maxAttempts: MAX_INTERNAL_ATTEMPTS,
+        fallbackReason,
+      },
+    }));
 
   const buildWriteFailure = (): DraftingCapabilityRunResult => ({
     kind: "response",
@@ -128,6 +144,10 @@ export async function runGroundedDraftRetry(
           retrievalReasons: string[];
           threadFramingStyle: ThreadFramingStyle | null;
         },
+    attemptMeta: {
+      attemptCount: number;
+      fallbackReason: "delivery_validation_failed" | "clarification_required" | null;
+    },
   ): CheckedDraftingAttempt => {
     const claimCheck = checkDraftClaimsAgainstGrounding({
       draft: attempt.draftToDeliver,
@@ -148,6 +168,9 @@ export async function runGroundedDraftRetry(
       details: {
         status: validationStatus,
         issueCount: claimCheck.issues.length,
+        attemptCount: attemptMeta.attemptCount,
+        maxAttempts: MAX_INTERNAL_ATTEMPTS,
+        fallbackReason: attemptMeta.fallbackReason,
       },
     }));
     localValidations.push(buildRuntimeValidationResult({
@@ -202,6 +225,9 @@ export async function runGroundedDraftRetry(
     voiceTarget: firstAttempt.voiceTarget,
     retrievalReasons: firstAttempt.retrievalReasons,
     threadFramingStyle: firstAttempt.threadFramingStyle,
+  }, {
+    attemptCount: 1,
+    fallbackReason: null,
   });
 
   if (firstAttemptWithClaimCheck.claimNeedsClarification) {
@@ -228,7 +254,9 @@ export async function runGroundedDraftRetry(
     formatPreference: args.formatPreference,
     sourceUserMessage: args.sourceUserMessage,
   });
-  localWorkers.push(...firstDeliveryValidation.workerExecutions);
+  localWorkers.push(
+    ...decorateAttemptWorkers(firstDeliveryValidation.workerExecutions, 1, null),
+  );
   localValidations.push(...firstDeliveryValidation.validations);
   const firstDraftAfterDeliveryValidation = firstDeliveryValidation.correctedDraft;
 
@@ -243,7 +271,7 @@ export async function runGroundedDraftRetry(
       sourceUserMessage: args.sourceUserMessage,
       draft: firstDraftAfterDeliveryValidation,
     });
-    localWorkers.push(...firstValidation.workerExecutions);
+    localWorkers.push(...decorateAttemptWorkers(firstValidation.workerExecutions, 1, null));
     localValidations.push(...firstValidation.validations);
     firstAssessment = firstValidation.concreteSceneAssessment;
     firstProductAssessment = firstValidation.groundedProductAssessment;
@@ -303,6 +331,11 @@ export async function runGroundedDraftRetry(
     voiceTarget: secondAttempt.voiceTarget,
     retrievalReasons: secondAttempt.retrievalReasons,
     threadFramingStyle: secondAttempt.threadFramingStyle,
+  }, {
+    attemptCount: 2,
+    fallbackReason: firstDeliveryValidation.hasFailures
+      ? "delivery_validation_failed"
+      : "clarification_required",
   });
 
   if (secondAttemptWithClaimCheck.claimNeedsClarification) {
@@ -331,7 +364,15 @@ export async function runGroundedDraftRetry(
     formatPreference: args.formatPreference,
     sourceUserMessage: args.sourceUserMessage,
   });
-  localWorkers.push(...secondDeliveryValidation.workerExecutions);
+  localWorkers.push(
+    ...decorateAttemptWorkers(
+      secondDeliveryValidation.workerExecutions,
+      2,
+      firstDeliveryValidation.hasFailures
+        ? "delivery_validation_failed"
+        : "clarification_required",
+    ),
+  );
   localValidations.push(...secondDeliveryValidation.validations);
   const secondDraftAfterDeliveryValidation = secondDeliveryValidation.correctedDraft;
 
@@ -362,7 +403,9 @@ export async function runGroundedDraftRetry(
     sourceUserMessage: args.sourceUserMessage,
     draft: secondDraftAfterDeliveryValidation,
   });
-  localWorkers.push(...secondValidation.workerExecutions);
+  localWorkers.push(
+    ...decorateAttemptWorkers(secondValidation.workerExecutions, 2, "clarification_required"),
+  );
   localValidations.push(...secondValidation.validations);
 
   const secondAssessment = secondValidation.concreteSceneAssessment;

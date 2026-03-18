@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fetchJsonFromGroq } from "./llm";
+import { fetchStructuredJsonFromGroq } from "./llm";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type {
   ConversationState,
@@ -390,7 +390,7 @@ ${sourceUserMessage || args.revision.instruction}
 REVISION REQUEST:
 ${args.revision.instruction}
 
-RECENT CHAT HISTORY:
+WORKFLOW CONTEXT PACKET:
 ${args.recentHistory}
 
 TOPIC / VOICE REFERENCES:
@@ -425,8 +425,10 @@ REQUIREMENTS:
 ${buildReviserJsonContract()}
   `.trim();
 
-  const data = await fetchJsonFromGroq<unknown>({
-    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+  const data = await fetchStructuredJsonFromGroq({
+    schema: ReviserOutputSchema,
+    modelTier: "writing",
+    fallbackModel: "openai/gpt-oss-120b",
     reasoning_effort: "medium",
     temperature: 0.25,
     max_tokens: 4096,
@@ -436,18 +438,10 @@ ${buildReviserJsonContract()}
     ],
   });
 
-  if (!data) {
-    return null;
-  }
-
-  try {
-    const parsed = ReviserOutputSchema.parse(data);
-    return {
-      ...parsed,
-      revisedDraft: trimToXCharacterLimit(parsed.revisedDraft, maxCharacterLimit),
-    };
-  } catch (error) {
-    console.error("Reviser validation failed", error);
-    return null;
-  }
+  return data
+    ? {
+        ...data,
+        revisedDraft: trimToXCharacterLimit(data.revisedDraft, maxCharacterLimit),
+      }
+    : null;
 }

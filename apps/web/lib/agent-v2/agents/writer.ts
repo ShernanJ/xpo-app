@@ -1,4 +1,4 @@
-import { fetchJsonFromGroq } from "./llm";
+import { fetchStructuredJsonFromGroq } from "./llm";
 import { z } from "zod";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { VoiceTarget } from "../core/voiceTarget";
@@ -75,8 +75,10 @@ export async function generateDrafts(
     (options?.groundingPacket?.unknowns.length || 0) > 0 &&
     (options?.groundingPacket?.allowedFirstPersonClaims.length || 0) === 0;
 
-  const data = await fetchJsonFromGroq<unknown>({
-    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+  const data = await fetchStructuredJsonFromGroq({
+    schema: WriterOutputSchema,
+    modelTier: "writing",
+    fallbackModel: "openai/gpt-oss-120b",
     reasoning_effort: "medium",
     temperature: shouldUseStrictFactualTemperature ? 0.2 : 0.45,
     max_tokens: 4096,
@@ -86,12 +88,5 @@ export async function generateDrafts(
     ],
   });
 
-  if (!data) return null;
-
-  try {
-    return WriterOutputSchema.parse(data);
-  } catch (err) {
-    console.error("Writer validation failed", err);
-    return null;
-  }
+  return data;
 }

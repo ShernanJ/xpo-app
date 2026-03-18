@@ -492,6 +492,9 @@ export async function executeDraftPipeline(args: {
     factualContext,
     voiceContextHints,
     activeConstraints: effectiveActiveConstraints,
+    approvedPlan: memory.pendingPlan,
+    activeDraft: activeDraft || null,
+    sourceMaterialRefs: selectedSourceMaterials,
     ...(useFactSafeReferenceHintsForTurn
       ? { referenceLabel: "REFERENCE HINTS" }
       : {}),

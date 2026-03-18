@@ -73,8 +73,18 @@ interface AssistantReplySuccessEnvelope<TResult> {
   data: TResult;
 }
 
+interface AssistantReplyAcceptedEnvelope {
+  ok: true;
+  data: {
+    accepted: true;
+    executionMode: "queued";
+    activeTurn: ChatActiveTurn | null;
+  };
+}
+
 type AssistantReplyResponse<TResult, TBillingSnapshot> =
   | AssistantReplySuccessEnvelope<TResult>
+  | AssistantReplyAcceptedEnvelope
   | AssistantReplyFailureLike<TBillingSnapshot>;
 
 export interface RequestAssistantReplyOptions<
@@ -534,6 +544,15 @@ export function useAssistantReplyOrchestrator<
             (data as { data?: { activeTurn?: ChatActiveTurn | null } }).data?.activeTurn
               ? (data as { data?: { activeTurn?: ChatActiveTurn | null } }).data?.activeTurn ?? null
               : null;
+          const acceptedQueuedTurn =
+            response.ok &&
+            data &&
+            typeof data === "object" &&
+            "data" in data &&
+            (data as { data?: { accepted?: boolean; executionMode?: string } }).data
+              ?.accepted === true &&
+            (data as { data?: { accepted?: boolean; executionMode?: string } }).data
+              ?.executionMode === "queued";
 
           if (
             !response.ok &&
@@ -547,6 +566,23 @@ export function useAssistantReplyOrchestrator<
                 "A previous reply is still running in this chat.",
             );
             setActiveAgentProgressState(null);
+            return;
+          }
+
+          if (acceptedQueuedTurn && activeTurn) {
+            if (activeTurn.threadId && activeTurn.threadId !== activeThreadId) {
+              applyCreatedThreadWorkspaceUpdate(activeTurn.threadId, null);
+            }
+            setActiveThreadTurn?.(activeTurn);
+            setStatusMessage?.(
+              activeTurn.progressLabel || "The reply is queued and running in the background.",
+            );
+            setActiveAgentProgressState((current) =>
+              applyAgentProgressBackendStatus(
+                current,
+                activeTurn.progressLabel || "Queued for background execution.",
+              ),
+            );
             return;
           }
 

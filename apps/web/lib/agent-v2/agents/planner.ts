@@ -1,4 +1,4 @@
-import { fetchJsonFromGroq } from "./llm";
+import { fetchStructuredJsonFromGroq } from "./llm";
 import { z } from "zod";
 import type {
   ConversationState,
@@ -133,33 +133,36 @@ export async function generatePlan(
     options,
   });
 
-  const data = await fetchJsonFromGroq<unknown>({
-    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
-    reasoning_effort: isThread ? "medium" : "low",
-    temperature: 0.2,
-    top_p: 0.9,
-    onFailure: (reason) => {
-      options?.onFailureReason?.(summarizePlannerFetchFailure(reason));
-    },
-    messages: [
-      { role: "system", content: instruction },
-      { role: "user", content: `User Request: ${userMessage}` },
-    ],
-  });
+  const loadPlan = async (
+    schema: typeof ThreadPlanSchema | typeof PlannerOutputSchema,
+  ) =>
+    fetchStructuredJsonFromGroq({
+      schema,
+      modelTier: "planning",
+      fallbackModel: "openai/gpt-oss-120b",
+      reasoning_effort: isThread ? "medium" : "low",
+      temperature: 0.2,
+      top_p: 0.9,
+      onFailure: (reason) => {
+        options?.onFailureReason?.(summarizePlannerFetchFailure(reason));
+      },
+      onSchemaFailure: (error) => {
+        options?.onFailureReason?.(summarizePlannerSchemaFailure(error));
+      },
+      messages: [
+        { role: "system", content: instruction },
+        { role: "user", content: `User Request: ${userMessage}` },
+      ],
+    });
+
+  const data =
+    (isThread ? await loadPlan(ThreadPlanSchema) : null) ||
+    (await loadPlan(PlannerOutputSchema));
 
   if (!data) return null;
 
   try {
-    // For thread format, try the thread-specific schema first,
-    // then fall back to the standard schema if it doesn't have posts[]
-    if (isThread) {
-      const threadResult = ThreadPlanSchema.safeParse(data);
-      if (threadResult.success) {
-        return normalizePlannerOutput(threadResult.data as PlannerOutput);
-      }
-    }
-
-    return normalizePlannerOutput(PlannerOutputSchema.parse(data));
+    return normalizePlannerOutput(data as PlannerOutput);
   } catch (err) {
     if (err instanceof z.ZodError) {
       options?.onFailureReason?.(summarizePlannerSchemaFailure(err));

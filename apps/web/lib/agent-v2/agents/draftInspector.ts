@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fetchJsonFromGroq } from "./llm";
+import { fetchStructuredJsonFromGroq } from "./llm";
 
 const DraftInspectorOutputSchema = z.object({
   summary: z.string().min(1),
@@ -70,8 +70,10 @@ Respond only with JSON:
 }
 `.trim();
 
-  const data = await fetchJsonFromGroq<unknown>({
-    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+  const data = await fetchStructuredJsonFromGroq({
+    schema: DraftInspectorOutputSchema,
+    modelTier: "extraction",
+    fallbackModel: "openai/gpt-oss-120b",
     reasoning_effort: "medium",
     temperature: 0.2,
     max_tokens: 700,
@@ -81,14 +83,5 @@ Respond only with JSON:
     ],
   });
 
-  if (!data) {
-    return buildFallbackSummary(args.mode);
-  }
-
-  try {
-    return DraftInspectorOutputSchema.parse(data).summary.trim();
-  } catch (error) {
-    console.error("Draft inspector validation failed", error);
-    return buildFallbackSummary(args.mode);
-  }
+  return data?.summary.trim() || buildFallbackSummary(args.mode);
 }

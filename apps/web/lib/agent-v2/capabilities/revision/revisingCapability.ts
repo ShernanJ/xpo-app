@@ -28,6 +28,8 @@ import type {
   RuntimeResponseSeed,
   RuntimeWorkerExecution,
 } from "../../runtime/runtimeContracts.ts";
+
+const MAX_INTERNAL_ATTEMPTS = 2;
 import {
   resolveDraftOutputShape,
 } from "../../core/conversationHeuristics.ts";
@@ -638,6 +640,9 @@ export async function executeRevisingCapability(
       details: {
         issuesFixedCount: firstAttempt.reviserOutput.issuesFixed?.length ?? 0,
         revisionChangeKind: context.revision.changeKind,
+        attemptCount: 1,
+        maxAttempts: MAX_INTERNAL_ATTEMPTS,
+        fallbackReason: null,
       },
     },
     ...firstAttempt.validation!.workerExecutions,
@@ -730,6 +735,12 @@ export async function executeRevisingCapability(
         details: {
           issuesFixedCount: finalAttempt.reviserOutput.issuesFixed?.length ?? 0,
           revisionChangeKind: context.revision.changeKind,
+          attemptCount: 2,
+          maxAttempts: MAX_INTERNAL_ATTEMPTS,
+          fallbackReason:
+            !firstAttemptChanged || !firstAttempt.criticOutput.approved
+              ? "critic_stall"
+              : "delivery_validation_failed",
         },
       },
       ...finalAttempt.validation!.workerExecutions,

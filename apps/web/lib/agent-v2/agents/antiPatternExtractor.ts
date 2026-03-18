@@ -1,3 +1,4 @@
+import { fetchStructuredJsonFromGroq } from "./llm";
 import { z } from "zod";
 
 const AntiPatternSchema = z.object({
@@ -52,9 +53,17 @@ export async function extractAntiPattern(
   activeDraft: string,
   recentHistory: string,
 ): Promise<AntiPatternExtraction | null> {
-  const { fetchJsonFromGroq } = await import("./llm");
-  const data = await fetchJsonFromGroq<unknown>({
-    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+  const data = await fetchStructuredJsonFromGroq({
+    schema: AntiPatternSchema,
+    modelTier: "extraction",
+    fallbackModel: "openai/gpt-oss-120b",
+    optionalDefaults: {
+      shouldCapture: false,
+      feedbackReason: "",
+      patternTags: [],
+      badSnippet: "",
+      guidance: "",
+    },
     reasoning_effort: "low",
     temperature: 0.1,
     max_tokens: 256,
@@ -77,14 +86,5 @@ export async function extractAntiPattern(
     ],
   });
 
-  if (!data) {
-    return null;
-  }
-
-  try {
-    return AntiPatternSchema.parse(data);
-  } catch (error) {
-    console.error("Anti-pattern validation failed", error);
-    return null;
-  }
+  return data;
 }

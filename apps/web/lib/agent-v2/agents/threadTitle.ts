@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fetchJsonFromGroq } from "./llm";
+import { fetchStructuredJsonFromGroq } from "./llm";
 import type { StrategyPlan } from "../contracts/chat";
 
 const ThreadTitleSchema = z.object({
@@ -100,8 +100,10 @@ export async function generateThreadTitle(args: {
     return heuristicTitle;
   }
 
-  const data = await fetchJsonFromGroq<unknown>({
-    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+  const data = await fetchStructuredJsonFromGroq({
+    schema: ThreadTitleSchema,
+    modelTier: "extraction",
+    fallbackModel: "openai/gpt-oss-120b",
     reasoning_effort: "low",
     temperature: 0.2,
     max_tokens: 96,
@@ -130,14 +132,5 @@ export async function generateThreadTitle(args: {
     ],
   });
 
-  if (!data) {
-    return sanitizeThreadTitle(topicSummary);
-  }
-
-  try {
-    return sanitizeThreadTitle(ThreadTitleSchema.parse(data).title);
-  } catch (error) {
-    console.error("Thread title validation failed", error);
-    return sanitizeThreadTitle(topicSummary);
-  }
+  return sanitizeThreadTitle(data?.title || topicSummary);
 }

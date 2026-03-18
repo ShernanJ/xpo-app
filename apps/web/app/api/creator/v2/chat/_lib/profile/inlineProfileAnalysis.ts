@@ -1,7 +1,7 @@
 import type { V2ConversationMemory } from "@/lib/agent-v2/contracts/chat";
 import type { ProfileReplyContext } from "@/lib/agent-v2/grounding/profileReplyContext";
 import type { RawOrchestratorResponse } from "@/lib/agent-v2/runtime/types";
-import { fetchJsonFromGroq } from "@/lib/agent-v2/agents/llm";
+import { fetchStructuredJsonFromGroq } from "@/lib/agent-v2/agents/llm";
 import type { ProfileAnalysisArtifact } from "@/lib/chat/profileAnalysisArtifact";
 import {
   analyzeBannerUrlForGrowth,
@@ -264,24 +264,17 @@ Return valid JSON:
 }
   `.trim();
 
-  const data = await fetchJsonFromGroq<unknown>({
-    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+  const data = await fetchStructuredJsonFromGroq({
+    schema: ProfileAnalysisNarrativeSchema,
+    modelTier: "extraction",
+    fallbackModel: "openai/gpt-oss-120b",
     reasoning_effort: "low",
     temperature: 0.35,
     max_tokens: 700,
     messages: [{ role: "system", content: prompt }],
   });
 
-  if (!data) {
-    return null;
-  }
-
-  try {
-    return ProfileAnalysisNarrativeSchema.parse(data).response.trim() || null;
-  } catch (error) {
-    console.error("Profile analysis narrative validation failed", error);
-    return null;
-  }
+  return data?.response.trim() || null;
 }
 
 async function resolveProfileBannerAnalysis(args: {

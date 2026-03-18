@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getServerSession } from "@/lib/auth/serverSession";
 
-import { readTurnById } from "../../_lib/control/routeTurnControl";
+import { readTurnProgressById } from "../../_lib/control/routeTurnControl";
 
 export async function GET(
   _request: NextRequest,
@@ -17,7 +17,7 @@ export async function GET(
   }
 
   const { turnId } = await params;
-  const turn = await readTurnById({
+  const turn = await readTurnProgressById({
     turnId,
     userId: session.user.id,
   });

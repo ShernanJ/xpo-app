@@ -1,4 +1,4 @@
-import { fetchJsonFromGroq } from "./llm";
+import { fetchStructuredJsonFromGroq } from "./llm";
 import { z } from "zod";
 
 export const StyleRuleExtractionSchema = z.object({
@@ -41,8 +41,13 @@ Respond ONLY with valid JSON matching this schema:
 }
   `.trim();
 
-  const data = await fetchJsonFromGroq<unknown>({
-    model: process.env.GROQ_MODEL || "llama3-8b-8192", // Fast, deterministic model
+  const data = await fetchStructuredJsonFromGroq({
+    schema: StyleRuleExtractionSchema,
+    modelTier: "extraction",
+    fallbackModel: "llama3-8b-8192",
+    optionalDefaults: {
+      rules: [],
+    },
     reasoning_effort: "low",
     temperature: 0.1,
     top_p: 0.9,
@@ -53,13 +58,5 @@ Respond ONLY with valid JSON matching this schema:
     ],
   });
 
-  if (!data) return null;
-
-  try {
-    const parsed = StyleRuleExtractionSchema.parse(data);
-    return parsed.rules.length > 0 ? parsed.rules : null;
-  } catch (err) {
-    console.error("Style extractor validation failed", err);
-    return null;
-  }
+  return data && data.rules.length > 0 ? data.rules : null;
 }

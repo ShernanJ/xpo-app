@@ -84,6 +84,119 @@ export function retrieveRelevantContext(args: {
   return args.topicAnchors.slice(0, 3);
 }
 
+function truncateLine(value: string, maxLength = 220): string {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+}
+
+function looksLikeStaleIdeationLine(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    /^(?:assistant(?:_angles)?\s*:\s*)?\d+\.\s+/.test(normalized) ||
+    /^(?:assistant(?:_angles)?\s*:\s*)?(?:angle|idea|option)\s+\d+\b/.test(
+      normalized,
+    ) ||
+    /\bwhich (?:of these|one|angle|idea)\b/.test(normalized) ||
+    /\bwant me to draft (?:any|one) of (?:them|these)\b/.test(normalized)
+  );
+}
+
+function buildRelevantRecentTurns(args: {
+  recentHistory: string;
+  shouldCompactIdeationHistory: boolean;
+}): string[] {
+  const recentLines = args.recentHistory
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const filteredLines = args.shouldCompactIdeationHistory
+    ? recentLines.filter((line) => !looksLikeStaleIdeationLine(line))
+    : recentLines;
+
+  return filteredLines.slice(-6).map((line) => truncateLine(line));
+}
+
+function buildApprovedPlanSection(plan?: {
+  objective?: string | null;
+  angle?: string | null;
+  targetLane?: string | null;
+  hookType?: string | null;
+  pitchResponse?: string | null;
+} | null): string | null {
+  if (!plan?.objective && !plan?.angle && !plan?.pitchResponse) {
+    return null;
+  }
+
+  return [
+    "APPROVED PLAN:",
+    `Objective: ${plan?.objective || "None"}`,
+    `Angle: ${plan?.angle || "None"}`,
+    `Lane: ${plan?.targetLane || "None"}`,
+    `Hook type: ${plan?.hookType || "None"}`,
+    `Pitch: ${plan?.pitchResponse || "None"}`,
+  ].join("\n");
+}
+
+function buildActiveDraftSection(activeDraft?: string | null): string | null {
+  const normalizedDraft = activeDraft?.trim();
+  if (!normalizedDraft) {
+    return null;
+  }
+
+  const preview = normalizedDraft
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 4)
+    .map((line) => truncateLine(line, 180))
+    .join("\n");
+
+  return preview ? `CURRENT ARTIFACT SUMMARY:\n${preview}` : null;
+}
+
+function buildSourceMaterialSection(args?: {
+  sourceMaterialRefs?: Array<{
+    title?: string | null;
+    type?: string | null;
+    claims?: string[] | null;
+    snippets?: string[] | null;
+  }>;
+}): string | null {
+  const refs = (args?.sourceMaterialRefs || [])
+    .map((ref) => {
+      const title = ref.title?.trim() || "Untitled source";
+      const type = ref.type?.trim() || "source";
+      const claim = ref.claims?.find((entry) => entry.trim())?.trim() || null;
+      const snippet = ref.snippets?.find((entry) => entry.trim())?.trim() || null;
+
+      return truncateLine(
+        [
+          `${title} (${type})`,
+          claim ? `claim: ${claim}` : null,
+          snippet ? `snippet: ${snippet}` : null,
+        ]
+          .filter(Boolean)
+          .join(" - "),
+        240,
+      );
+    })
+    .filter(Boolean)
+    .slice(0, 3);
+
+  return refs.length > 0
+    ? `SOURCE MATERIAL REFERENCES:\n${refs.join("\n")}`
+    : null;
+}
+
 export function buildEffectiveContext(args: {
   recentHistory: string;
   rollingSummary: string | null;
@@ -92,12 +205,25 @@ export function buildEffectiveContext(args: {
   voiceContextHints?: string[];
   activeConstraints?: string[];
   referenceLabel?: string;
+  approvedPlan?: {
+    objective?: string | null;
+    angle?: string | null;
+    targetLane?: string | null;
+    hookType?: string | null;
+    pitchResponse?: string | null;
+  } | null;
+  activeDraft?: string | null;
+  sourceMaterialRefs?: Array<{
+    title?: string | null;
+    type?: string | null;
+    claims?: string[] | null;
+    snippets?: string[] | null;
+  }>;
 }): string {
-  const recentLines = args.recentHistory
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(-6);
+  const recentLines = buildRelevantRecentTurns({
+    recentHistory: args.recentHistory,
+    shouldCompactIdeationHistory: Boolean(args.approvedPlan || args.activeDraft),
+  });
 
   const factualLocks = (args.activeConstraints || [])
     .filter((constraint) => constraint.startsWith("Correction lock:"))
@@ -119,7 +245,12 @@ export function buildEffectiveContext(args: {
       ? `VOICE / TERRITORY HINTS (NOT FACTS):\n${voiceHints.join("\n")}`
       : null,
     args.rollingSummary ? `ROLLING SUMMARY:\n${args.rollingSummary}` : null,
-    recentLines.length > 0 ? `RECENT TURNS:\n${recentLines.join("\n")}` : null,
+    buildApprovedPlanSection(args.approvedPlan),
+    buildActiveDraftSection(args.activeDraft),
+    buildSourceMaterialSection({
+      sourceMaterialRefs: args.sourceMaterialRefs,
+    }),
+    recentLines.length > 0 ? `LATEST RELEVANT TURNS:\n${recentLines.join("\n")}` : null,
     args.relevantTopicAnchors.length > 0
       ? `${args.referenceLabel || "RELEVANT TOPIC ANCHORS"}:\n${args.relevantTopicAnchors.join("\n---\n")}`
       : null,

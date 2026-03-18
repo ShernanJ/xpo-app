@@ -14,17 +14,13 @@ export type PendingStatusWorkflow =
   | "analyze_post";
 
 export type PendingStatusStepId =
+  | "queued"
   | "understand_request"
   | "gather_context"
-  | "write_response"
-  | "finalize_response"
-  | "scan_context"
-  | "explore_directions"
-  | "pick_direction"
-  | "package_ideas"
-  | "draft_response"
-  | "revise_response"
-  | "polish_response";
+  | "plan_response"
+  | "generate_output"
+  | "validate_output"
+  | "persist_response";
 
 export type PendingStatusStepState = "pending" | "active" | "completed";
 export type AgentProgressPhase = "active" | "completed" | "failed";
@@ -82,17 +78,13 @@ const PENDING_STATUS_WORKFLOWS: readonly PendingStatusWorkflow[] = [
 ];
 
 const PENDING_STATUS_STEP_IDS: readonly PendingStatusStepId[] = [
+  "queued",
   "understand_request",
   "gather_context",
-  "write_response",
-  "finalize_response",
-  "scan_context",
-  "explore_directions",
-  "pick_direction",
-  "package_ideas",
-  "draft_response",
-  "revise_response",
-  "polish_response",
+  "plan_response",
+  "generate_output",
+  "validate_output",
+  "persist_response",
 ];
 
 function normalizeMessage(message: string): string {
@@ -192,23 +184,23 @@ function buildStatusSteps(args: {
       return [
         withDelay(
           {
-            id: "scan_context",
-            label: "Scanning the context",
-            explanation: "This helps the assistant ground the ideas in what you already shared.",
+            id: "understand_request",
+            label: "Understanding what kind of idea would help most",
+            explanation: "This helps the assistant focus on the job you actually want done.",
           },
           0,
         ),
         withDelay(
           {
-            id: "explore_directions",
-            label: "Exploring a few directions",
-            explanation: "This helps surface options instead of locking into the first idea.",
+            id: "gather_context",
+            label: "Looking through the relevant context",
+            explanation: "This helps ground the next ideas in your lane and recent conversation.",
           },
           1,
         ),
         withDelay(
           {
-            id: "pick_direction",
+            id: "plan_response",
             label: "Picking the strongest angle",
             explanation: "This helps narrow things down to the clearest direction to run with.",
           },
@@ -216,7 +208,7 @@ function buildStatusSteps(args: {
         ),
         withDelay(
           {
-            id: "package_ideas",
+            id: "generate_output",
             label: "Packaging the ideas",
             explanation: "This helps turn the best direction into a clean, easy-to-read response.",
           },
@@ -243,7 +235,7 @@ function buildStatusSteps(args: {
         ),
         withDelay(
           {
-            id: "draft_response",
+            id: "generate_output",
             label: "Drafting the post",
             explanation: "This is where the first working version gets written.",
           },
@@ -251,9 +243,9 @@ function buildStatusSteps(args: {
         ),
         withDelay(
           {
-            id: "polish_response",
-            label: "Polishing the wording",
-            explanation: "This helps make the draft clearer, tighter, and easier to post.",
+            id: "persist_response",
+            label: "Saving the draft back into the chat",
+            explanation: "This helps return the finished draft cleanly and keep the thread in sync.",
           },
           3,
         ),
@@ -286,7 +278,7 @@ function buildStatusSteps(args: {
         ),
         withDelay(
           {
-            id: "revise_response",
+            id: "generate_output",
             label: args.isThreadConversion
               ? "Turning it into a thread"
               : "Reworking the draft",
@@ -298,9 +290,9 @@ function buildStatusSteps(args: {
         ),
         withDelay(
           {
-            id: "polish_response",
-            label: "Polishing the wording",
-            explanation: "This helps the revised version read cleanly and feel ready to use.",
+            id: "persist_response",
+            label: "Saving the revision back into the chat",
+            explanation: "This helps the revised version come back cleanly and stay attached to the right draft.",
           },
           3,
         ),
@@ -325,7 +317,7 @@ function buildStatusSteps(args: {
         ),
         withDelay(
           {
-            id: "write_response",
+            id: "generate_output",
             label: "Writing the reply",
             explanation: "This is where the response is drafted in a way that feels natural.",
           },
@@ -333,9 +325,9 @@ function buildStatusSteps(args: {
         ),
         withDelay(
           {
-            id: "finalize_response",
-            label: "Finalizing the reply",
-            explanation: "This helps make sure the reply is clear and ready to send.",
+            id: "persist_response",
+            label: "Saving the reply back into the chat",
+            explanation: "This helps make sure the reply lands cleanly in the thread.",
           },
           3,
         ),
@@ -360,7 +352,7 @@ function buildStatusSteps(args: {
         ),
         withDelay(
           {
-            id: "write_response",
+            id: "generate_output",
             label: "Pulling out the main insight",
             explanation: "This is where the assistant turns the review into a clear takeaway.",
           },
@@ -368,9 +360,9 @@ function buildStatusSteps(args: {
         ),
         withDelay(
           {
-            id: "finalize_response",
-            label: "Finalizing the breakdown",
-            explanation: "This helps the feedback come back in a simple, usable format.",
+            id: "persist_response",
+            label: "Saving the breakdown back into the chat",
+            explanation: "This helps the feedback come back in a clean, usable format.",
           },
           3,
         ),
@@ -396,7 +388,7 @@ function buildStatusSteps(args: {
         ),
         withDelay(
           {
-            id: "write_response",
+            id: "generate_output",
             label: "Writing the response",
             explanation: "This is where the answer is put together in plain language.",
           },
@@ -404,9 +396,9 @@ function buildStatusSteps(args: {
         ),
         withDelay(
           {
-            id: "finalize_response",
-            label: "Finalizing the response",
-            explanation: "This helps the final answer come back clearly and cleanly.",
+            id: "persist_response",
+            label: "Saving the response back into the chat",
+            explanation: "This helps the final answer come back clearly and stay attached to the right turn.",
           },
           3,
         ),
@@ -449,15 +441,15 @@ function resolveBackendPendingStatusStepId(
     case "Planning the next move.":
       return "gather_context";
     case "Writing draft options.":
-      return "draft_response";
+      return "generate_output";
     case "Tightening the response.":
-      return "polish_response";
+      return "validate_output";
     case "Finalizing the reply.":
-      return "finalize_response";
+      return "persist_response";
     case "Analyzing this draft.":
       return "gather_context";
     case "Comparing versions.":
-      return "polish_response";
+      return "validate_output";
     default:
       return null;
   }

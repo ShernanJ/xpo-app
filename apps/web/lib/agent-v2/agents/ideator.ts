@@ -1,4 +1,4 @@
-import { fetchJsonFromGroq } from "./llm";
+import { fetchStructuredJsonFromGroq } from "./llm";
 import { z } from "zod";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { ConversationState } from "../contracts/chat";
@@ -577,14 +577,21 @@ ${voiceHint}
 Speak directly to them ("You've lived this", "Your audience trusts you"). 
 Limit emojis, unless their stylecard heavily uses them. Be a professional but casual peer.
 
-CONVERSATION SO FAR:
+WORKFLOW CONTEXT PACKET:
 ${recentHistory}
 
 Respond ONLY with valid JSON matching the exact schema requirements.
   `.trim();
 
-  const data = await fetchJsonFromGroq<unknown>({
-    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+  const data = await fetchStructuredJsonFromGroq({
+    schema: IdeasMenuSchema,
+    modelTier: "planning",
+    fallbackModel: "openai/gpt-oss-120b",
+    optionalDefaults: {
+      intro: "",
+      angles: [],
+      close: "",
+    },
     reasoning_effort: "medium",
     temperature: 0.65,
     max_tokens: 2048,
@@ -597,7 +604,7 @@ Respond ONLY with valid JSON matching the exact schema requirements.
   if (!data) return null;
 
   try {
-    const parsed = IdeasMenuSchema.parse(data);
+    const parsed = data;
     const sourceContext = [
       userMessage,
       topicSummary || "",

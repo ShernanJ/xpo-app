@@ -69,6 +69,56 @@ test("structured draft actions resolve directly into revise_draft", async () => 
   assert.equal(result.decision.action, "revise");
 });
 
+test("reply actions stay on the structured reply workflow", async () => {
+  const result = await resolveRuntimeAction({
+    turnSource: "reply_action",
+    artifactContext: {
+      kind: "reply_option_select",
+      optionIndex: 1,
+    },
+    explicitIntent: null,
+    resolvedWorkflowHint: "reply_to_post",
+    turnPlan: null,
+    userMessage: "",
+    recentHistory: "",
+    memory: buildMemory(),
+  });
+
+  assert.equal(result.workflow, "reply_to_post");
+  assert.equal(result.source, "structured_turn");
+  assert.equal(result.decision.action, "answer");
+});
+
+test("pending plan approvals bypass the controller and stay structured", async () => {
+  let controlTurnCalled = false;
+
+  const result = await resolveRuntimeAction({
+    explicitIntent: null,
+    turnPlan: null,
+    userMessage: "go ahead",
+    recentHistory: "",
+    memory: buildMemory({
+      conversationState: "plan_pending_approval",
+      hasPendingPlan: true,
+    }),
+    controlTurnImpl: async () => {
+      controlTurnCalled = true;
+      return {
+        action: "ask",
+        needs_memory_update: false,
+        confidence: 0.1,
+        rationale: "should not run",
+      };
+    },
+  });
+
+  assert.equal(controlTurnCalled, false);
+  assert.equal(result.workflow, "plan_then_draft");
+  assert.equal(result.classifiedIntent, "planner_feedback");
+  assert.equal(result.source, "structured_turn");
+  assert.equal(result.decision.action, "draft");
+});
+
 test("controller analyze actions map into analyze_post even though the classified intent stays answer_question", async () => {
   const result = await resolveRuntimeAction({
     explicitIntent: null,

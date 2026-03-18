@@ -1,4 +1,4 @@
-import { fetchJsonFromGroq } from "./llm";
+import { fetchStructuredJsonFromGroq } from "./llm";
 import { z } from "zod";
 
 export const FactExtractionSchema = z.object({
@@ -88,8 +88,13 @@ Respond ONLY with valid JSON matching this schema:
 }
   `.trim();
 
-  const data = await fetchJsonFromGroq<unknown>({
-    model: process.env.GROQ_MODEL || "llama3-8b-8192", // Fast, deterministic model
+  const data = await fetchStructuredJsonFromGroq({
+    schema: FactExtractionSchema,
+    modelTier: "extraction",
+    fallbackModel: "llama3-8b-8192",
+    optionalDefaults: {
+      facts: [],
+    },
     reasoning_effort: "low",
     temperature: 0.1,
     top_p: 0.9,
@@ -100,13 +105,5 @@ Respond ONLY with valid JSON matching this schema:
     ],
   });
 
-  if (!data) return null;
-
-  try {
-    const parsed = FactExtractionSchema.parse(data);
-    return parsed.facts.length > 0 ? parsed.facts : null;
-  } catch (err) {
-    console.error("Fact extractor validation failed", err);
-    return null;
-  }
+  return data && data.facts.length > 0 ? data.facts : null;
 }

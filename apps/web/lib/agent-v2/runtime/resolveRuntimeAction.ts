@@ -1,5 +1,7 @@
 import {
+  mapControllerActionToIntent,
   mapIntentToControllerAction,
+  resolveArtifactContinuationAction,
   resolveTopLevelAction,
   type ControllerDecision,
   type ControllerMemorySummary,
@@ -155,6 +157,33 @@ export async function resolveRuntimeAction(args: {
   });
   if (structuredResolution) {
     return structuredResolution;
+  }
+
+  if (!args.explicitIntent) {
+    const continuationAction = resolveArtifactContinuationAction({
+      userMessage: args.userMessage,
+      memory: args.memory,
+    });
+
+    if (continuationAction) {
+      const classifiedIntent = mapControllerActionToIntent({
+        action: continuationAction,
+        memory: args.memory,
+      });
+
+      return {
+        workflow: mapIntentToRuntimeWorkflow({
+          classifiedIntent,
+          controllerAction: continuationAction,
+        }),
+        classifiedIntent,
+        source: "structured_turn",
+        decision: buildStructuredDecision({
+          action: continuationAction,
+          rationale: "deterministic artifact continuation",
+        }),
+      };
+    }
   }
 
   if (!args.explicitIntent && isBareDraftRequest(args.userMessage)) {

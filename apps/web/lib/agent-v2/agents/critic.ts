@@ -1,4 +1,4 @@
-import { fetchJsonFromGroq } from "./llm";
+import { fetchStructuredJsonFromGroq } from "./llm";
 import { z } from "zod";
 import type { WriterOutput } from "./writer";
 import { buildGroundingPromptBlock } from "./groundingPromptBlock";
@@ -158,8 +158,10 @@ ${`\n${buildMarkdownStylingRule("critic")}`}
 ${buildCriticJsonContract()}
   `.trim();
 
-  const data = await fetchJsonFromGroq<unknown>({
-    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+  const data = await fetchStructuredJsonFromGroq({
+    schema: CriticOutputSchema,
+    modelTier: "writing",
+    fallbackModel: "openai/gpt-oss-120b",
     reasoning_effort: "medium",
     temperature: 0.1,
     max_tokens: 4096,
@@ -172,7 +174,7 @@ ${buildCriticJsonContract()}
   if (!data) return null;
 
   try {
-    const parsed = CriticOutputSchema.parse(data);
+    const parsed = data;
     const initialTrimmedDraft = trimToXCharacterLimit(parsed.finalDraft, maxCharacterLimit);
     const wasTrimmed = initialTrimmedDraft !== parsed.finalDraft;
     const policyResult = applyFinalDraftPolicyWithReport({

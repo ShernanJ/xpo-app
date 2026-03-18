@@ -22,7 +22,7 @@ export function ChatMessageRow(props: ChatMessageRowProps) {
   const roleClassName =
     props.role === "assistant"
       ? "text-zinc-100"
-      : "ml-auto w-fit max-w-[88%] rounded-[1.15rem] bg-[#202327] px-4 py-2 text-white";
+      : "inline-block max-w-full rounded-[1.15rem] bg-[#202327] px-4 py-2 text-white";
 
   return (
     <div
@@ -34,7 +34,7 @@ export function ChatMessageRow(props: ChatMessageRowProps) {
       }}
     >
       {props.role === "user" ? (
-        <div className="relative ml-auto w-fit">
+        <div className="relative ml-auto flex w-full max-w-[88%] flex-col items-end">
           <div className={roleClassName}>{props.children}</div>
           {props.userActions ? (
             <div className="flex h-10 items-start justify-end pt-2 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">

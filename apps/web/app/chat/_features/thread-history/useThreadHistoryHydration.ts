@@ -51,8 +51,41 @@ interface TurnStatusRouteResponse {
   };
 }
 
+const ACTIVE_TURN_POLL_MS = 3000;
+const ACTIVE_TURN_UNCHANGED_POLL_MS = 4500;
+const HIDDEN_TAB_POLL_MS = 10000;
+const POLL_JITTER_MS = 250;
+
 function isTurnStillActive(status: ChatActiveTurn["status"]): boolean {
   return status === "queued" || status === "running" || status === "cancel_requested";
+}
+
+function buildTurnProgressSignature(turn: ChatActiveTurn | null): string {
+  if (!turn) {
+    return "none";
+  }
+
+  return [
+    turn.status,
+    turn.progressStepId || "",
+    turn.progressLabel || "",
+    turn.progressExplanation || "",
+    turn.assistantMessageId || "",
+    turn.errorCode || "",
+    turn.errorMessage || "",
+  ].join("|");
+}
+
+function resolveTurnPollDelay(unchanged: boolean): number {
+  const isHidden =
+    typeof document !== "undefined" && document.visibilityState === "hidden";
+  const baseDelay = isHidden
+    ? HIDDEN_TAB_POLL_MS
+    : unchanged
+      ? ACTIVE_TURN_UNCHANGED_POLL_MS
+      : ACTIVE_TURN_POLL_MS;
+
+  return baseDelay + Math.floor(Math.random() * POLL_JITTER_MS);
 }
 
 export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageLike>(
@@ -128,8 +161,19 @@ export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageL
       if (activeThreadId) {
         if (threadCreatedInSessionRef.current) {
           if (isLatestRequest()) {
-            setActiveTurn(null);
-            setStatusMessage(null);
+            if (
+              activeTurn?.threadId === activeThreadId &&
+              isTurnStillActive(activeTurn.status)
+            ) {
+              setActiveTurn(activeTurn);
+              setStatusMessage(
+                activeTurn.progressLabel ||
+                  "A previous reply is still running in this chat.",
+              );
+            } else {
+              setActiveTurn(null);
+              setStatusMessage(null);
+            }
             setIsThreadHydrating(false);
           }
           return;
@@ -253,21 +297,25 @@ export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageL
           `/api/creator/v2/chat/turns/${encodeURIComponent(turnId)}`,
         );
         if (!response.ok) {
-          return;
+          return { shouldContinue: true, unchanged: true };
         }
 
         const data = (await response.json()) as TurnStatusRouteResponse;
         const nextTurn = data.data?.turn ?? null;
         if (cancelled || !nextTurn) {
-          return;
+          return { shouldContinue: true, unchanged: true };
         }
+
+        const unchanged =
+          buildTurnProgressSignature(activeTurn) ===
+          buildTurnProgressSignature(nextTurn);
 
         if (isTurnStillActive(nextTurn.status)) {
           setActiveTurn(nextTurn);
           setStatusMessage(
             nextTurn.progressLabel || "A previous reply is still running in this chat.",
           );
-          return;
+          return { shouldContinue: true, unchanged };
         }
 
         if (nextTurn.status === "failed") {
@@ -280,8 +328,10 @@ export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageL
 
         setActiveTurn(null);
         await refreshThreadHistory();
+        return { shouldContinue: false, unchanged: false };
       } catch {
         // Keep polling on transient failures.
+        return { shouldContinue: true, unchanged: true };
       }
     }
 
@@ -290,14 +340,32 @@ export function useThreadHistoryHydration<TMessage extends ThreadHistoryMessageL
       return;
     }
 
-    void pollTurnStatus(activeTurnId);
-    const intervalId = window.setInterval(() => {
-      void pollTurnStatus(activeTurnId);
-    }, 3000);
+    let timeoutId: number | null = null;
+    const scheduleNextPoll = (unchanged: boolean) => {
+      timeoutId = window.setTimeout(() => {
+        void pollTurnStatus(activeTurnId).then((result) => {
+          if (cancelled || !result?.shouldContinue) {
+            return;
+          }
+
+          scheduleNextPoll(result.unchanged);
+        });
+      }, resolveTurnPollDelay(unchanged));
+    };
+
+    void pollTurnStatus(activeTurnId).then((result) => {
+      if (cancelled || !result?.shouldContinue) {
+        return;
+      }
+
+      scheduleNextPoll(result.unchanged);
+    });
 
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
     };
   }, [activeThreadId, activeTurn, setActiveTurn, setMessages, setStatusMessage]);
 }

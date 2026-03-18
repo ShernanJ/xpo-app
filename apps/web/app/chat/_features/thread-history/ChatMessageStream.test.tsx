@@ -368,3 +368,26 @@ test("renders copy and edit controls for user messages", async () => {
   expect(onCopyUserMessage).toHaveBeenCalledWith("user-1", "Tighten this opener");
   expect(onEditUserMessage).toHaveBeenCalledWith("user-1", "Tighten this opener");
 });
+
+test("caps user bubble width at the row level instead of shrinking the bubble container", () => {
+  render(
+    <ChatMessageStream<ChatMessageStreamMessage>
+      messages={[
+        {
+          id: "user-1",
+          role: "user",
+          content: "write a post",
+        },
+      ]}
+      {...createStreamProps()}
+    />,
+  );
+
+  const messageText = screen.getByText("write a post");
+  const bubble = messageText.closest("div.rounded-\\[1\\.15rem\\]");
+  const bubbleContainer = bubble?.parentElement;
+
+  expect(bubble).toHaveClass("inline-block", "max-w-full");
+  expect(bubbleContainer).toHaveClass("ml-auto", "flex", "w-full", "max-w-[88%]", "flex-col", "items-end");
+  expect(bubbleContainer).not.toHaveClass("w-fit");
+});

@@ -469,7 +469,7 @@ ${buildAntiPatternBlock(antiPatterns)}
 ${isEditing ? `EXISTING DRAFT TO EDIT:\n${args.activeDraft}\n\n` : ""}
 ${artifactContextBlock ? `${artifactContextBlock}\n\n` : ""}
 
-RECENT CHAT HISTORY (For context on what they are replying to):
+WORKFLOW CONTEXT PACKET:
 ${args.recentHistory}
 
 USER'S CORE TOPIC/SUMMARY:
@@ -710,7 +710,7 @@ ${buildAntiPatternBlock(antiPatterns)}
 ${isEditing ? `EXISTING DRAFT TO EDIT (USE THIS AS YOUR BASELINE):\n${args.activeDraft}\n\n` : ""}
 ${artifactContextBlock ? `${artifactContextBlock}\n\n` : ""}
 
-RECENT CHAT HISTORY (Provides context on what the user is replying to):
+WORKFLOW CONTEXT PACKET:
 ${args.recentHistory}
 
 FACTUAL TRUTH LAYER:
@@ -722,8 +722,8 @@ ${voiceShapeLayer}
 
 REQUIREMENTS:
 1. Generate EXACTLY 1 draft. Not 2. Not 3. One.
-2. DO NOT invent random metrics, constraints, or backstory (like "juggling my day job" or "30% faster"). Stick ONLY to the facts the user provided in the chat history.
-2a. NEVER invent specific counts or quantities (for example years, teammates, launches, percentages, revenue, follower counts, timelines, or attendance) unless that exact number is explicitly present in RECENT CHAT HISTORY or Active Session Constraints.
+2. DO NOT invent random metrics, constraints, or backstory (like "juggling my day job" or "30% faster"). Stick ONLY to the facts the user provided in the workflow context packet.
+2a. NEVER invent specific counts or quantities (for example years, teammates, launches, percentages, revenue, follower counts, timelines, or attendance) unless that exact number is explicitly present in the workflow context packet or Active Session Constraints.
 ${concreteSceneMode
       ? `2b. STRICT FACTUAL MODE: Do NOT claim specific real-world events, attendance, conversations, travel, timelines, or named places (for example: "yesterday i was at ...") unless that fact is explicitly present in the chat history or active constraints. If details are missing, write a principle/opinion/framework post instead of an anecdote.`
       : ""}
@@ -750,7 +750,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 12e. If PLAIN FACTUAL PRODUCT MODE is present and the user's grounded wording is already clear, keep the core wording close to the user's phrasing instead of swapping in looser synonyms.
 12f. If PLAIN FACTUAL PRODUCT MODE is present, do NOT prepend an invented pain-point or before-state setup unless the user explicitly gave it.
 12g. If PLAIN FACTUAL PRODUCT MODE is present, do NOT duplicate the same benefit with a second paraphrase. One grounded phrasing is enough.
-12h. If RECENT CHAT HISTORY includes an earlier assistant guess or rejected draft that conflicts with factual grounding, treat that earlier text as superseded and do NOT reuse it.
+12h. If the workflow context packet includes an earlier assistant guess or rejected draft that conflicts with factual grounding, treat that earlier text as superseded and do NOT reuse it.
 13. If GROUNDING PACKET says Allowed first-person claims is empty, do NOT write a lived story or personal proof post. Write a framework, opinion, or plain factual post instead.
 13a. If SAFE FRAMEWORK FALLBACK MODE is present, prefer a framework, opinion, principle, or plain factual execution over a fake specific one.
 14. Use CREATOR PROFILE HINTS to bias hook family, CTA style, and shape before you improvise.

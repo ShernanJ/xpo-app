@@ -26,6 +26,7 @@ type RawOrchestratorResponse = Omit<
 >;
 
 type RawResponseSeed = RuntimeResponseSeed<RawOrchestratorResponse>;
+const MAX_INTERNAL_ATTEMPTS = 2;
 
 export interface ReplyingCapabilityContext {
   userMessage: string;
@@ -120,6 +121,9 @@ export async function executeReplyingCapability(
       details: {
         hadReply: Boolean(firstAttempt.replyGuidance?.response),
         hadFollowUp: Boolean(firstAttempt.replyGuidance?.probingQuestion),
+        attemptCount: 1,
+        maxAttempts: MAX_INTERNAL_ATTEMPTS,
+        fallbackReason: null,
       },
     },
     ...firstAttempt.validation.workerExecutions,
@@ -146,7 +150,9 @@ export async function executeReplyingCapability(
         details: {
           hadReply: Boolean(finalAttempt.replyGuidance?.response),
           hadFollowUp: Boolean(finalAttempt.replyGuidance?.probingQuestion),
-          retry: true,
+          attemptCount: 2,
+          maxAttempts: MAX_INTERNAL_ATTEMPTS,
+          fallbackReason: "delivery_validation_failed",
         },
       },
       ...finalAttempt.validation.workerExecutions,

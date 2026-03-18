@@ -5,6 +5,7 @@ import type {
   ChatCompletionCreateParamsNonStreaming,
   ChatCompletionMessageParam,
 } from "groq-sdk/resources/chat/completions";
+import { z } from "zod";
 
 let groqClient: Groq | null = null;
 
@@ -25,6 +26,30 @@ export interface LlmCompletionOptions {
   reasoning_effort?: "low" | "medium" | "high";
   jsonRepairInstruction?: string;
   onFailure?: (reason: string) => void;
+}
+
+export type AgentV2ModelTier =
+  | "control"
+  | "extraction"
+  | "planning"
+  | "writing";
+
+const DEFAULT_AGENT_V2_MODEL = "openai/gpt-oss-120b";
+const AGENT_V2_MODEL_TIER_ENV_KEYS: Record<AgentV2ModelTier, string> = {
+  control: "AGENT_V2_MODEL_CONTROL",
+  extraction: "AGENT_V2_MODEL_EXTRACTION",
+  planning: "AGENT_V2_MODEL_PLANNING",
+  writing: "AGENT_V2_MODEL_WRITING",
+};
+
+export interface StructuredLlmCompletionOptions<TSchema extends z.ZodTypeAny>
+  extends Omit<LlmCompletionOptions, "model"> {
+  schema: TSchema;
+  model?: string;
+  modelTier?: AgentV2ModelTier;
+  fallbackModel?: string;
+  optionalDefaults?: Partial<z.infer<TSchema>>;
+  onSchemaFailure?: (error: z.ZodError<z.infer<TSchema>>) => void;
 }
 
 type ChatMessage = {
@@ -85,6 +110,56 @@ function parseJsonContent<T>(rawContent: string): T | null {
   }
 
   return JSON.parse(jsonStr) as T;
+}
+
+function applyOptionalDefaults<T>(
+  value: unknown,
+  optionalDefaults?: Partial<T>,
+): unknown {
+  if (!optionalDefaults) {
+    return value;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  return {
+    ...optionalDefaults,
+    ...(value as Record<string, unknown>),
+  };
+}
+
+function summarizeSchemaIssues(error: z.ZodError): string {
+  const issueSummary = error.issues
+    .slice(0, 3)
+    .map((issue) => {
+      const path = issue.path
+        .map((segment) => String(segment).trim())
+        .filter(Boolean)
+        .join(".");
+      return path ? `${path}: ${issue.message}` : issue.message;
+    })
+    .join("; ");
+
+  return issueSummary || "response shape mismatch";
+}
+
+export function resolveAgentV2Model(
+  tier: AgentV2ModelTier,
+  fallbackModel?: string,
+): string {
+  const tierOverride = process.env[AGENT_V2_MODEL_TIER_ENV_KEYS[tier]]?.trim();
+  if (tierOverride) {
+    return tierOverride;
+  }
+
+  const sharedOverride = process.env.GROQ_MODEL?.trim();
+  if (sharedOverride) {
+    return sharedOverride;
+  }
+
+  return fallbackModel || DEFAULT_AGENT_V2_MODEL;
 }
 
 async function retryInvalidJsonContent<T>(
@@ -224,4 +299,77 @@ export async function fetchJsonFromGroq<T>(
     console.error(`[LLM][${requestId}] Failed to fetch/parse JSON from provider:`, err);
     return null;
   }
+}
+
+export async function fetchStructuredJsonFromGroq<TSchema extends z.ZodTypeAny>(
+  options: StructuredLlmCompletionOptions<TSchema>,
+): Promise<z.infer<TSchema> | null> {
+  const llmOptions: LlmCompletionOptions = {
+    ...options,
+    model:
+      options.model ||
+      resolveAgentV2Model(
+        options.modelTier || "writing",
+        options.fallbackModel,
+      ),
+  };
+  const parseWithDefaults = (value: unknown) =>
+    options.schema.safeParse(
+      applyOptionalDefaults<z.infer<TSchema>>(value, options.optionalDefaults),
+    );
+
+  const data = await fetchJsonFromGroq<unknown>(llmOptions);
+
+  if (!data) {
+    return null;
+  }
+
+  const parsed = parseWithDefaults(data);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  const schemaRetryPayload =
+    typeof data === "string" ? data : JSON.stringify(data);
+  const schemaRetryInstruction = [
+    "Your previous JSON response did not satisfy the required schema.",
+    `Fix these issues: ${summarizeSchemaIssues(parsed.error)}.`,
+    "Return ONLY corrected valid JSON.",
+    "Do not add markdown fences or commentary.",
+  ].join(" ");
+
+  try {
+    const repaired = await fetchJsonFromGroq<unknown>({
+      ...llmOptions,
+      messages: [
+        ...llmOptions.messages,
+        {
+          role: "assistant",
+          content: schemaRetryPayload,
+        },
+        {
+          role: "user",
+          content: schemaRetryInstruction,
+        },
+      ],
+      reasoning_effort: "low",
+    });
+
+    if (repaired) {
+      const repairedParsed = parseWithDefaults(repaired);
+      if (repairedParsed.success) {
+        return repairedParsed.data;
+      }
+
+      options.onSchemaFailure?.(repairedParsed.error);
+      console.error("Structured LLM validation failed after retry", repairedParsed.error);
+      return null;
+    }
+  } catch (error) {
+    console.error("Structured LLM schema repair failed", error);
+  }
+
+  options.onSchemaFailure?.(parsed.error);
+  console.error("Structured LLM validation failed", parsed.error);
+  return null;
 }

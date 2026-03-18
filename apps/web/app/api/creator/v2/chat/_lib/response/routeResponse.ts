@@ -226,3 +226,32 @@ export async function buildChatSuccessResponse(args: {
     { status: 200 },
   );
 }
+
+export function buildChatAcceptedResponse(args: {
+  executionMode: "queued";
+  activeTurn: {
+    turnId: string;
+    threadId: string | null;
+    status: string;
+    progressStepId: string | null;
+    progressLabel: string | null;
+    progressExplanation: string | null;
+    assistantMessageId?: string | null;
+    errorCode?: string | null;
+    errorMessage?: string | null;
+    createdAt: string;
+    updatedAt: string;
+  } | null;
+}): Response {
+  return Response.json(
+    {
+      ok: true,
+      data: {
+        accepted: true,
+        executionMode: args.executionMode,
+        activeTurn: args.activeTurn,
+      },
+    },
+    { status: 202 },
+  );
+}

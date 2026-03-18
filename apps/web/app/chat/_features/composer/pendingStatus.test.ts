@@ -23,14 +23,14 @@ test("bare draft asks resolve to ideate status plans", () => {
 
   assert.equal(plan.workflow, "ideate");
   assert.deepEqual(plan.steps.map((step) => step.id), [
-    "scan_context",
-    "explore_directions",
-    "pick_direction",
-    "package_ideas",
+    "understand_request",
+    "gather_context",
+    "plan_response",
+    "generate_output",
   ]);
   assert.equal(
     plan.steps[0]?.explanation,
-    "This helps the assistant ground the ideas in what you already shared.",
+    "This helps the assistant focus on the job you actually want done.",
   );
 });
 
@@ -70,8 +70,8 @@ test("draft revisions resolve to revise_draft", () => {
   assert.deepEqual(plan.steps.map((step) => step.id), [
     "understand_request",
     "gather_context",
-    "revise_response",
-    "polish_response",
+    "generate_output",
+    "persist_response",
   ]);
 });
 
@@ -122,8 +122,8 @@ test("generic fallback resolves to answer_question", () => {
   assert.deepEqual(plan.steps.map((step) => step.id), [
     "understand_request",
     "gather_context",
-    "write_response",
-    "finalize_response",
+    "generate_output",
+    "persist_response",
   ]);
 });
 
@@ -142,7 +142,7 @@ test("status progression advances through the predicted step sequence", () => {
     elapsedMs: 5000,
   });
 
-  assert.equal(initialSnapshot?.activeStepId, "scan_context");
+  assert.equal(initialSnapshot?.activeStepId, "understand_request");
   assert.deepEqual(
     lateSnapshot?.steps.map((step) => step.status),
     ["completed", "completed", "completed", "active"],
@@ -181,13 +181,13 @@ test("explicit streamed progress overrides predicted timing", () => {
 
   const updated = applyAgentProgressStep(run, {
     workflow: "ideate",
-    activeStepId: "pick_direction",
+    activeStepId: "plan_response",
     label: "Noticing a recent pattern around hiring playbooks",
     explanation: "This helps keep the response anchored in a theme the account already returns to.",
   });
   const snapshot = resolveAgentProgressSnapshot(updated!, 1_500);
 
-  assert.equal(snapshot.activeStepId, "pick_direction");
+  assert.equal(snapshot.activeStepId, "plan_response");
   assert.equal(
     snapshot.steps[2]?.label,
     "Noticing a recent pattern around hiring playbooks",

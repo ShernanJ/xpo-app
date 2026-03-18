@@ -1,4 +1,4 @@
-import { fetchJsonFromGroq } from "./llm";
+import { fetchStructuredJsonFromGroq } from "./llm";
 import { z } from "zod";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { ConversationState } from "../contracts/chat";
@@ -354,7 +354,7 @@ ${userContextString || "Profile not loaded yet."}
 ${anchorSectionLabel}:
 ${anchorHint}
 
-CONVERSATION SO FAR:
+WORKFLOW CONTEXT PACKET:
 ${recentHistory}
 
 ${buildGuidanceExamples(capability)}
@@ -366,8 +366,13 @@ Respond ONLY with valid JSON:
 }
   `.trim();
 
-  const data = await fetchJsonFromGroq<unknown>({
-    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+  const data = await fetchStructuredJsonFromGroq({
+    schema: CoachReplySchema,
+    modelTier: "planning",
+    fallbackModel: "openai/gpt-oss-120b",
+    optionalDefaults: {
+      probingQuestion: null,
+    },
     reasoning_effort: "low",
     temperature: 0.55,
     max_tokens: 512,
@@ -377,17 +382,11 @@ Respond ONLY with valid JSON:
     ],
   });
 
-  if (!data) return null;
-
-  try {
-    const parsed = CoachReplySchema.parse(data);
-    return finalizeCoachReplyForSurface(
-      normalizeCoachReply(parsed, userMessage, topicSummary),
-    );
-  } catch (err) {
-    console.error("Coach validation failed", err);
-    return null;
-  }
+  return data
+    ? finalizeCoachReplyForSurface(
+        normalizeCoachReply(data, userMessage, topicSummary),
+      )
+    : null;
 }
 
 /**
@@ -560,8 +559,10 @@ Respond ONLY with valid JSON matching this schema:
 }
   `.trim();
 
-  const data = await fetchJsonFromGroq<unknown>({
-    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+  const data = await fetchStructuredJsonFromGroq({
+    schema: WelcomeOutputSchema,
+    modelTier: "planning",
+    fallbackModel: "openai/gpt-oss-120b",
     reasoning_effort: "low",
     temperature: 0.8,
     max_tokens: 256, // fast response
@@ -571,21 +572,15 @@ Respond ONLY with valid JSON matching this schema:
     ],
   });
 
-  if (!data) return null;
-
-  try {
-    const parsed = WelcomeOutputSchema.parse(data);
-    return {
-      response: normalizeWelcomeResponse({
-        response: parsed.response,
-        accountName,
-        topicHint,
-        voiceExamples,
-        conversationExamples,
-      }),
-    };
-  } catch (err) {
-    console.error("Welcome validation failed", err);
-    return null;
-  }
+  return data
+    ? {
+        response: normalizeWelcomeResponse({
+          response: data.response,
+          accountName,
+          topicHint,
+          voiceExamples,
+          conversationExamples,
+        }),
+      }
+    : null;
 }
