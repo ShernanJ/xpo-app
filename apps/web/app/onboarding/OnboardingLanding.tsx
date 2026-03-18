@@ -1401,7 +1401,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                               data-form-type="other"
                               data-lpignore="true"
                               data-1p-ignore="true"
-                              className="landingAccountInput w-full bg-transparent text-base text-white outline-none placeholder:text-zinc-400"
+                              className="landingAccountInput w-full bg-transparent text-[16px] leading-6 text-white outline-none sm:text-base sm:leading-normal placeholder:text-zinc-400"
                               aria-label="X username"
                             />
                           </div>

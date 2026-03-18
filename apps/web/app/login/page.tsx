@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { XShell } from "@/components/x-shell";
+import { getServerSession } from "@/lib/auth/serverSession";
 import { LoginForm } from "./_components/LoginForm";
 
 export const metadata: Metadata = {
@@ -13,7 +15,13 @@ export const metadata: Metadata = {
   },
 };
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  const session = await getServerSession();
+
+  if (session?.user) {
+    redirect("/chat");
+  }
+
   return (
     <XShell>
       <div className="login-root relative mx-auto flex min-h-full w-full max-w-6xl flex-col justify-center px-6 py-10 sm:py-14">

@@ -229,20 +229,20 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
             placeholder=""
             disabled={isComposerDisabled}
             aria-label="Chat composer"
-            className={`max-h-[180px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 text-[14px] leading-5 text-white outline-none disabled:opacity-50 ${inputRightPaddingClassName} ${modeLabel ? "pt-8" : ""}`}
+            className={`max-h-[180px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 text-[16px] leading-6 text-white outline-none disabled:opacity-50 sm:text-[14px] sm:leading-5 ${inputRightPaddingClassName} ${modeLabel ? "pt-8" : ""}`}
             rows={1}
           />
 
           {showPlaceholder ? (
             <div
               aria-hidden="true"
-              className={`pointer-events-none absolute left-4 ${placeholderRightInsetClassName} ${placeholderTopClassName} overflow-hidden text-left text-[14px] leading-5 text-zinc-400`}
+              className={`pointer-events-none absolute left-4 ${placeholderRightInsetClassName} ${placeholderTopClassName} overflow-hidden text-left text-[16px] leading-6 text-zinc-400 sm:text-[14px] sm:leading-5`}
             >
               {isSending ? (
                 <TextShimmer
                   as="span"
                   duration={1.6}
-                  className="block truncate text-[13px] font-medium leading-5 tracking-[0.01em] [--base-color:#71717a] [--base-gradient-color:#fafafa] dark:[--base-color:#52525b] dark:[--base-gradient-color:#ffffff]"
+                  className="block truncate text-[15px] font-medium leading-6 tracking-[0.01em] sm:text-[13px] sm:leading-5 [--base-color:#71717a] [--base-gradient-color:#fafafa] dark:[--base-color:#52525b] dark:[--base-gradient-color:#ffffff]"
                 >
                   {displayedPlaceholder}
                 </TextShimmer>

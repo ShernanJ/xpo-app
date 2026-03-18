@@ -472,13 +472,20 @@ function LoginFormContent() {
           background: transparent;
           padding: 0.78rem 0.95rem;
           color: rgb(250 250 250);
-          font-size: 0.95rem;
-          line-height: 1.4;
+          font-size: 1rem;
+          line-height: 1.5;
           outline: none;
         }
 
         .login-input-field::placeholder {
           color: rgb(113 113 122);
+        }
+
+        @media (min-width: 640px) {
+          .login-input-field {
+            font-size: 0.95rem;
+            line-height: 1.4;
+          }
         }
 
         @media (prefers-reduced-motion: reduce) {
