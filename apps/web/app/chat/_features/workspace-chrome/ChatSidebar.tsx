@@ -112,7 +112,7 @@ export function ChatSidebar() {
                   value={sidebarSearchQuery}
                   onChange={(event) => onSidebarSearchQueryChange(event.target.value)}
                   placeholder="Search chats"
-                  className="w-full bg-transparent text-sm text-zinc-300 outline-none placeholder:text-zinc-500"
+                  className="w-full bg-transparent text-[16px] leading-6 text-zinc-300 outline-none sm:text-sm sm:leading-normal placeholder:text-zinc-500"
                 />
               </div>
             </div>

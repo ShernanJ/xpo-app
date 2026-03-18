@@ -500,7 +500,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Search posts & threads"
-            className="w-full bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-500"
+            className="w-full bg-transparent text-[16px] leading-6 text-zinc-200 outline-none sm:text-sm sm:leading-normal placeholder:text-zinc-500"
           />
         </div>
 
