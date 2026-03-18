@@ -111,3 +111,25 @@ test("uses viewport insets on mobile so header and footer controls stay inside t
   expect(dialog.className).toContain("bottom-2");
   expect(paneGrid?.className).toContain("flex-1");
 });
+
+test("uses desktop viewport insets instead of centering a fixed-height body", () => {
+  render(
+    <SplitDialog
+      open
+      onOpenChange={vi.fn()}
+      title="Desktop sizing"
+      headerSlot={<div>Header</div>}
+      leftPane={<div>Browse pane</div>}
+      rightPane={<div>Preview pane</div>}
+    />,
+  );
+
+  const dialog = screen.getByRole("dialog", { name: "Desktop sizing" });
+  const browsePane = screen.getByText("Browse pane");
+  const paneGrid = browsePane.closest("section")?.parentElement;
+
+  expect(dialog.className).toContain("md:top-4");
+  expect(dialog.className).toContain("md:bottom-4");
+  expect(dialog.className).toContain("md:inset-x-auto");
+  expect(paneGrid?.className).not.toContain("md:h-[min(80dvh,820px)]");
+});

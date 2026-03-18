@@ -154,7 +154,7 @@ function ContentHubInlineDialog(props: ContentHubInlineDialogProps) {
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
-        className="w-full max-w-md rounded-[1.5rem] border border-white/10 bg-[#0F0F0F] shadow-[0_24px_80px_rgba(0,0,0,0.55)] focus:outline-none"
+        className="flex max-h-[calc(100dvh-3rem)] w-full max-w-md flex-col overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#0F0F0F] shadow-[0_24px_80px_rgba(0,0,0,0.55)] focus:outline-none"
       >
         <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-4">
           <div>
@@ -178,7 +178,7 @@ function ContentHubInlineDialog(props: ContentHubInlineDialogProps) {
           </button>
         </div>
 
-        {children}
+        <div className="min-h-0 overflow-y-auto">{children}</div>
       </div>
     </div>
   );
