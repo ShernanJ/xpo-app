@@ -35,6 +35,9 @@ const validPayload = {
 test("parseExtensionReplyLogRequest accepts generated lifecycle payloads", () => {
   const parsed = parseExtensionReplyLogRequest(validPayload);
   assert.equal(parsed.ok, true);
+  if (parsed.ok) {
+    assert.equal(parsed.kind, "lifecycle");
+  }
 });
 
 test("parseExtensionReplyLogRequest rejects invalid lifecycle values", () => {
@@ -113,6 +116,20 @@ test("parseExtensionReplyLogRequest accepts observed outcome metrics", () => {
   assert.equal(parsed.ok, true);
 });
 
+test("parseExtensionReplyLogRequest accepts minimal edit-learning payloads", () => {
+  const parsed = parseExtensionReplyLogRequest({
+    originalDraft: "yeah the useful layer is the proof",
+    finalPostedText: "yeah the useful layer is the proof people can actually see",
+    replyMode: "insightful_add_on",
+  });
+
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) {
+    assert.equal(parsed.kind, "edit");
+    assert.equal(parsed.data.replyMode, "insightful_add_on");
+  }
+});
+
 test("POST returns ok:true when persistence throws after auth and validation", async () => {
   const logCalls = [];
   const recordCalls = [];
@@ -148,6 +165,7 @@ test("POST returns ok:true when persistence throws after auth and validation", a
       recordProductEvent: async (payload) => {
         recordCalls.push(payload);
       },
+      saveReplyGoldenExample: async () => false,
       logExtensionRouteFailure: (payload) => {
         logCalls.push(payload);
       },
@@ -256,6 +274,7 @@ test("POST persists observed metrics and follow conversion outcome metadata", as
       recordProductEvent: async (payload) => {
         eventCalls.push(payload);
       },
+      saveReplyGoldenExample: async () => false,
       logExtensionRouteFailure: () => {},
     },
   );
@@ -279,4 +298,91 @@ test("POST persists observed metrics and follow conversion outcome metadata", as
   );
   assert.equal(eventCalls[0]?.properties.profileClicks, 3);
   assert.equal(eventCalls[0]?.properties.followerDelta, 1);
+});
+
+test("POST accepts minimal edit-learning payloads and saves changed drafts", async () => {
+  const saveCalls = [];
+  const eventCalls = [];
+
+  const response = await handleExtensionReplyLogPost(
+    new Request("http://localhost/api/extension/reply-log", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer token_123",
+      },
+      body: JSON.stringify({
+        originalDraft: "yeah the useful layer is the proof",
+        finalPostedText: "yeah the useful layer is the proof people can actually see",
+        replyMode: "insightful_add_on",
+      }),
+    }),
+    {
+      authenticateExtensionRequest: async () => ({
+        user: {
+          id: "user_1",
+          activeXHandle: "standev",
+        },
+      }),
+      parseExtensionReplyLogRequest,
+      findReplyOpportunity: async () => null,
+      mergeStoredOpportunityNotes: () => ({}),
+      updateReplyOpportunity: async () => {},
+      recordProductEvent: async (payload) => {
+        eventCalls.push(payload);
+      },
+      saveReplyGoldenExample: async (payload) => {
+        saveCalls.push(payload);
+        return true;
+      },
+      logExtensionRouteFailure: () => {},
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true });
+  assert.equal(saveCalls.length, 1);
+  assert.equal(saveCalls[0]?.replyMode, "insightful_add_on");
+  assert.equal(eventCalls[0]?.eventType, "extension_reply_golden_example_saved");
+});
+
+test("POST skips Golden Example persistence when the final reply is unchanged", async () => {
+  const saveCalls = [];
+
+  const response = await handleExtensionReplyLogPost(
+    new Request("http://localhost/api/extension/reply-log", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer token_123",
+      },
+      body: JSON.stringify({
+        originalDraft: "same reply",
+        finalPostedText: "same reply",
+        replyMode: "agree_and_amplify",
+      }),
+    }),
+    {
+      authenticateExtensionRequest: async () => ({
+        user: {
+          id: "user_1",
+          activeXHandle: "standev",
+        },
+      }),
+      parseExtensionReplyLogRequest,
+      findReplyOpportunity: async () => null,
+      mergeStoredOpportunityNotes: () => ({}),
+      updateReplyOpportunity: async () => {},
+      recordProductEvent: async () => {},
+      saveReplyGoldenExample: async (payload) => {
+        saveCalls.push(payload);
+        return true;
+      },
+      logExtensionRouteFailure: () => {},
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true });
+  assert.equal(saveCalls.length, 0);
 });

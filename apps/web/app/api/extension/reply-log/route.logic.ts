@@ -1,5 +1,12 @@
-import type { ExtensionReplyLogRequest } from "../../../../lib/extension/types.ts";
-import { ExtensionReplyLogRequestSchema } from "../contracts.ts";
+import type {
+  ExtensionReplyEditLogRequest,
+  ExtensionReplyLogRequest,
+} from "../../../../lib/extension/types.ts";
+import {
+  ExtensionReplyEditLogRequestSchema,
+  ExtensionReplyLogRequestSchema,
+  ExtensionReplyModeSchema,
+} from "../contracts.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -27,10 +34,34 @@ function readStringArray(value: unknown): string[] | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
+function normalizeReplyMode(value: unknown) {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  const parsed = ExtensionReplyModeSchema.safeParse(normalized);
+  return parsed.success ? parsed.data : undefined;
+}
+
 export function parseExtensionReplyLogRequest(body: unknown):
-  | { ok: true; data: ExtensionReplyLogRequest }
+  | { ok: true; kind: "lifecycle"; data: ExtensionReplyLogRequest }
+  | { ok: true; kind: "edit"; data: ExtensionReplyEditLogRequest }
   | { ok: false; message: string } {
   const root = isRecord(body) ? body : null;
+  const editCandidate = root
+    ? {
+        originalDraft: readString(root.originalDraft),
+        finalPostedText: readString(root.finalPostedText),
+        replyMode: normalizeReplyMode(root.replyMode),
+      }
+    : body;
+
+  const parsedEdit = ExtensionReplyEditLogRequestSchema.safeParse(editCandidate);
+  if (parsedEdit.success && !readString(root?.event, root?.type, root?.action)) {
+    return { ok: true, kind: "edit", data: parsedEdit.data };
+  }
+
   const post = isRecord(root?.post) ? root.post : null;
   const opportunity = isRecord(root?.opportunity) ? root.opportunity : null;
   const author = isRecord(post?.author) ? post.author : null;
@@ -100,6 +131,9 @@ export function parseExtensionReplyLogRequest(body: unknown):
           : isRecord(root.replyIntent)
             ? root.replyIntent
             : null,
+        originalDraft: readString(root.originalDraft),
+        finalPostedText: readString(root.finalPostedText),
+        replyMode: normalizeReplyMode(root.replyMode),
         observedMetrics: observedMetrics
           ? {
               likeCount: observedMetrics.likeCount,
@@ -119,5 +153,5 @@ export function parseExtensionReplyLogRequest(body: unknown):
     };
   }
 
-  return { ok: true, data: parsed.data };
+  return { ok: true, kind: "lifecycle", data: parsed.data };
 }

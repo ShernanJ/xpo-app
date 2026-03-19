@@ -17,7 +17,13 @@ import {
   upsertReplyOpportunityLifecycle,
 } from "@/lib/extension/replyOpportunities";
 import { recordProductEvent } from "@/lib/productEvents";
-import { generateReplyDraftText, looksAcceptableReplyDraft } from "@/lib/reply-engine/index";
+import {
+  analyzeReplySourceVisualContext,
+  buildReplySourceContextFromExtensionRequest,
+  DEFAULT_REPLY_PREFLIGHT_MODEL,
+  generateReplyDraftText,
+  looksAcceptableReplyDraft,
+} from "@/lib/reply-engine/index";
 import { parseExtensionReplyDraftRequest } from "./route.logic";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -96,6 +102,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const sourceContext = buildReplySourceContextFromExtensionRequest(parsed.data);
+  const visualContextPromise = analyzeReplySourceVisualContext(sourceContext);
   const userContext = await loadExtensionUserContext({
     userId: auth.user.id,
     activeXHandle: auth.user.activeXHandle,
@@ -132,6 +140,7 @@ export async function POST(request: NextRequest) {
     creatorProfileHints,
     creatorAgentContext: userContext.context,
   });
+  const visualContext = await visualContextPromise;
   const promptPacket = await prepareExtensionReplyDraftPromptPacket({
     request: parsed.data,
     strategy: userContext.context.growthStrategySnapshot,
@@ -143,6 +152,8 @@ export async function POST(request: NextRequest) {
     profileReplyContext,
     userId: auth.user.id,
     xHandle: userContext.xHandle,
+    sourceContext,
+    visualContext,
   });
 
   const chatCompletion = await groq.chat.completions.create({
@@ -236,12 +247,15 @@ export async function POST(request: NextRequest) {
           ...generation.notes,
           ...replyInsights.bestSignals.slice(0, 1),
           ...strategyAdjustments.experiments.slice(0, 1),
+          `Reply mode: ${promptPacket.preflightResult.recommended_reply_mode}`,
+          `Golden examples: ${promptPacket.goldenExamples.filter((example) => example.source === "golden_example").length}`,
         ].slice(0, 4);
         const generatedOption = {
           id: "draft-1",
           label: parsed.data.tone === "bold" ? "bold" : "safe",
           text: resolvedDraft.draft,
           intent: generation.intent,
+          replyMode: promptPacket.preflightResult.recommended_reply_mode,
         };
 
         void (async () => {
@@ -281,6 +295,17 @@ export async function POST(request: NextRequest) {
                 usedFallback: resolvedDraft.model !== DEFAULT_REPLY_DRAFT_MODEL,
                 replyLane: promptPacket.voiceTarget.lane,
                 usedVisualContext: Boolean(promptPacket.visualContext),
+                visualImageCount: promptPacket.visualContext?.imageCount || 0,
+                preflightModel: DEFAULT_REPLY_PREFLIGHT_MODEL,
+                replyMode: promptPacket.preflightResult.recommended_reply_mode,
+                replyOpTone: promptPacket.preflightResult.op_tone,
+                replyPostIntent: promptPacket.preflightResult.post_intent,
+                goldenExampleCount: promptPacket.goldenExamples.filter(
+                  (example) => example.source === "golden_example",
+                ).length,
+                fallbackExampleCount: promptPacket.goldenExamples.filter(
+                  (example) => example.source === "fallback_anchor",
+                ).length,
                 streamAccepted,
               },
             });

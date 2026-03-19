@@ -287,6 +287,7 @@ export async function buildChatReplyDraft(args: {
       profileReplyContext: args.profileReplyContext || null,
       groundingPacket: fallback.groundingPacket,
       maxCharacterLimit: 280,
+      userHandle: args.xHandle || null,
       retrievalContext:
         args.userId && args.xHandle
           ? {

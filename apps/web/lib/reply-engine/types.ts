@@ -11,7 +11,9 @@ import type { ReplyInsights } from "../extension/replyOpportunities.ts";
 import type {
   ExtensionOpportunityPostType,
   ExtensionReplyIntentMetadata,
+  ExtensionReplyMode,
   ExtensionReplyTone,
+  ReplyDraftPreflightResult,
 } from "../extension/types.ts";
 import type { CreatorAgentContext } from "../onboarding/strategy/agentContext.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
@@ -62,7 +64,22 @@ export interface ReplyVisualContextSummary {
   lightingAndMood: string;
   readableText: string;
   keyDetails: string[];
+  imageCount: number;
+  images: Array<{
+    imageUrl: string | null;
+    primarySubject: string;
+    setting: string;
+    lightingAndMood: string;
+    readableText: string;
+    keyDetails: string[];
+  }>;
   summaryLines: string[];
+}
+
+export interface ReplyGoldenExample {
+  text: string;
+  source: "golden_example" | "fallback_anchor";
+  replyMode: ExtensionReplyMode;
 }
 
 export interface ReplyVoiceRetrievalContext {
@@ -97,6 +114,7 @@ export interface ReplyPromptBuildInput {
   groundingPacket: GroundingPacket;
   maxCharacterLimit?: number;
   retrievalContext?: ReplyVoiceRetrievalContext | null;
+  userHandle?: string | null;
 }
 
 export interface PreparedReplyPromptPacket {
@@ -108,6 +126,8 @@ export interface PreparedReplyPromptPacket {
   voiceEvidence: ReplyVoiceEvidence;
   styleCard: VoiceStyleCard | null;
   maxCharacterLimit: number;
+  preflightResult: ReplyDraftPreflightResult;
+  goldenExamples: ReplyGoldenExample[];
 }
 
 export interface GeneratedReplyDraftResult {

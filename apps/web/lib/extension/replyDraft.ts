@@ -5,6 +5,7 @@ import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { CreatorAgentContext } from "../onboarding/strategy/agentContext.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 import {
+  buildReplyDraftPreflightFallback,
   buildReplyDraftSystemPrompt as buildSharedReplyDraftSystemPrompt,
   buildReplyDraftUserPrompt as buildSharedReplyDraftUserPrompt,
   buildReplyGroundingPacket as buildSharedReplyGroundingPacket,
@@ -13,6 +14,8 @@ import {
   finalizeReplyDraftText as finalizeSharedReplyDraftText,
   prepareReplyPromptPacket,
   type PreparedReplyPromptPacket,
+  type ReplyGoldenExample,
+  type ReplyDraftPreflightResult,
   type ReplySourceContext,
   type ReplyVisualContextSummary,
 } from "../reply-engine/index.ts";
@@ -256,6 +259,9 @@ export function buildReplyDraftSystemPrompt(args: {
   profileReplyContext?: ProfileReplyContext | null;
   sourceContext?: ReplySourceContext | null;
   visualContext?: ReplyVisualContextSummary | null;
+  preflightResult?: ReplyDraftPreflightResult | null;
+  goldenExamples?: ReplyGoldenExample[] | null;
+  userHandle?: string | null;
 }): string {
   return buildSharedReplyDraftSystemPrompt({
     sourceContext: args.sourceContext || buildReplySourceContextFromExtensionRequest(args.request),
@@ -274,6 +280,9 @@ export function buildReplyDraftSystemPrompt(args: {
     groundingPacket: args.generation.groundingPacket,
     maxCharacterLimit: 280,
     visualContext: args.visualContext || null,
+    preflightResult: args.preflightResult || buildReplyDraftPreflightFallback(),
+    goldenExamples: args.goldenExamples || [],
+    userHandle: args.userHandle || null,
   });
 }
 
@@ -282,6 +291,7 @@ export function buildReplyDraftUserPrompt(args: {
   generation: ReplyDraftGenerationContext;
   sourceContext?: ReplySourceContext | null;
   visualContext?: ReplyVisualContextSummary | null;
+  preflightResult?: ReplyDraftPreflightResult | null;
 }): string {
   return buildSharedReplyDraftUserPrompt({
     sourceContext: args.sourceContext || buildReplySourceContextFromExtensionRequest(args.request),
@@ -293,6 +303,7 @@ export function buildReplyDraftUserPrompt(args: {
     selectedIntent: args.generation.intent,
     groundingPacket: args.generation.groundingPacket,
     visualContext: args.visualContext || null,
+    preflightResult: args.preflightResult || buildReplyDraftPreflightFallback(),
   });
 }
 
@@ -307,9 +318,13 @@ export async function prepareExtensionReplyDraftPromptPacket(args: {
   profileReplyContext?: ProfileReplyContext | null;
   userId?: string | null;
   xHandle?: string | null;
+  sourceContext?: ReplySourceContext | null;
+  visualContext?: ReplyVisualContextSummary | null;
 }): Promise<PreparedReplyPromptPacket> {
+  const sourceContext = args.sourceContext || buildReplySourceContextFromExtensionRequest(args.request);
+
   return prepareReplyPromptPacket({
-    sourceContext: buildReplySourceContextFromExtensionRequest(args.request),
+    sourceContext,
     strategy: args.strategy,
     tone: args.request.tone,
     goal: args.request.goal,
@@ -324,6 +339,8 @@ export async function prepareExtensionReplyDraftPromptPacket(args: {
     profileReplyContext: args.profileReplyContext || null,
     groundingPacket: args.generation.groundingPacket,
     maxCharacterLimit: 280,
+    userHandle: args.xHandle || null,
+    visualContext: args.visualContext,
     retrievalContext:
       args.userId && args.xHandle
         ? {

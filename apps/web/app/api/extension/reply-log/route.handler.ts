@@ -1,4 +1,5 @@
 import type { ReplyOpportunity } from "../../../../lib/generated/prisma/client.ts";
+import type { ExtensionReplyMode } from "../../../../lib/extension/types.ts";
 
 interface ExtensionAuthResult {
   user: {
@@ -43,6 +44,15 @@ interface ReplyLogRequest {
     profileClicks?: number;
     followerDelta?: number;
   } | null;
+  originalDraft?: string | null;
+  finalPostedText?: string | null;
+  replyMode?: ExtensionReplyMode | null;
+}
+
+interface ReplyEditLogRequest {
+  originalDraft: string;
+  finalPostedText: string;
+  replyMode: ExtensionReplyMode;
 }
 
 type ReplyOpportunityRecord = ReplyOpportunity;
@@ -50,7 +60,8 @@ type ReplyOpportunityRecord = ReplyOpportunity;
 interface ReplyLogHandlerDeps {
   authenticateExtensionRequest(request: Request): Promise<ExtensionAuthResult | null>;
   parseExtensionReplyLogRequest(body: unknown):
-    | { ok: true; data: ReplyLogRequest }
+    | { ok: true; kind: "lifecycle"; data: ReplyLogRequest }
+    | { ok: true; kind: "edit"; data: ReplyEditLogRequest }
     | { ok: false; message: string };
   findReplyOpportunity(args: {
     opportunityId?: string | null;
@@ -69,12 +80,37 @@ interface ReplyLogHandlerDeps {
     eventType: string;
     properties: Record<string, unknown>;
   }): Promise<void>;
+  saveReplyGoldenExample(args: {
+    userId: string;
+    xHandle: string | null;
+    replyMode: ExtensionReplyMode;
+    text: string;
+    source?: string;
+  }): Promise<boolean>;
   logExtensionRouteFailure(args: {
     route: string;
     userId?: string | null;
     error: unknown;
     details?: Record<string, unknown>;
   }): void;
+}
+
+function normalizeDraftForComparison(value: string | null | undefined): string {
+  return value?.trim().replace(/\s+/g, " ") || "";
+}
+
+function shouldSaveGoldenExample(args: {
+  originalDraft?: string | null;
+  finalPostedText?: string | null;
+  replyMode?: ExtensionReplyMode | null;
+}) {
+  if (!args.replyMode) {
+    return false;
+  }
+
+  const originalDraft = normalizeDraftForComparison(args.originalDraft);
+  const finalPostedText = normalizeDraftForComparison(args.finalPostedText);
+  return Boolean(originalDraft && finalPostedText && originalDraft !== finalPostedText);
 }
 
 function getLifecycleUpdate(event: string) {
@@ -190,6 +226,43 @@ export async function handleExtensionReplyLogPost(
 
   try {
     const activeHandle = auth.user.activeXHandle?.trim().replace(/^@+/, "").toLowerCase() || null;
+    if (parsed.kind === "edit") {
+      if (
+        shouldSaveGoldenExample({
+          originalDraft: parsed.data.originalDraft,
+          finalPostedText: parsed.data.finalPostedText,
+          replyMode: parsed.data.replyMode,
+        })
+      ) {
+        const inserted = await deps.saveReplyGoldenExample({
+          userId: auth.user.id,
+          xHandle: activeHandle,
+          replyMode: parsed.data.replyMode,
+          text: parsed.data.finalPostedText,
+          source: "human_edit",
+        });
+
+        void deps.recordProductEvent({
+          userId: auth.user.id,
+          xHandle: activeHandle,
+          eventType: "extension_reply_golden_example_saved",
+          properties: {
+            replyMode: parsed.data.replyMode,
+            inserted,
+          },
+        }).catch((error) =>
+          deps.logExtensionRouteFailure({
+            route: "reply-log",
+            userId: auth.user.id,
+            error,
+            details: { eventType: "extension_reply_golden_example_saved" },
+          }),
+        );
+      }
+
+      return Response.json({ ok: true });
+    }
+
     const existing = await deps.findReplyOpportunity({
       opportunityId: parsed.data.opportunityId,
       userId: auth.user.id,
@@ -246,6 +319,22 @@ export async function handleExtensionReplyLogPost(
       });
     }
 
+    if (
+      shouldSaveGoldenExample({
+        originalDraft: parsed.data.originalDraft,
+        finalPostedText: parsed.data.finalPostedText,
+        replyMode: parsed.data.replyMode,
+      })
+    ) {
+      await deps.saveReplyGoldenExample({
+        userId: auth.user.id,
+        xHandle: activeHandle,
+        replyMode: parsed.data.replyMode!,
+        text: parsed.data.finalPostedText!,
+        source: "human_edit",
+      });
+    }
+
     void deps.recordProductEvent({
       userId: auth.user.id,
       xHandle: activeHandle,
@@ -258,6 +347,7 @@ export async function handleExtensionReplyLogPost(
         intentLabel: parsed.data.copiedReplyIntent?.label ?? null,
         intentAnchor: parsed.data.copiedReplyIntent?.anchor ?? null,
         intentStrategyPillar: parsed.data.copiedReplyIntent?.strategyPillar ?? null,
+        replyMode: parsed.data.replyMode ?? null,
         profileClicks: parsed.data.observedMetrics?.profileClicks ?? null,
         followerDelta: parsed.data.observedMetrics?.followerDelta ?? null,
       },

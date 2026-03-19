@@ -85,6 +85,14 @@ enum ReplyOpportunityState {
   observed
 }
 
+enum ReplyMode {
+  joke_riff
+  agree_and_amplify
+  contrarian_pushback
+  insightful_add_on
+  empathetic_support
+}
+
 enum ChatTurnStatus {
   queued
   running
@@ -126,6 +134,7 @@ model User {
   productEvents            ProductEvent[]
   extensionApiTokens       ExtensionApiToken[]
   replyOpportunities       ReplyOpportunity[]
+  replyGoldenExamples      ReplyGoldenExample[]
   billingEntitlement       BillingEntitlement?
   creditLedgerEntries      CreditLedgerEntry[]
   lifetimeSlotReservations LifetimeSlotReservation[]
@@ -506,6 +515,23 @@ model ReplyOpportunity {
   @@index([userId, xHandle, updatedAt])
   @@index([userId, state, updatedAt])
   @@index([xHandle, updatedAt])
+}
+
+model ReplyGoldenExample {
+  id             String    @id @default(cuid())
+  userId         String
+  xHandle        String?
+  replyMode      ReplyMode
+  text           String    @db.Text
+  normalizedText String
+  source         String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, xHandle, replyMode, normalizedText])
+  @@index([userId, xHandle, replyMode, createdAt])
 }
 
 model FeedbackSubmission {

@@ -8,6 +8,13 @@ export type ExtensionReplyTone = "dry" | "bold" | "builder" | "warm";
 
 export type ExtensionReplyOptionLabel = "safe" | "bold";
 
+export type ExtensionReplyMode =
+  | "joke_riff"
+  | "agree_and_amplify"
+  | "contrarian_pushback"
+  | "insightful_add_on"
+  | "empathetic_support";
+
 export interface ExtensionReplyQuotedPost {
   tweetId?: string | null;
   tweetText: string;
@@ -40,6 +47,12 @@ export interface ExtensionReplyIntentMetadata {
   rationale: string;
 }
 
+export interface ReplyDraftPreflightResult {
+  op_tone: string;
+  post_intent: string;
+  recommended_reply_mode: ExtensionReplyMode;
+}
+
 export interface ExtensionObservedReplyMetrics {
   likeCount: number;
   replyCount: number;
@@ -54,6 +67,7 @@ export interface ExtensionReplyDraftRequest {
   tweetUrl: string;
   postType?: ExtensionOpportunityPostType | null;
   quotedPost?: ExtensionReplyQuotedPost | null;
+  imageUrls?: string[] | null;
   media?: ExtensionReplyMediaContext | null;
   conversation?: ExtensionReplyConversationContext | null;
   stage: ExtensionReplyStage;
@@ -248,6 +262,15 @@ export interface ExtensionReplyLogRequest {
   copiedReplyText?: string | null;
   copiedReplyIntent?: ExtensionReplyIntentMetadata | null;
   observedMetrics?: ExtensionObservedReplyMetrics | null;
+  originalDraft?: string | null;
+  finalPostedText?: string | null;
+  replyMode?: ExtensionReplyMode | null;
+}
+
+export interface ExtensionReplyEditLogRequest {
+  originalDraft: string;
+  finalPostedText: string;
+  replyMode: ExtensionReplyMode;
 }
 
 export interface ExtensionDraftFolder {

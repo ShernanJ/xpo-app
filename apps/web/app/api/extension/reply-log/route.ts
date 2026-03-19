@@ -6,6 +6,7 @@ import { authenticateExtensionRequest } from "../../../../lib/extension/auth.ts"
 import { logExtensionRouteFailure } from "../../../../lib/extension/http.ts";
 import { mergeStoredOpportunityNotes } from "../../../../lib/extension/opportunityBatch.ts";
 import { recordProductEvent } from "../../../../lib/productEvents.ts";
+import { saveReplyGoldenExample } from "../../../../lib/reply-engine/goldenExamples.ts";
 import { parseExtensionReplyLogRequest } from "./route.logic.ts";
 import { handleExtensionReplyLogPost } from "./route.handler.ts";
 
@@ -48,6 +49,7 @@ export async function POST(request: NextRequest) {
       });
     },
     recordProductEvent,
+    saveReplyGoldenExample,
     logExtensionRouteFailure,
   });
 }

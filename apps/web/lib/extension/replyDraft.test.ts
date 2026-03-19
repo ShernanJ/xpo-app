@@ -337,6 +337,24 @@ test("reply draft prompt prioritizes lane-matched anchors and anti-pattern guida
     styleCard: lowercaseStyleCard,
     creatorAgentContext,
     generation,
+    userHandle: "shernanjavier",
+    preflightResult: {
+      op_tone: "practical",
+      post_intent: "push a useful next layer",
+      recommended_reply_mode: "insightful_add_on",
+    },
+    goldenExamples: [
+      {
+        text: "yeah the useful layer is usually what makes the reply worth reading",
+        source: "golden_example",
+        replyMode: "insightful_add_on",
+      },
+      {
+        text: "most of the time the next sentence is where the proof shows up",
+        source: "fallback_anchor",
+        replyMode: "insightful_add_on",
+      },
+    ],
   });
   const userPrompt = buildReplyDraftUserPrompt({
     request: {
@@ -349,20 +367,24 @@ test("reply draft prompt prioritizes lane-matched anchors and anti-pattern guida
       goal: "followers",
     },
     generation,
+    preflightResult: {
+      op_tone: "practical",
+      post_intent: "push a useful next layer",
+      recommended_reply_mode: "insightful_add_on",
+    },
   });
 
   assert.equal(systemPrompt.includes("Known for: software and product through product positioning"), true);
   assert.equal(systemPrompt.includes("Target audience: builders who want clearer positioning on X"), true);
-  assert.equal(systemPrompt.includes("DELIVERY BIAS (draft):"), true);
-  assert.equal(systemPrompt.includes("FORMAT BIAS (draft):"), true);
-  assert.equal(systemPrompt.includes("NEGATIVE GUIDANCE:"), true);
+  assert.equal(systemPrompt.includes("You are ghostwriting for @shernanjavier."), true);
+  assert.equal(systemPrompt.includes("CLASSIFIER READ:"), true);
+  assert.equal(systemPrompt.includes("RETRIEVED GOLDEN EXAMPLES:"), true);
+  assert.equal(systemPrompt.includes("Golden example 1: yeah the useful layer is usually what makes the reply worth reading"), true);
+  assert.equal(systemPrompt.includes("Fallback example 2: most of the time the next sentence is where the proof shows up"), true);
   assert.equal(systemPrompt.includes("CREATOR REPLY STYLE:"), true);
   assert.equal(systemPrompt.includes("this creator skews casual and internet-native"), true);
   assert.equal(systemPrompt.includes("Do not unpack it into product advice, system design, or strategy analysis."), true);
-  assert.equal(systemPrompt.includes("VOICE / SHAPE LAYER:"), true);
-  assert.equal(systemPrompt.includes("avoid polished pm-speak and assistant phrasing"), true);
-  assert.equal(systemPrompt.includes("stay literal to the post"), true);
-  assert.equal(systemPrompt.includes("avoid cheap signal"), true);
+  assert.equal(systemPrompt.includes("BACKUP VOICE EVIDENCE:"), true);
   assert.equal(systemPrompt.includes("Forbidden phrases: interesting angle | would love to see"), true);
   assert.equal(
     systemPrompt.indexOf("yeah that ux is rough. the lag makes the whole thing feel heavier than it is.") <
@@ -371,6 +393,7 @@ test("reply draft prompt prioritizes lane-matched anchors and anti-pattern guida
   );
   assert.equal(systemPrompt.includes("Translate-style replies are most likely to get posted."), false);
   assert.equal(systemPrompt.includes("Generic agreement underperforms."), false);
+  assert.equal(userPrompt.includes("Classifier reply mode: insightful_add_on"), true);
   assert.equal(userPrompt.includes('"""Replies should translate big ideas into workflows people can actually use."""'), true);
 });
 
@@ -525,7 +548,9 @@ test("prepareExtensionReplyDraftPromptPacket uses voice-first shortform reply ev
   assert.equal(packet.voiceEvidence.draftPreference, "voice_first");
   assert.equal(packet.voiceEvidence.formatPreference, "shortform");
   assert.equal(packet.voiceEvidence.laneMatchedAnchors.length > 0, true);
-  assert.equal(String(packet.messages[0]?.content || "").includes("VOICE / SHAPE LAYER:"), true);
+  assert.equal(["joke_riff", "agree_and_amplify", "contrarian_pushback", "insightful_add_on", "empathetic_support"].includes(packet.preflightResult.recommended_reply_mode), true);
+  assert.equal(Array.isArray(packet.goldenExamples), true);
+  assert.equal(String(packet.messages[0]?.content || "").includes("RETRIEVED GOLDEN EXAMPLES:"), true);
 });
 
 test("resolveVoiceTarget does not default replies to question CTA or curious hook", () => {

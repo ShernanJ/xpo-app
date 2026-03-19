@@ -162,6 +162,34 @@ test("parseExtensionReplyDraftRequest captures quote, media, and conversation co
   }
 });
 
+test("parseExtensionReplyDraftRequest accepts lightweight quotedPost and top-level imageUrls", () => {
+  const parsed = parseExtensionReplyDraftRequest({
+    tweetId: "10",
+    tweetText: "this meme format keeps winning because the screenshot does half the work",
+    authorHandle: "creator",
+    tweetUrl: "https://x.com/creator/status/10",
+    quotedPost: {
+      author: "@quoted",
+      text: "screenshots are the new proof tweets",
+    },
+    imageUrls: [
+      "https://pbs.twimg.com/media/example-1.jpg",
+      "https://pbs.twimg.com/media/example-2.jpg",
+    ],
+    stage: "0_to_1k",
+    tone: "builder",
+    goal: "followers",
+  });
+
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) {
+    assert.equal(parsed.data.quotedPost?.authorHandle, "quoted");
+    assert.equal(parsed.data.quotedPost?.tweetText, "screenshots are the new proof tweets");
+    assert.equal(parsed.data.media?.images.length, 2);
+    assert.equal(parsed.data.media?.images[0]?.imageUrl, "https://pbs.twimg.com/media/example-1.jpg");
+  }
+});
+
 test("parseExtensionReplyDraftRequest can synthesize tweetUrl from handle and tweetId", () => {
   const parsed = parseExtensionReplyDraftRequest({
     tweetId: "3",

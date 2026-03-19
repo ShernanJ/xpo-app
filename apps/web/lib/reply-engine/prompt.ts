@@ -1,29 +1,22 @@
 import type { ChatCompletionMessageParam } from "groq-sdk/resources/chat/completions";
 
 import { retrieveAnchors } from "../agent-v2/core/retrieval.ts";
-import { buildVoiceHydrationBlock } from "../agent-v2/prompts/promptHydrator.ts";
-import {
-  buildAntiPatternBlock,
-  buildConversationToneBlock,
-  buildDraftPreferenceBlock,
-  buildFormatPreferenceBlock,
-} from "../agent-v2/prompts/promptHydrator.ts";
 import { resolveVoiceTarget } from "../agent-v2/core/voiceTarget.ts";
 import type {
   CreatorProfileHints,
   GroundingPacket,
 } from "../agent-v2/grounding/groundingPacket.ts";
 import type { ProfileReplyContext } from "../agent-v2/grounding/profileReplyContext.ts";
-import type {
-  ExtensionReplyIntentMetadata,
-  ExtensionReplyTone,
-} from "../extension/types.ts";
+import type { ExtensionReplyIntentMetadata } from "../extension/types.ts";
 import type { CreatorAgentContext } from "../onboarding/strategy/agentContext.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 
 import { analyzeReplySourceVisualContext } from "./context.ts";
+import { retrieveReplyGoldenExamples } from "./goldenExamples.ts";
+import { classifyReplyDraftMode } from "./preflight.ts";
 import type {
   PreparedReplyPromptPacket,
+  ReplyGoldenExample,
   ReplyPromptBuildInput,
   ReplySourceContext,
   ReplyVoiceEvidence,
@@ -377,18 +370,45 @@ function formatVoiceEvidenceBlock(voiceEvidence: ReplyVoiceEvidence) {
   ].join("\n");
 }
 
-function resolveToneDirection(tone: ExtensionReplyTone) {
-  switch (tone) {
-    case "dry":
-      return "Stay crisp, understated, and analytical.";
-    case "warm":
-      return "Stay human and conversational without sounding soft or generic.";
-    case "bold":
-      return "Stay sharper and more pointed, but never hostile or performative.";
-    case "builder":
-    default:
-      return "Stay practical and native to how the creator actually replies on X.";
+function formatGoldenExamplesBlock(goldenExamples: ReplyGoldenExample[]) {
+  if (goldenExamples.length === 0) {
+    return "- No retrieved examples available.";
   }
+
+  return goldenExamples
+    .map((example, index) => {
+      const label =
+        example.source === "golden_example"
+          ? `Golden example ${index + 1}`
+          : `Fallback example ${index + 1}`;
+      return `- ${label}: ${truncateLine(example.text, 220)}`;
+    })
+    .join("\n");
+}
+
+function formatPreflightBlock(args: {
+  opTone: string;
+  postIntent: string;
+  recommendedReplyMode: string;
+}) {
+  return [
+    `- Observed OP tone: ${args.opTone}`,
+    `- Inferred post intent: ${args.postIntent}`,
+    `- Recommended reply mode: ${args.recommendedReplyMode}`,
+  ].join("\n");
+}
+
+function resolveGhostwritingHandle(args: {
+  userHandle?: string | null;
+  creatorAgentContext?: CreatorAgentContext | null;
+  retrievalHandle?: string | null;
+}) {
+  return (
+    args.userHandle?.trim().replace(/^@+/, "") ||
+    args.creatorAgentContext?.creatorProfile.identity.username?.trim().replace(/^@+/, "") ||
+    args.retrievalHandle?.trim().replace(/^@+/, "") ||
+    "creator"
+  );
 }
 
 export function buildReplyGroundingPacket(args: {
@@ -435,9 +455,10 @@ export function buildReplyGroundingPacket(args: {
 }
 
 export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
-  voiceTargetSummaryMessage?: string | null;
   voiceEvidence?: ReplyVoiceEvidence | null;
   visualContext?: ReplyVisualContextSummary | null;
+  goldenExamples?: ReplyGoldenExample[] | null;
+  preflightResult: PreparedReplyPromptPacket["preflightResult"];
 }): string {
   const sourceMode = inferReplySourceMode(args.sourceContext);
   const useIntentOverlay = shouldUseIntentOverlay({
@@ -445,21 +466,6 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     selectedIntent: args.selectedIntent,
     strategyPillar: args.selectedIntent?.strategyPillar || null,
     angleLabel: args.selectedIntent?.label || null,
-  });
-  const voiceTarget = resolveVoiceTarget({
-    styleCard: args.styleCard || null,
-    userMessage:
-      args.voiceTargetSummaryMessage ||
-      [
-        args.goal,
-        args.tone === "bold" ? "bolder" : "voice first",
-        args.sourceContext.primaryPost.text,
-        ]
-        .filter(Boolean)
-        .join(" "),
-    draftPreference: "voice_first",
-    formatPreference: "shortform",
-    lane: args.sourceContext.quotedPost ? "quote" : "reply",
   });
   const voiceEvidence =
     args.voiceEvidence ||
@@ -489,9 +495,16 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
       }),
       summaryLines: [],
     };
+  const goldenExamples = args.goldenExamples || [];
+  const ghostwritingHandle = resolveGhostwritingHandle({
+    userHandle: args.userHandle,
+    creatorAgentContext: args.creatorAgentContext || null,
+    retrievalHandle: args.retrievalContext?.xHandle || null,
+  });
 
   return [
     "You write exactly one X reply in the creator's real voice.",
+    `You are ghostwriting for @${ghostwritingHandle}. Do not invent a persona. Mirror these exact examples. Match his sentence length, punctuation habits, and analytical depth exactly.`,
     "Return ONLY the final reply text.",
     "No preamble. No labels. No greetings. No analysis.",
     "No hashtags, no emojis, no markdown, no bullet points, no numbered lists, no code fences, no surrounding quotation marks.",
@@ -506,18 +519,10 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     sourceMode.shouldContinueMetaphor
       ? "This source uses a playful analogy. Continue the analogy or joke instead of translating it into a literal product explanation."
       : null,
-    "Avoid generic AI phrasing like 'the real issue is', 'here's the framework', 'level up', 'high-ROI', 'operator', or 'it pays dividends'.",
     "This is a reply, not a standalone post. Prefer a native X reply shape: quick agreement, pushback, add-on, observation, question, or concise riff.",
     "If the source is a quote tweet, respond to the visible quote-tweet text first and use the quoted post as supporting context only.",
     "If image context is present, use it only when it sharpens the reply to the actual post.",
     `Keep it under ${(args.maxCharacterLimit || 280).toLocaleString()} characters.`,
-    resolveToneDirection(args.tone),
-    "",
-    buildConversationToneBlock("draft"),
-    buildDraftPreferenceBlock("voice_first", "draft"),
-    buildFormatPreferenceBlock("shortform", "draft"),
-    buildVoiceHydrationBlock(args.styleCard || null, voiceTarget),
-    buildAntiPatternBlock(voiceEvidence.antiPatterns),
     "",
     "FACTUAL TRUTH LAYER:",
     "Durable facts:",
@@ -539,6 +544,19 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
       ? `- Image context available: ${args.visualContext.summaryLines.join(" | ")}`
       : "- Image context available: none.",
     "",
+    "CLASSIFIER READ:",
+    formatPreflightBlock({
+      opTone: args.preflightResult.op_tone,
+      postIntent: args.preflightResult.post_intent,
+      recommendedReplyMode: args.preflightResult.recommended_reply_mode,
+    }),
+    "",
+    "RETRIEVED GOLDEN EXAMPLES:",
+    formatGoldenExamplesBlock(goldenExamples),
+    goldenExamples.some((example) => example.source === "fallback_anchor")
+      ? "- Fallback examples are backup support only. Prefer exact learned Golden Examples when present."
+      : "- All examples above are learned Golden Examples from edited posted replies.",
+    "",
     "CREATOR PROFILE HINTS:",
     formatCreatorHints(args.creatorProfileHints),
     "Use creator profile hints as background voice calibration only. Do not use them to change the subject of the reply.",
@@ -558,24 +576,22 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     "CREATOR REPLY STYLE:",
     buildCreatorReplyStyleBlock(args.creatorAgentContext),
     "",
-    "VOICE / SHAPE LAYER:",
+    "BACKUP VOICE EVIDENCE:",
     formatVoiceEvidenceBlock(voiceEvidence),
     "",
     "REQUIREMENTS:",
     "1. Write exactly one reply and nothing else.",
     "2. Sound like the creator actually wrote it, not like a polished assistant or PM.",
-    "3. Prefer the creator's real reply cadence over broad growth or product-strategy language.",
+    "3. Golden Examples are the primary style source. Backup voice evidence is secondary.",
     "4. Keep it native to X replies: short, direct, and human. Do not turn it into a mini post.",
     "5. If the creator's historical replies are casual or lowercase, preserve that instead of professionalizing it.",
-    "6. Use lane-matched reply evidence first. Original-post evidence is only fallback style support.",
-    "7. Do not copy factual claims from voice evidence unless the factual truth layer also supports them.",
-    "8. Avoid product-marketing phrasing like 'cheap signal', 'iterate on content', 'real data', 'would love to see', 'next build', or 'vanity likes' unless the creator truly talks that way.",
-    "9. Stay close to the literal nouns and tension in the source post instead of pivoting to adjacent themes.",
-    "10. If you end with a question, it must feel natural to the creator's actual reply style, not like a forced engagement CTA.",
-    "11. If the source is already casual, funny, or punchy, match that energy instead of sounding more analytical than the post itself.",
+    "6. Do not copy factual claims from examples or voice evidence unless the factual truth layer also supports them.",
+    "7. Stay close to the literal nouns and tension in the source post instead of pivoting to adjacent themes.",
+    "8. If you end with a question, it must feel natural to the creator's actual reply style, not like a forced engagement CTA.",
+    "9. If the source is already casual, funny, or punchy, match that energy instead of sounding more analytical than the post itself.",
     sourceMode.shouldContinueMetaphor
-      ? "12. For this reply, do not explain the joke. Add to the joke."
-      : "12. Do not over-explain the source post.",
+      ? "10. For this reply, do not explain the joke. Add to the joke."
+      : "10. Do not over-explain the source post.",
     "",
     "OPTIONAL REPLY LENS:",
     useIntentOverlay
@@ -599,6 +615,7 @@ export function buildReplyDraftUserPrompt(args: Pick<
   | "groundingPacket"
 > & {
   visualContext?: ReplyVisualContextSummary | null;
+  preflightResult?: PreparedReplyPromptPacket["preflightResult"] | null;
 }): string {
   return [
     "Reply target:",
@@ -617,6 +634,13 @@ export function buildReplyDraftUserPrompt(args: Pick<
     ...(args.visualContext?.summaryLines?.length
       ? ["Image context:", ...args.visualContext.summaryLines.map((line) => `- ${line}`), ""]
       : []),
+    ...(args.preflightResult
+      ? [
+          `Classifier reply mode: ${args.preflightResult.recommended_reply_mode}`,
+          `Classifier post intent: ${args.preflightResult.post_intent}`,
+          "",
+        ]
+      : []),
     `Goal: ${args.goal}`,
     `Requested tone: ${args.tone}`,
     `Growth stage: ${args.stage || "unknown"}`,
@@ -630,12 +654,40 @@ export function buildReplyDraftUserPrompt(args: Pick<
 }
 
 export async function prepareReplyPromptPacket(
-  args: ReplyPromptBuildInput,
+  args: ReplyPromptBuildInput & {
+    visualContext?: ReplyVisualContextSummary | null;
+    preflightResult?: PreparedReplyPromptPacket["preflightResult"] | null;
+    goldenExamples?: ReplyGoldenExample[] | null;
+  },
 ): Promise<PreparedReplyPromptPacket> {
-  const [visualContext, voiceEvidence] = await Promise.all([
-    analyzeReplySourceVisualContext(args.sourceContext),
+  const [resolvedVisualContext, voiceEvidence] = await Promise.all([
+    args.visualContext === undefined
+      ? analyzeReplySourceVisualContext(args.sourceContext)
+      : Promise.resolve(args.visualContext),
     resolveReplyVoiceEvidence(args),
   ]);
+  const preflightResult =
+    args.preflightResult ||
+    (await classifyReplyDraftMode({
+      sourceText: args.sourceContext.primaryPost.text,
+      quotedText: args.sourceContext.quotedPost?.text || null,
+      imageSummaryLines: resolvedVisualContext?.summaryLines || [],
+    }));
+  const goldenExamples =
+    args.goldenExamples ||
+    (args.retrievalContext?.userId && args.retrievalContext.xHandle
+      ? await retrieveReplyGoldenExamples({
+          userId: args.retrievalContext.userId,
+          xHandle: args.retrievalContext.xHandle,
+          replyMode: preflightResult.recommended_reply_mode,
+          sourceText: args.sourceContext.primaryPost.text,
+          quotedText: args.sourceContext.quotedPost?.text || null,
+          imageSummaryLines: resolvedVisualContext?.summaryLines || [],
+          postIntent: preflightResult.post_intent,
+          lane: args.sourceContext.quotedPost ? "quote" : "reply",
+          preferredFormat: "shortform",
+        })
+      : []);
   const voiceTarget = resolveVoiceTarget({
     styleCard: args.styleCard || null,
     userMessage:
@@ -656,22 +708,18 @@ export async function prepareReplyPromptPacket(
       role: "system",
       content: buildReplyDraftSystemPrompt({
         ...args,
-        visualContext,
+        visualContext: resolvedVisualContext,
         voiceEvidence,
-        voiceTargetSummaryMessage: [
-          args.goal,
-          args.tone === "bold" ? "bolder" : "voice first",
-          args.sourceContext.primaryPost.text,
-        ]
-          .filter(Boolean)
-          .join(" "),
+        goldenExamples,
+        preflightResult,
       }),
     },
     {
       role: "user",
       content: buildReplyDraftUserPrompt({
         ...args,
-        visualContext,
+        visualContext: resolvedVisualContext,
+        preflightResult,
       }),
     },
   ];
@@ -681,9 +729,11 @@ export async function prepareReplyPromptPacket(
     sourceContext: args.sourceContext,
     groundingPacket: args.groundingPacket,
     voiceTarget,
-    visualContext,
+    visualContext: resolvedVisualContext,
     voiceEvidence,
     styleCard: args.styleCard || null,
     maxCharacterLimit,
+    preflightResult,
+    goldenExamples,
   };
 }

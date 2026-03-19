@@ -88,6 +88,12 @@ function normalizePostType(value: string | undefined) {
 }
 
 function normalizeImage(value: unknown): ExtensionReplyMediaImage | null {
+  if (typeof value === "string" && value.trim()) {
+    return {
+      imageUrl: value.trim(),
+    };
+  }
+
   const image = asRecord(value);
   if (!image) {
     return null;
@@ -141,6 +147,7 @@ function normalizeQuotedPost(...values: unknown[]) {
 
     const author = asRecord(quoted.author);
     const tweetText = readString(quoted.tweetText, quoted.postText, quoted.text, quoted.fullText);
+    const rawAuthor = typeof quoted.author === "string" ? quoted.author : undefined;
     if (!tweetText.trim()) {
       continue;
     }
@@ -153,6 +160,7 @@ function normalizeQuotedPost(...values: unknown[]) {
       ...(readString(
         quoted.authorHandle,
         quoted.handle,
+        rawAuthor,
         quoted.authorUsername,
         author?.handle,
         author?.username,
@@ -161,6 +169,7 @@ function normalizeQuotedPost(...values: unknown[]) {
             authorHandle: readString(
               quoted.authorHandle,
               quoted.handle,
+              rawAuthor,
               quoted.authorUsername,
               author?.handle,
               author?.username,
@@ -248,6 +257,7 @@ const ExtensionReplyDraftRequestSchema = z
       candidate?.quotedPost,
     );
     const images = normalizeImages(
+      value.imageUrls,
       value.images,
       media?.images,
       media?.photos,

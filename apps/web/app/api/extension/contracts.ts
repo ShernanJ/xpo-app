@@ -44,6 +44,14 @@ export const ExtensionReplyIntentMetadataSchema = z
   })
   .strict();
 
+export const ExtensionReplyModeSchema = z.enum([
+  "joke_riff",
+  "agree_and_amplify",
+  "contrarian_pushback",
+  "insightful_add_on",
+  "empathetic_support",
+]);
+
 export const ExtensionObservedReplyMetricsSchema = z
   .object({
     likeCount: z.number().int().min(0),
@@ -219,6 +227,17 @@ export const ExtensionReplyLogRequestSchema = z
     copiedReplyText: z.string().trim().min(1).max(500).nullable().optional(),
     copiedReplyIntent: ExtensionReplyIntentMetadataSchema.nullable().optional(),
     observedMetrics: ExtensionObservedReplyMetricsSchema.nullable().optional(),
+    originalDraft: z.string().trim().min(1).max(500).nullable().optional(),
+    finalPostedText: z.string().trim().min(1).max(500).nullable().optional(),
+    replyMode: ExtensionReplyModeSchema.nullable().optional(),
+  })
+  .strict();
+
+export const ExtensionReplyEditLogRequestSchema = z
+  .object({
+    originalDraft: z.string().trim().min(1).max(500),
+    finalPostedText: z.string().trim().min(1).max(500),
+    replyMode: ExtensionReplyModeSchema,
   })
   .strict();
 

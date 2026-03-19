@@ -1,10 +1,5 @@
-import type { ChatCompletionMessageParam } from "groq-sdk/resources/chat/completions";
-
-import { fetchJsonFromGroq } from "../agent-v2/agents/llm.ts";
 import {
-  DEFAULT_IMAGE_TO_POST_VISION_MODEL,
-  IMAGE_TO_POST_VISION_SYSTEM_PROMPT,
-  ImageVisionContextSchema,
+  analyzeImageVisualContext,
 } from "../creator/imagePostGeneration.ts";
 import type {
   ExtensionOpportunityPostType,
@@ -58,7 +53,10 @@ function normalizeImages(images: ReplySourceImage[] | null | undefined): ReplySo
 export function buildReplySourceContextFromExtensionRequest(
   request: ExtensionReplyDraftRequest,
 ): ReplySourceContext {
-  const images = normalizeImages(request.media?.images);
+  const images = normalizeImages([
+    ...(request.media?.images || []),
+    ...((request.imageUrls || []).map((imageUrl) => ({ imageUrl }))),
+  ]);
 
   return {
     primaryPost: {
@@ -121,90 +119,91 @@ export function buildReplySourceContextFromFlatInput(args: {
   };
 }
 
-function pickAnalyzableImage(sourceContext: ReplySourceContext): string | null {
+function pickAnalyzableImages(sourceContext: ReplySourceContext): string[] {
+  const seen = new Set<string>();
+  const analyzable: string[] = [];
   const images = sourceContext.media?.images || [];
   for (const image of images) {
-    if (image.imageDataUrl?.trim()) {
-      return image.imageDataUrl.trim();
+    const candidate = image.imageDataUrl?.trim() || image.imageUrl?.trim() || "";
+    if (!candidate || seen.has(candidate)) {
+      continue;
     }
-    if (image.imageUrl?.trim()) {
-      return image.imageUrl.trim();
+
+    seen.add(candidate);
+    analyzable.push(candidate);
+    if (analyzable.length >= 4) {
+      break;
     }
   }
 
-  return null;
-}
-
-function buildImagePrompt(imageUrl: string): ChatCompletionMessageParam[] {
-  return [
-    {
-      role: "system",
-      content: IMAGE_TO_POST_VISION_SYSTEM_PROMPT,
-    },
-    {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text:
-            "Analyze the attached reply-target image and return only the requested JSON object.",
-        },
-        {
-          type: "image_url",
-          image_url: {
-            url: imageUrl,
-          },
-        },
-      ],
-    },
-  ];
+  return analyzable;
 }
 
 export async function analyzeReplySourceVisualContext(
   sourceContext: ReplySourceContext,
 ): Promise<ReplyVisualContextSummary | null> {
-  const imageUrl = pickAnalyzableImage(sourceContext);
-  if (!imageUrl) {
+  const imageUrls = pickAnalyzableImages(sourceContext);
+  if (imageUrls.length === 0) {
     return null;
   }
 
-  try {
-    const raw = await fetchJsonFromGroq<unknown>({
-      model: DEFAULT_IMAGE_TO_POST_VISION_MODEL,
-      temperature: 0,
-      max_tokens: 1024,
-      jsonRepairInstruction:
-        "Return ONLY valid JSON with keys primary_subject, setting, lighting_and_mood, any_readable_text, key_details.",
-      messages: buildImagePrompt(imageUrl),
+  const settled = await Promise.allSettled(
+    imageUrls.map(async (imageUrl) => {
+      const result = await analyzeImageVisualContext({
+        imageDataUrl: imageUrl,
+      });
+
+      return {
+        imageUrl,
+        primarySubject: result.visualContext.primary_subject,
+        setting: result.visualContext.setting,
+        lightingAndMood: result.visualContext.lighting_and_mood,
+        readableText: result.visualContext.any_readable_text,
+        keyDetails: result.visualContext.key_details,
+      };
+    }),
+  );
+
+  const images = settled
+    .flatMap((result) => {
+      if (result.status === "fulfilled") {
+        return [result.value];
+      }
+
+      console.warn("Failed to analyze reply image context:", result.reason);
+      return [];
     });
 
-    const parsed = ImageVisionContextSchema.safeParse(raw);
-    if (!parsed.success) {
-      return null;
-    }
-
-    const summaryLines = [
-      `Primary subject: ${parsed.data.primary_subject}`,
-      `Setting: ${parsed.data.setting}`,
-      `Mood: ${parsed.data.lighting_and_mood}`,
-      parsed.data.any_readable_text
-        ? `Readable text: ${parsed.data.any_readable_text}`
-        : null,
-      parsed.data.key_details.length > 0
-        ? `Key details: ${parsed.data.key_details.slice(0, 4).join(" | ")}`
-        : null,
-    ].filter((line): line is string => Boolean(line));
-
-    return {
-      primarySubject: parsed.data.primary_subject,
-      setting: parsed.data.setting,
-      lightingAndMood: parsed.data.lighting_and_mood,
-      readableText: parsed.data.any_readable_text,
-      keyDetails: parsed.data.key_details,
-      summaryLines,
-    };
-  } catch (error) {
-    console.warn("Failed to analyze reply image context:", error);
+  if (images.length === 0) {
     return null;
   }
+
+  const summaryLines = images.flatMap((image, index) => {
+    const prefix = images.length > 1 ? `Image ${index + 1}` : "Image";
+    return [
+      `${prefix} primary subject: ${image.primarySubject}`,
+      `${prefix} setting: ${image.setting}`,
+      `${prefix} mood: ${image.lightingAndMood}`,
+      image.readableText ? `${prefix} readable text: ${image.readableText}` : null,
+      image.keyDetails.length > 0
+        ? `${prefix} key details: ${image.keyDetails.slice(0, 4).join(" | ")}`
+        : null,
+    ].filter((line): line is string => Boolean(line));
+  });
+
+  return {
+    primarySubject: images.map((image) => image.primarySubject).join(" | "),
+    setting: images.map((image) => image.setting).join(" | "),
+    lightingAndMood: images.map((image) => image.lightingAndMood).join(" | "),
+    readableText: images
+      .map((image) => image.readableText.trim())
+      .filter(Boolean)
+      .join(" | "),
+    keyDetails: Array.from(
+      new Set(images.flatMap((image) => image.keyDetails.map((detail) => detail.trim()).filter(Boolean))),
+    ).slice(0, 12),
+    imageCount: images.length,
+    images,
+    summaryLines,
+  };
 }
