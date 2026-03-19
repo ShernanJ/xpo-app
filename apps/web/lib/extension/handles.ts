@@ -88,7 +88,7 @@ export async function listExtensionHandleProfilesForUser(args: {
       continue;
     }
 
-    latestRunByHandle.set(xHandle, run.result as OnboardingResult);
+    latestRunByHandle.set(xHandle, run.result as unknown as OnboardingResult);
   }
 
   return handles.map((xHandle) => {
