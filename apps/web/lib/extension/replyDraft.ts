@@ -14,7 +14,6 @@ import {
   prepareReplyPromptPacket,
   type PreparedReplyPromptPacket,
   type ReplyGoldenExample,
-  type ReplyDraftPreflightResult,
   type ReplySourceContext,
   type ReplyVisualContextSummary,
 } from "../reply-engine/index.ts";
@@ -32,6 +31,7 @@ import type {
   ExtensionReplyIntentMetadata,
   ExtensionReplyDraftResponse,
   ExtensionReplyOption,
+  ReplyDraftPreflightResult,
 } from "./types";
 import type { ReplyConstraintPolicy } from "../reply-engine/index.ts";
 import { resolveReplyConstraintPolicy } from "../reply-engine/index.ts";

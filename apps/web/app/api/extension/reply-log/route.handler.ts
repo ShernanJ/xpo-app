@@ -223,6 +223,7 @@ export async function handleExtensionReplyLogPost(
   if (!parsed.ok) {
     return jsonError(400, "body", parsed.message);
   }
+  const lifecycleData = parsed.kind === "lifecycle" ? parsed.data : null;
 
   try {
     const activeHandle = auth.user.activeXHandle?.trim().replace(/^@+/, "").toLowerCase() || null;
@@ -365,9 +366,9 @@ export async function handleExtensionReplyLogPost(
       userId: auth.user.id,
       error,
       details: {
-        opportunityId: parsed.data.opportunityId ?? null,
-        postId: parsed.data.postId,
-        event: parsed.data.event,
+        opportunityId: lifecycleData?.opportunityId ?? null,
+        postId: lifecycleData?.postId ?? null,
+        event: lifecycleData?.event ?? null,
       },
     });
   }

@@ -30,7 +30,7 @@ function buildContentSecurityPolicy(nonce: string) {
   ].join("; ");
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   const nonce = generateNonce();
   requestHeaders.set("x-nonce", nonce);

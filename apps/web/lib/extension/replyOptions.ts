@@ -209,7 +209,7 @@ function buildCasualTemplate(args: {
 }
 
 function buildCasualLabels(base: ExtensionSuggestedAngle): ExtensionSuggestedAngle[] {
-  const next = [base, "sharpen", "nuance", "disagree"];
+  const next: ExtensionSuggestedAngle[] = [base, "sharpen", "nuance", "disagree"];
   return next.filter((label, index) => next.indexOf(label) === index).slice(0, 3);
 }
 

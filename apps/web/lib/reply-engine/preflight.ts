@@ -48,16 +48,18 @@ const SourceInterpretationSchema = z.object({
   satire_confidence: z.number().min(0).max(100),
 });
 
+const ReplyDraftRecommendedModeSchema = z.enum([
+  "joke_riff",
+  "agree_and_amplify",
+  "contrarian_pushback",
+  "insightful_add_on",
+  "empathetic_support",
+]);
+
 export const ReplyDraftPreflightSchema: z.ZodType<ReplyDraftPreflightResult> = z.object({
   op_tone: z.string().trim().min(1).max(160),
   post_intent: z.string().trim().min(1).max(240),
-  recommended_reply_mode: z.enum([
-    "joke_riff",
-    "agree_and_amplify",
-    "contrarian_pushback",
-    "insightful_add_on",
-    "empathetic_support",
-  ]),
+  recommended_reply_mode: ReplyDraftRecommendedModeSchema,
   source_shape: z.enum([
     "strategic_take",
     "casual_observation",
@@ -70,49 +72,81 @@ export const ReplyDraftPreflightSchema: z.ZodType<ReplyDraftPreflightResult> = z
   interpretation: SourceInterpretationSchema.optional(),
 });
 
+function normalizeWhitespace(value: string | null | undefined): string {
+  return (value || "").trim().replace(/\s+/g, " ");
+}
+
+function truncatePromptValue(value: string | null | undefined, max = 220): string {
+  const normalized = normalizeWhitespace(value);
+  if (!normalized) {
+    return "none";
+  }
+  if (normalized.length <= max) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(0, max - 3)).trimEnd()}...`;
+}
+
+function buildImageHintLines(args: {
+  imageSummaryLines?: string[] | null;
+  visualContext?: ReplyVisualContextSummary | null;
+  compact?: boolean;
+}) {
+  const summaryLines = (args.imageSummaryLines || []).slice(0, args.compact ? 3 : 5);
+  const lines = [
+    args.visualContext?.imageRole ? `Image role hint: ${args.visualContext.imageRole}` : null,
+    args.visualContext?.imageArtifactType
+      ? `Image artifact hint: ${args.visualContext.imageArtifactType}`
+      : null,
+    args.visualContext?.imageReplyAnchor
+      ? `Image anchor hint: ${truncatePromptValue(args.visualContext.imageReplyAnchor, 120)}`
+      : null,
+    args.visualContext?.readableText
+      ? `Image readable text hint: ${truncatePromptValue(args.visualContext.readableText, 140)}`
+      : null,
+    args.visualContext?.artifactTargetHint
+      ? `Image target hint: ${truncatePromptValue(args.visualContext.artifactTargetHint, 120)}`
+      : null,
+    summaryLines.length > 0
+      ? `Image summary: ${summaryLines.map((line) => truncatePromptValue(line, 90)).join(" | ")}`
+      : null,
+  ].filter((line): line is string => Boolean(line));
+
+  return lines.length > 0 ? lines : ["Image context: none"];
+}
+
 function buildClassifierPrompt(args: {
   sourceText: string;
   quotedText?: string | null;
   imageSummaryLines?: string[] | null;
   visualContext?: ReplyVisualContextSummary | null;
+  compact?: boolean;
 }): string {
+  const compact = Boolean(args.compact);
+  const imageHints = buildImageHintLines({
+    imageSummaryLines: args.imageSummaryLines,
+    visualContext: args.visualContext || null,
+    compact,
+  });
+
   return [
     "Classify the best reply mode for drafting a native X reply.",
     "Return only valid JSON matching the requested schema.",
-    "CRITICAL: If the post is sarcasm, a meme, shitposting, or internet slang, you MUST classify it as 'joke_riff'.",
-    "CRITICAL: If the image carries the joke, punchline, or visible proof, reflect that in image_role and image_reply_anchor.",
-    "CRITICAL: Decide whether the source is literal, non-literal, satirical, sarcastic, playful, or parody/mockup-driven before choosing the reply mode.",
+    "If the post is sarcasm, a meme, shitposting, parody, or internet slang, prefer joke_riff.",
+    "If the image carries the joke, punchline, or visible proof, reflect that in image_role and image_reply_anchor.",
+    "Decide whether the source is literal, non-literal, satirical, sarcastic, playful, or parody/mockup-driven before choosing the reply mode.",
     "",
-    `Visible post text: ${args.sourceText.trim()}`,
-    args.quotedText?.trim() ? `Quoted post text: ${args.quotedText.trim()}` : "Quoted post text: none",
-    args.visualContext
-      ? `Image role hint: ${args.visualContext.imageRole}`
-      : "Image role hint: none",
-    args.visualContext?.imageReplyAnchor
-      ? `Image reply anchor hint: ${args.visualContext.imageReplyAnchor}`
-      : "Image reply anchor hint: none",
-    args.imageSummaryLines?.length
-      ? `Image context: ${args.imageSummaryLines.join(" | ")}`
-      : "Image context: none",
+    `Visible post text: ${truncatePromptValue(args.sourceText, compact ? 220 : 320)}`,
+    `Quoted post text: ${truncatePromptValue(args.quotedText, compact ? 160 : 220)}`,
+    ...imageHints,
     "",
-    "Also classify the source_shape as one of:",
-    "- strategic_take",
-    "- casual_observation",
-    "- joke_setup",
-    "- emotional_update",
-    "",
-    "Choose the best recommended_reply_mode from:",
-    "- joke_riff",
-    "- agree_and_amplify",
-    "- contrarian_pushback",
-    "- insightful_add_on",
-    "- empathetic_support",
-    "",
-    "Also return:",
-    "- image_role: none | punchline | proof | reaction | context | decorative",
-    "- image_reply_anchor: the shortest useful image-led phrase or OCR snippet for a reply to anchor on",
-    "- should_reference_image_text: true when readable in-image text should be treated as first-class source material",
-    "- interpretation: a nested object with keys literality, humor_mode, post_frame, target, image_artifact_type, allowed_reply_moves, disallowed_reply_moves, literality_confidence, satire_confidence",
+    compact
+      ? "Enums: recommended_reply_mode=joke_riff|agree_and_amplify|contrarian_pushback|insightful_add_on|empathetic_support; source_shape=strategic_take|casual_observation|joke_setup|emotional_update; image_role=none|punchline|proof|reaction|context|decorative."
+      : "source_shape must be one of strategic_take, casual_observation, joke_setup, emotional_update.",
+    compact
+      ? "interpretation must include literality, humor_mode, post_frame, target, image_artifact_type, allowed_reply_moves, disallowed_reply_moves, literality_confidence, satire_confidence."
+      : "Return interpretation with keys literality, humor_mode, post_frame, target, image_artifact_type, allowed_reply_moves, disallowed_reply_moves, literality_confidence, satire_confidence.",
   ].join("\n");
 }
 
@@ -277,24 +311,32 @@ export async function classifyReplyDraftMode(args: {
     return buildHeuristicPreflight(args);
   }
 
-  const raw = await fetchJsonFromGroq<unknown>({
-    model: args.model?.trim() || DEFAULT_REPLY_PREFLIGHT_MODEL,
-    temperature: 0,
-    max_tokens: 160,
-    jsonRepairInstruction:
-      "Return ONLY valid JSON with keys op_tone, post_intent, recommended_reply_mode, source_shape, image_role, image_reply_anchor, should_reference_image_text, interpretation.",
-    messages: [
-      {
-        role: "system",
-        content:
-          "You are a fast X reply strategist. Classify the source material and return only strict JSON.",
-      },
-      {
-        role: "user",
-        content: buildClassifierPrompt(args),
-      },
-    ],
-  });
+  const model = args.model?.trim() || DEFAULT_REPLY_PREFLIGHT_MODEL;
+  const fetchAttempt = (compact: boolean) =>
+    fetchJsonFromGroq<unknown>({
+      model,
+      temperature: 0,
+      max_tokens: compact ? 220 : 280,
+      reasoning_effort: "low",
+      jsonRepairInstruction:
+        "Return ONLY valid JSON with keys op_tone, post_intent, recommended_reply_mode, source_shape, image_role, image_reply_anchor, should_reference_image_text, interpretation.",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a fast X reply strategist. Return only strict JSON. Keep the JSON compact and do not add commentary.",
+        },
+        {
+          role: "user",
+          content: buildClassifierPrompt({ ...args, compact }),
+        },
+      ],
+    });
+
+  let raw = await fetchAttempt(false);
+  if (!raw) {
+    raw = await fetchAttempt(true);
+  }
 
   if (!raw) {
     return buildHeuristicPreflight(args);
@@ -317,6 +359,6 @@ export async function classifyReplyDraftMode(args: {
 }
 
 export function normalizeReplyMode(value: unknown): ExtensionReplyMode | null {
-  const parsed = ReplyDraftPreflightSchema.shape.recommended_reply_mode.safeParse(value);
+  const parsed = ReplyDraftRecommendedModeSchema.safeParse(value);
   return parsed.success ? parsed.data : null;
 }
