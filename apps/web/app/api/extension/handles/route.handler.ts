@@ -1,3 +1,10 @@
+interface ExtensionHandleProfile {
+  xHandle: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  isVerified: boolean;
+}
+
 interface ExtensionAuthResult {
   user: {
     id: string;
@@ -7,10 +14,10 @@ interface ExtensionAuthResult {
 
 interface ExtensionHandlesHandlerDeps {
   authenticateExtensionRequest(request: Request): Promise<ExtensionAuthResult | null>;
-  listExtensionHandlesForUser(args: {
+  listExtensionHandleProfilesForUser(args: {
     userId: string;
     activeXHandle?: string | null;
-  }): Promise<string[]>;
+  }): Promise<ExtensionHandleProfile[]>;
 }
 
 function jsonError(status: number, field: string, message: string) {
@@ -29,12 +36,12 @@ export async function handleExtensionHandlesGet(
     return jsonError(401, "auth", "Unauthorized");
   }
 
-  const handles = await deps.listExtensionHandlesForUser({
+  const handles = await deps.listExtensionHandleProfilesForUser({
     userId: auth.user.id,
     activeXHandle: auth.user.activeXHandle,
   });
 
   return Response.json({
-    handles: [...handles].sort((left, right) => left.localeCompare(right)),
+    handles: [...handles].sort((left, right) => left.xHandle.localeCompare(right.xHandle)),
   });
 }

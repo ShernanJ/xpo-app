@@ -1,11 +1,13 @@
 "use client";
 
+import { motion, useReducedMotion } from "framer-motion";
 import { ChevronDown } from "lucide-react";
 
 import { useChatComposerDockCanvas } from "../chat-page/ChatCanvasContext";
 import { ChatComposerSurface } from "./ChatComposerSurface";
 
 export function ChatComposerDock() {
+  const prefersReducedMotion = useReducedMotion();
   const {
     isLoading,
     isWorkspaceInitializing,
@@ -20,17 +22,27 @@ export function ChatComposerDock() {
     "relative w-full overflow-hidden border border-white/10 bg-white/[0.06] backdrop-blur-[24px] shadow-[0_16px_48px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-500 ease-out focus-within:border-white/15 focus-within:ring-1 focus-within:ring-white/15";
   const dockComposerSurfaceClassName = `${composerChromeClassName} rounded-[1.12rem] p-1.5 sm:p-2`;
   const dockComposerWrapperClassName = `absolute inset-x-0 bottom-0 z-10 pb-[env(safe-area-inset-bottom)] transition-all duration-[720ms] ease-[cubic-bezier(0.16,1,0.3,1)] ${
-    isNewChatHero || isLeavingHero
+    isNewChatHero
       ? "pointer-events-none -translate-y-[14.5rem] opacity-0 sm:-translate-y-[17rem]"
       : "pointer-events-auto translate-y-0 opacity-100"
   }`;
 
-  if (isLoading || isWorkspaceInitializing) {
+  if (isLoading || isWorkspaceInitializing || isNewChatHero) {
     return null;
   }
 
   return (
-    <div className={dockComposerWrapperClassName}>
+    <motion.div
+      className={dockComposerWrapperClassName}
+      aria-hidden={isLeavingHero}
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 26, filter: "blur(14px)" }}
+      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+      transition={{
+        duration: prefersReducedMotion ? 0 : 0.42,
+        delay: prefersReducedMotion ? 0 : isLeavingHero ? 0 : 0.18,
+        ease: [0.16, 1, 0.3, 1],
+      }}
+    >
       <div className="mx-auto w-full max-w-4xl px-4 pb-6 pt-4 sm:px-6 sm:pb-8">
         {showScrollToLatest && !shouldCenterHero ? (
           <div className="mb-3 flex justify-center">
@@ -44,14 +56,36 @@ export function ChatComposerDock() {
             </button>
           </div>
         ) : null}
-        <ChatComposerSurface
-          {...composerSurfaceProps}
-          surfaceClassName={dockComposerSurfaceClassName}
-        />
-        <p className="mt-2 px-1 text-center text-[11px] leading-4 text-zinc-500">
+        <motion.div
+          layoutId="chat-composer-shell"
+          className={isLeavingHero ? "pointer-events-none opacity-0" : undefined}
+          transition={{
+            duration: prefersReducedMotion ? 0 : 0.56,
+            ease: [0.16, 1, 0.3, 1],
+          }}
+        >
+          <ChatComposerSurface
+            {...composerSurfaceProps}
+            surfaceClassName={dockComposerSurfaceClassName}
+          />
+        </motion.div>
+        <motion.p
+          className="mt-2 px-1 text-center text-[11px] leading-4 text-zinc-500"
+          initial={false}
+          animate={
+            isLeavingHero && !prefersReducedMotion
+              ? { opacity: 0, y: 6, filter: "blur(6px)" }
+              : { opacity: 1, y: 0, filter: "blur(0px)" }
+          }
+          transition={{
+            duration: prefersReducedMotion ? 0 : 0.28,
+            delay: prefersReducedMotion ? 0 : isLeavingHero ? 0 : 0.24,
+            ease: [0.16, 1, 0.3, 1],
+          }}
+        >
           Xpo can make mistakes. Your corrections help it improve.
-        </p>
+        </motion.p>
       </div>
-    </div>
+    </motion.div>
   );
 }

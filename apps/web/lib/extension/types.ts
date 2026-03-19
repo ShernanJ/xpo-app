@@ -394,8 +394,15 @@ export interface ExtensionDraftsResponse {
   drafts: ExtensionDraft[];
 }
 
+export interface ExtensionHandleSummary {
+  xHandle: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  isVerified: boolean;
+}
+
 export interface ExtensionHandlesResponse {
-  handles: string[];
+  handles: ExtensionHandleSummary[];
 }
 
 export interface ExtensionDraftPublishRequest {

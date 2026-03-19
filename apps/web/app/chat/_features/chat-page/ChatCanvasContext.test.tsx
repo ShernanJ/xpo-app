@@ -256,3 +256,34 @@ test("hides the dock composer while the workspace is loading", () => {
   expect(screen.getByText("Setting things up...")).toBeInTheDocument();
   expect(screen.queryByRole("textbox", { name: "Chat composer" })).not.toBeInTheDocument();
 });
+
+test("renders only the hero composer for a new chat", () => {
+  render(
+    <ChatWorkspaceCanvas
+      workspaceChromeProps={buildWorkspaceChromeProps()}
+      canvasProps={buildCanvasProps({
+        isHeroVisible: true,
+        isNewChatHero: true,
+      })}
+      threadContent={null}
+    />,
+  );
+
+  expect(screen.getAllByRole("textbox", { name: "Chat composer" })).toHaveLength(1);
+});
+
+test("does not expose an interactive composer during the hero handoff transition", () => {
+  render(
+    <ChatWorkspaceCanvas
+      workspaceChromeProps={buildWorkspaceChromeProps()}
+      canvasProps={buildCanvasProps({
+        isHeroVisible: true,
+        isNewChatHero: false,
+        isLeavingHero: true,
+      })}
+      threadContent={null}
+    />,
+  );
+
+  expect(screen.queryByRole("textbox", { name: "Chat composer" })).not.toBeInTheDocument();
+});

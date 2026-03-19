@@ -47,6 +47,10 @@ function readErrorMessage(payload: unknown, fallback: string) {
   return fallback;
 }
 
+async function readJsonOrNull<T>(response: Response): Promise<T | null> {
+  return (await response.json().catch(() => null)) as T | null;
+}
+
 function findFolderById(folders: FolderRecord[], folderId: string | null) {
   if (!folderId) {
     return null;
@@ -182,17 +186,19 @@ export function useContentHubState(options: UseContentHubStateOptions) {
           method: "GET",
         }),
       ]);
-      const itemsPayload = (await itemsResponse.json()) as
+      const itemsPayload = await readJsonOrNull<
         | ContentItemsResponse
-        | FailureResponse;
-      const foldersPayload = (await foldersResponse.json()) as
+        | FailureResponse
+      >(itemsResponse);
+      const foldersPayload = await readJsonOrNull<
         | FoldersResponse
-        | FailureResponse;
+        | FailureResponse
+      >(foldersResponse);
 
-      if (!itemsResponse.ok || !itemsPayload.ok) {
+      if (!itemsResponse.ok || !itemsPayload?.ok) {
         throw new Error(readErrorMessage(itemsPayload, "Failed to load content items."));
       }
-      if (!foldersResponse.ok || !foldersPayload.ok) {
+      if (!foldersResponse.ok || !foldersPayload?.ok) {
         throw new Error(readErrorMessage(foldersPayload, "Failed to load groups."));
       }
 
@@ -281,11 +287,12 @@ export function useContentHubState(options: UseContentHubStateOptions) {
             body: JSON.stringify(payload),
           },
         );
-        const result = (await response.json()) as
+        const result = await readJsonOrNull<
           | ContentHubMutationResponse
-          | FailureResponse;
+          | FailureResponse
+        >(response);
 
-        if (!response.ok || !result.ok) {
+        if (!response.ok || !result?.ok) {
           throw new Error(readErrorMessage(result, "Failed to update content item."));
         }
 
@@ -338,8 +345,8 @@ export function useContentHubState(options: UseContentHubStateOptions) {
             name: nextName,
           }),
         });
-        const result = (await response.json()) as FolderCreateResponse | FailureResponse;
-        if (!response.ok || !result.ok) {
+        const result = await readJsonOrNull<FolderCreateResponse | FailureResponse>(response);
+        if (!response.ok || !result?.ok) {
           throw new Error(readErrorMessage(result, "Failed to create group."));
         }
 
@@ -379,10 +386,11 @@ export function useContentHubState(options: UseContentHubStateOptions) {
             }),
           },
         );
-        const result = (await response.json()) as
+        const result = await readJsonOrNull<
           | FolderMutationResponse
-          | FailureResponse;
-        if (!response.ok || !result.ok) {
+          | FailureResponse
+        >(response);
+        if (!response.ok || !result?.ok) {
           throw new Error(readErrorMessage(result, "Failed to rename group."));
         }
 
@@ -424,8 +432,8 @@ export function useContentHubState(options: UseContentHubStateOptions) {
             },
           },
         );
-        const result = (await response.json()) as FolderDeleteResponse | FailureResponse;
-        if (!response.ok || !result.ok) {
+        const result = await readJsonOrNull<FolderDeleteResponse | FailureResponse>(response);
+        if (!response.ok || !result?.ok) {
           throw new Error(readErrorMessage(result, "Failed to delete group."));
         }
 

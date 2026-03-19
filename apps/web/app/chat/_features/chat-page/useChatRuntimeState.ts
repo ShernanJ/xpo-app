@@ -2,12 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import {
-  HERO_EXIT_TRANSITION_MS,
-  chatProviderStorageKey,
-  showDevTools,
-  type ChatProviderPreference,
-} from "./chatPageViewState";
+import { chatProviderStorageKey, showDevTools, type ChatProviderPreference } from "./chatPageViewState";
 
 interface BackfillJobStatusResponse {
   ok: true;
@@ -49,7 +44,7 @@ export function useChatRuntimeState(options: UseChatRuntimeStateOptions) {
 
     const timeoutId = window.setTimeout(() => {
       setIsLeavingHero(false);
-    }, HERO_EXIT_TRANSITION_MS);
+    }, 0);
 
     return () => {
       window.clearTimeout(timeoutId);

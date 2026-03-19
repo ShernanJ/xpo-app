@@ -18,6 +18,16 @@ function createJsonResponse(body: unknown, status = 200) {
   });
 }
 
+function createBrokenJsonResponse(status = 500) {
+  return Promise.resolve({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => {
+      throw new SyntaxError("Unexpected end of JSON input");
+    },
+  });
+}
+
 function buildRelativeIso(dayOffset: number) {
   const date = new Date();
   date.setHours(10, 0, 0, 0);
@@ -168,6 +178,45 @@ test("groups items by date and filters with the header search", async () => {
     expect(screen.queryByText("Today")).not.toBeInTheDocument();
   });
   expect(screen.getAllByText("Yesterday note").length).toBeGreaterThan(0);
+});
+
+test("shows a friendly error when the content response body is empty", async () => {
+  const fetchWorkspace = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const method = init?.method ?? "GET";
+
+    if (method === "GET" && url === "/api/creator/v2/content") {
+      return createBrokenJsonResponse(500);
+    }
+
+    if (method === "GET" && url === "/api/creator/v2/folders") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          folders: [],
+        },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${method} ${url}`);
+  });
+
+  render(
+    <ContentHubDialog
+      open
+      onOpenChange={vi.fn()}
+      fetchWorkspace={fetchWorkspace}
+      initialHandle="standev"
+      identity={{
+        displayName: "Stanley",
+        username: "standev",
+        avatarUrl: null,
+      }}
+      isVerifiedAccount
+    />,
+  );
+
+  expect(await screen.findByText("Failed to load content items.")).toBeVisible();
 });
 
 test("renders date, status, and group browse modes and orders group sections with No Group first", async () => {

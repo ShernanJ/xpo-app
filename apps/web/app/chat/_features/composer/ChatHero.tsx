@@ -1,11 +1,13 @@
 "use client";
 
+import { motion, useReducedMotion } from "framer-motion";
 import Image from "next/image";
 
 import { useChatHeroCanvas } from "../chat-page/ChatCanvasContext";
 import { ChatComposerSurface } from "./ChatComposerSurface";
 
 export function ChatHero() {
+  const prefersReducedMotion = useReducedMotion();
   const {
     isVisible,
     avatarUrl,
@@ -32,10 +34,10 @@ export function ChatHero() {
       ? "-translate-y-8 scale-[0.97] opacity-0 blur-[2px]"
       : "translate-y-0 scale-100 opacity-100 blur-0"
   }`;
-  const heroComposerMotionClassName = `mt-3 transition-all duration-[720ms] ease-[cubic-bezier(0.16,1,0.3,1)] ${
+  const heroComposerMotionClassName = `mt-3 transition-opacity duration-[240ms] ease-out ${
     isLeavingHero
-      ? "translate-y-10 scale-[0.97] opacity-0 blur-[2px] pointer-events-none"
-      : "translate-y-0 scale-100 opacity-100 blur-0"
+      ? "pointer-events-none opacity-0 [transition-delay:480ms]"
+      : "opacity-100 [transition-delay:0ms]"
   }`;
   const heroChipsMotionClassName = `flex flex-wrap items-center justify-center gap-2.5 transition-all duration-300 ease-out ${
     isLeavingHero ? "-translate-y-4 opacity-0 blur-[2px]" : "translate-y-0 opacity-100 blur-0"
@@ -94,10 +96,19 @@ export function ChatHero() {
         </div>
 
         <div className={heroComposerMotionClassName}>
+          <motion.div
+            layoutId="chat-composer-shell"
+            aria-hidden={isLeavingHero}
+            transition={{
+              duration: prefersReducedMotion ? 0 : 0.56,
+              ease: [0.16, 1, 0.3, 1],
+            }}
+          >
           <ChatComposerSurface
             {...composerSurfaceProps}
             surfaceClassName={heroInlineComposerSurfaceClassName}
           />
+          </motion.div>
         </div>
 
         <div className={`${heroChipsMotionClassName} mt-4`}>

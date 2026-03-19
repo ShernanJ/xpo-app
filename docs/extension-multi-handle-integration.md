@@ -80,7 +80,20 @@ Response:
 
 ```json
 {
-  "handles": ["handle_a", "handle_b"]
+  "handles": [
+    {
+      "xHandle": "handle_a",
+      "displayName": "Handle A",
+      "avatarUrl": "https://pbs.twimg.com/profile_images/example.jpg",
+      "isVerified": true
+    },
+    {
+      "xHandle": "handle_b",
+      "displayName": "Handle B",
+      "avatarUrl": null,
+      "isVerified": false
+    }
+  ]
 }
 ```
 
@@ -88,8 +101,9 @@ Response:
 
 - Fetch handles after auth is connected.
 - Store them as the list of selectable workspaces for the signed-in user.
-- Pick a selected handle in extension state.
+- Pick a selected handle in extension state using `xHandle`.
 - Let the user switch handles without reconnecting the extension.
+- Use `displayName`, `avatarUrl`, and `isVerified` to render the account switcher UI.
 
 ## Handle-Scoped Endpoints
 
@@ -158,7 +172,7 @@ The extension should maintain these pieces of state:
 - `appBaseUrl`
 - `apiToken`
 - `apiTokenExpiresAt` if available in your storage flow
-- `availableHandles: string[]`
+- `availableHandles: Array<{ xHandle: string; displayName: string | null; avatarUrl: string | null; isVerified: boolean }>`
 - `selectedHandle: string | null`
 
 Recommended behavior:

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { LayoutGroup } from "framer-motion";
 
 import { ChatComposerDock } from "../composer/ChatComposerDock";
 import { ChatHero } from "../composer/ChatHero";
@@ -35,16 +36,18 @@ export function ChatWorkspaceCanvas(props: ChatWorkspaceCanvasProps) {
         <div className="relative flex h-full min-h-0">
           <ChatSidebar />
 
-          <div className="relative flex h-full min-h-0 flex-1 flex-col">
-            <ChatHeader />
+          <LayoutGroup id="chat-composer-handoff">
+            <div className="relative flex h-full min-h-0 flex-1 flex-col">
+              <ChatHeader />
 
-            <ChatThreadView
-              hero={<ChatHero />}
-              threadContent={threadContent}
-            />
+              <ChatThreadView
+                hero={<ChatHero />}
+                threadContent={threadContent}
+              />
 
-            <ChatComposerDock />
-          </div>
+              <ChatComposerDock />
+            </div>
+          </LayoutGroup>
         </div>
       </ChatCanvasProvider>
     </ChatWorkspaceChromeProvider>

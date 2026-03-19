@@ -1,10 +1,19 @@
 import { NextResponse } from "next/server.js";
 
+import { prisma } from "../db.ts";
+import type { OnboardingResult } from "../onboarding/contracts/types.ts";
 import { listWorkspaceHandlesForUser } from "../workspaceHandle.server.ts";
 import {
   getWorkspaceHandleFromRequest,
   normalizeWorkspaceHandle,
 } from "../workspaceHandle.ts";
+
+export interface ExtensionHandleProfile {
+  xHandle: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  isVerified: boolean;
+}
 
 export interface ExtensionHandleResolutionSuccess {
   ok: true;
@@ -52,6 +61,47 @@ export async function listExtensionHandlesForUser(args: {
   return listWorkspaceHandlesForUser({
     userId: args.userId,
     sessionActiveHandle: args.activeXHandle,
+  });
+}
+
+export async function listExtensionHandleProfilesForUser(args: {
+  userId: string;
+  activeXHandle?: string | null;
+}): Promise<ExtensionHandleProfile[]> {
+  const [handles, onboardingRuns] = await Promise.all([
+    listExtensionHandlesForUser(args),
+    prisma.onboardingRun.findMany({
+      where: { userId: args.userId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        input: true,
+        result: true,
+      },
+    }),
+  ]);
+
+  const latestRunByHandle = new Map<string, OnboardingResult>();
+  for (const run of onboardingRuns) {
+    const input = run.input as { account?: string } | null;
+    const xHandle = normalizeWorkspaceHandle(input?.account ?? null);
+    if (!xHandle || latestRunByHandle.has(xHandle)) {
+      continue;
+    }
+
+    latestRunByHandle.set(xHandle, run.result as OnboardingResult);
+  }
+
+  return handles.map((xHandle) => {
+    const profile = latestRunByHandle.get(xHandle)?.profile;
+    const displayName = profile?.name?.trim() || null;
+    const avatarUrl = profile?.avatarUrl?.trim() || null;
+
+    return {
+      xHandle,
+      displayName,
+      avatarUrl,
+      isVerified: profile?.isVerified === true,
+    };
   });
 }
 
