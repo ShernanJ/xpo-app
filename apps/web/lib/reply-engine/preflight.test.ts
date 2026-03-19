@@ -11,6 +11,22 @@ test("classifyReplyDraftMode falls back to joke riff for playful posts in tests"
   assert.equal(result.recommended_reply_mode, "joke_riff");
 });
 
+test("classifyReplyDraftMode falls back to joke riff for self-own shitposts in tests", async () => {
+  const result = await classifyReplyDraftMode({
+    sourceText: "my startup strategy is just drinking 4 redbulls and hoping",
+  });
+
+  assert.equal(result.recommended_reply_mode, "joke_riff");
+});
+
+test("classifyReplyDraftMode falls back to joke riff for internet slang sarcasm in tests", async () => {
+  const result = await classifyReplyDraftMode({
+    sourceText: "lwk this launch plan is just vibes and a dream",
+  });
+
+  assert.equal(result.recommended_reply_mode, "joke_riff");
+});
+
 test("classifyReplyDraftMode falls back to empathetic support for emotionally heavy posts in tests", async () => {
   const result = await classifyReplyDraftMode({
     sourceText: "this week was brutal and i'm still trying to process it",

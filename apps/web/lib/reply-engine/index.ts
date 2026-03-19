@@ -11,6 +11,7 @@ export * from "./finalize.ts";
 export * from "./goldenExamples.ts";
 export * from "./preflight.ts";
 export * from "./prompt.ts";
+export * from "./tone.ts";
 export * from "./types.ts";
 
 let groqClient: Groq | null = null;
@@ -125,7 +126,14 @@ export async function generateReplyDraftText(args: {
         maxCharacterLimit: args.promptPacket.maxCharacterLimit,
       },
     );
-    if (candidate && looksAcceptableReplyDraft({ draft: candidate, sourceContext: args.promptPacket.sourceContext })) {
+    if (
+      candidate &&
+      looksAcceptableReplyDraft({
+        draft: candidate,
+        sourceContext: args.promptPacket.sourceContext,
+        preflightResult: args.promptPacket.preflightResult,
+      })
+    ) {
       return {
         draft: candidate,
         model,
@@ -159,6 +167,7 @@ export async function generateReplyDraftText(args: {
       looksAcceptableReplyDraft({
         draft: retriedCandidate,
         sourceContext: args.promptPacket.sourceContext,
+        preflightResult: args.promptPacket.preflightResult,
       })
     ) {
       return {

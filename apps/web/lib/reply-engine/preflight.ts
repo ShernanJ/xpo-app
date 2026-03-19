@@ -26,6 +26,7 @@ function buildClassifierPrompt(args: {
   return [
     "Classify the best reply mode for drafting a native X reply.",
     "Return only valid JSON matching the requested schema.",
+    "CRITICAL: If the post is sarcasm, a meme, shitposting, or internet slang, you MUST classify it as 'joke_riff'.",
     "",
     `Visible post text: ${args.sourceText.trim()}`,
     args.quotedText?.trim() ? `Quoted post text: ${args.quotedText.trim()}` : "Quoted post text: none",
@@ -58,6 +59,16 @@ function buildHeuristicPreflight(args: {
   const combined = [args.sourceText, args.quotedText || "", ...(args.imageSummaryLines || [])]
     .join("\n")
     .toLowerCase();
+  const hasPlayfulSelfOwn =
+    /\bmy (?:startup|launch|go[-\s]?to[-\s]?market|gtm|growth) strategy is just\b/.test(combined) ||
+    /\b(?:drinking|running on|powered by|surviving on)\b[^.\n]{0,40}\b(red ?bull|coffee|caffeine)\b[^.\n]{0,40}\b(hoping|vibes|a dream)\b/.test(
+      combined,
+    ) ||
+    /\bjust [^.\n]{0,48}\b(hoping|vibes|a dream)\b/.test(combined);
+  const hasCasualHumorSignal =
+    /\b(lwk|lol|lmao|lmfao|haha|shitpost(?:ing)?|sarcasm|sarcastic|meme|joke|funny|bit|vibes)\b/.test(
+      combined,
+    );
 
   if (/\b(sorry|grief|hard|hurt|feel for|sending love|brutal)\b/.test(combined)) {
     return {
@@ -67,7 +78,7 @@ function buildHeuristicPreflight(args: {
     };
   }
 
-  if (/\b(lol|lmao|haha|meme|joke|funny|roast|bit)\b/.test(combined)) {
+  if (hasCasualHumorSignal || hasPlayfulSelfOwn) {
     return {
       op_tone: "playful",
       post_intent: "riff on a joke or observation",

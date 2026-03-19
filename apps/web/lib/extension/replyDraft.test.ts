@@ -504,6 +504,102 @@ test("reply draft prompt treats playful analogy posts like riffs instead of prod
   assert.equal(systemPrompt.includes("Use creator profile hints as background voice calibration only."), true);
 });
 
+test("reply draft prompt injects explicit playful tone enforcement", () => {
+  const generation = buildReplyDraftGenerationContext({
+    request: {
+      tweetId: "tweet_9b",
+      tweetText: "this meme format keeps winning because the screenshot is the whole bit",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/9b",
+      stage: "0_to_1k",
+      tone: "playful",
+      goal: "followers",
+    },
+    strategy,
+  });
+
+  const systemPrompt = buildReplyDraftSystemPrompt({
+    request: {
+      tweetId: "tweet_9b",
+      tweetText: "this meme format keeps winning because the screenshot is the whole bit",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/9b",
+      stage: "0_to_1k",
+      tone: "playful",
+      goal: "followers",
+    },
+    strategy,
+    generation,
+    preflightResult: {
+      op_tone: "playful",
+      post_intent: "riff on a joke or observation",
+      recommended_reply_mode: "joke_riff",
+    },
+  });
+
+  assert.equal(
+    systemPrompt.includes(
+      "TONE ENFORCEMENT: Be witty, lean into the joke or meme, and keep it extremely casual. Do NOT give serious advice, operator frameworks, or over-explain the post.",
+    ),
+    true,
+  );
+});
+
+test("reply draft prompt trusts joke-riff preflight for playful source handling", () => {
+  const generation = buildReplyDraftGenerationContext({
+    request: {
+      tweetId: "tweet_9c",
+      tweetText: "my startup strategy is just drinking 4 redbulls and hoping",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/9c",
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+    },
+    strategy,
+  });
+
+  const systemPrompt = buildReplyDraftSystemPrompt({
+    request: {
+      tweetId: "tweet_9c",
+      tweetText: "my startup strategy is just drinking 4 redbulls and hoping",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/9c",
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+    },
+    strategy,
+    generation,
+    preflightResult: {
+      op_tone: "playful",
+      post_intent: "riff on a joke or observation",
+      recommended_reply_mode: "joke_riff",
+    },
+  });
+
+  assert.equal(systemPrompt.includes("This post is playful / joke-shaped."), true);
+  assert.equal(systemPrompt.includes("This source uses a playful analogy."), false);
+});
+
+test("buildExtensionReplyDraft keeps playful fallback copy casual", () => {
+  const result = buildExtensionReplyDraft({
+    request: {
+      tweetId: "tweet_9d",
+      tweetText: "my startup strategy is just drinking 4 redbulls and hoping",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/9d",
+      stage: "0_to_1k",
+      tone: "playful",
+      goal: "followers",
+    },
+    strategy,
+  });
+
+  assert.equal(result.response.options[0]?.text.includes("whole bit"), true);
+  assert.equal(result.response.options[1]?.text.includes("serious reply would ruin it"), true);
+});
+
 test("reply draft stream cleanup strips labels, markdown, hashtags, and emoji wrappers", () => {
   assert.equal(cleanReplyDraftStreamChunk("Reply: **Sharper point** #build 🚀", false), "Sharper point build");
   assert.equal(finalizeReplyDraftText('  "Reply: useful angle first #signal 🚀"  '), "useful angle first signal");
@@ -634,6 +730,28 @@ test("looksAcceptableReplyDraft rejects literalizing a playful analogy into prod
         authorHandle: "creator",
         postType: "original",
       },
+    },
+  });
+
+  assert.equal(rejected, false);
+});
+
+test("looksAcceptableReplyDraft rejects serious product language when preflight marks a joke riff", () => {
+  const rejected = looksAcceptableReplyDraft({
+    draft: "the product problem is relying on caffeine instead of a real strategy",
+    sourceContext: {
+      primaryPost: {
+        id: "tweet_15",
+        url: "https://x.com/creator/status/15",
+        text: "my startup strategy is just drinking 4 redbulls and hoping",
+        authorHandle: "creator",
+        postType: "original",
+      },
+    },
+    preflightResult: {
+      op_tone: "playful",
+      post_intent: "riff on a joke or observation",
+      recommended_reply_mode: "joke_riff",
     },
   });
 

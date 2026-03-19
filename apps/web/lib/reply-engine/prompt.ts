@@ -13,7 +13,8 @@ import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrate
 
 import { analyzeReplySourceVisualContext } from "./context.ts";
 import { retrieveReplyGoldenExamples } from "./goldenExamples.ts";
-import { classifyReplyDraftMode } from "./preflight.ts";
+import { buildReplyDraftPreflightFallback, classifyReplyDraftMode } from "./preflight.ts";
+import { inferReplySourceMode, resolveReplyToneDirection } from "./tone.ts";
 import type {
   PreparedReplyPromptPacket,
   ReplyGoldenExample,
@@ -57,33 +58,6 @@ function collectKeywords(value: string): string[] {
     .split(" ")
     .map((token) => token.trim())
     .filter((token) => token.length >= 4);
-}
-
-function inferReplySourceMode(sourceContext: ReplySourceContext): {
-  isPlayful: boolean;
-  shouldContinueMetaphor: boolean;
-} {
-  const primaryText = sourceContext.primaryPost.text.trim().toLowerCase();
-  const combinedText = [sourceContext.primaryPost.text, sourceContext.quotedPost?.text || ""]
-    .join("\n")
-    .toLowerCase();
-  const hasQuotedPunchline = /["“][^"”]{6,}["”]/.test(sourceContext.primaryPost.text);
-  const hasAnalogy =
-    /\b(like|as if|feels like|market themselves like|basically)\b/.test(primaryText);
-  const hasCasualJokeSignal =
-    /\b(lwk|lol|lmao|lmfao|haha|roast|meme|bit|joke|funny|drop out|dropped out of)\b/.test(
-      combinedText,
-    );
-  const hasPlayfulConstruction =
-    /\bshould market\b/.test(primaryText) || /\bdesigned to be\b/.test(primaryText);
-
-  const isPlayful =
-    (hasQuotedPunchline && hasAnalogy) || hasCasualJokeSignal || (hasAnalogy && hasPlayfulConstruction);
-
-  return {
-    isPlayful,
-    shouldContinueMetaphor: isPlayful && hasAnalogy,
-  };
 }
 
 function formatCreatorHints(creatorProfileHints: CreatorProfileHints | null | undefined) {
@@ -417,8 +391,12 @@ export function buildReplyGroundingPacket(args: {
   strategyPillar: string;
   angleLabel: string;
   visualContext?: ReplyVisualContextSummary | null;
+  preflightResult?: PreparedReplyPromptPacket["preflightResult"] | null;
 }): GroundingPacket {
-  const sourceMode = inferReplySourceMode(args.sourceContext);
+  const sourceMode = inferReplySourceMode({
+    sourceContext: args.sourceContext,
+    preflightResult: args.preflightResult,
+  });
   const useIntentOverlay = shouldUseIntentOverlay({
     sourceContext: args.sourceContext,
     strategyPillar: args.strategyPillar,
@@ -458,9 +436,13 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
   voiceEvidence?: ReplyVoiceEvidence | null;
   visualContext?: ReplyVisualContextSummary | null;
   goldenExamples?: ReplyGoldenExample[] | null;
-  preflightResult: PreparedReplyPromptPacket["preflightResult"];
+  preflightResult?: PreparedReplyPromptPacket["preflightResult"] | null;
 }): string {
-  const sourceMode = inferReplySourceMode(args.sourceContext);
+  const sourceMode = inferReplySourceMode({
+    sourceContext: args.sourceContext,
+    preflightResult: args.preflightResult,
+  });
+  const classifierRead = args.preflightResult || buildReplyDraftPreflightFallback();
   const useIntentOverlay = shouldUseIntentOverlay({
     sourceContext: args.sourceContext,
     selectedIntent: args.selectedIntent,
@@ -546,9 +528,9 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     "",
     "CLASSIFIER READ:",
     formatPreflightBlock({
-      opTone: args.preflightResult.op_tone,
-      postIntent: args.preflightResult.post_intent,
-      recommendedReplyMode: args.preflightResult.recommended_reply_mode,
+      opTone: classifierRead.op_tone,
+      postIntent: classifierRead.post_intent,
+      recommendedReplyMode: classifierRead.recommended_reply_mode,
     }),
     "",
     "RETRIEVED GOLDEN EXAMPLES:",
@@ -582,16 +564,17 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     "REQUIREMENTS:",
     "1. Write exactly one reply and nothing else.",
     "2. Sound like the creator actually wrote it, not like a polished assistant or PM.",
-    "3. Golden Examples are the primary style source. Backup voice evidence is secondary.",
-    "4. Keep it native to X replies: short, direct, and human. Do not turn it into a mini post.",
-    "5. If the creator's historical replies are casual or lowercase, preserve that instead of professionalizing it.",
-    "6. Do not copy factual claims from examples or voice evidence unless the factual truth layer also supports them.",
-    "7. Stay close to the literal nouns and tension in the source post instead of pivoting to adjacent themes.",
-    "8. If you end with a question, it must feel natural to the creator's actual reply style, not like a forced engagement CTA.",
-    "9. If the source is already casual, funny, or punchy, match that energy instead of sounding more analytical than the post itself.",
+    `3. TONE ENFORCEMENT: ${resolveReplyToneDirection(args.tone)}`,
+    "4. Golden Examples are the primary style source. Backup voice evidence is secondary.",
+    "5. Keep it native to X replies: short, direct, and human. Do not turn it into a mini post.",
+    "6. If the creator's historical replies are casual or lowercase, preserve that instead of professionalizing it.",
+    "7. Do not copy factual claims from examples or voice evidence unless the factual truth layer also supports them.",
+    "8. Stay close to the literal nouns and tension in the source post instead of pivoting to adjacent themes.",
+    "9. If you end with a question, it must feel natural to the creator's actual reply style, not like a forced engagement CTA.",
+    "10. If the source is already casual, funny, or punchy, match that energy instead of sounding more analytical than the post itself.",
     sourceMode.shouldContinueMetaphor
-      ? "10. For this reply, do not explain the joke. Add to the joke."
-      : "10. Do not over-explain the source post.",
+      ? "11. For this reply, do not explain the joke. Add to the joke."
+      : "11. Do not over-explain the source post.",
     "",
     "OPTIONAL REPLY LENS:",
     useIntentOverlay

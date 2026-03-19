@@ -54,6 +54,40 @@ test("parseExtensionReplyDraftRequest normalizes legacy stage and tone values", 
   }
 });
 
+test("parseExtensionReplyDraftRequest accepts playful tone directly", () => {
+  const parsed = parseExtensionReplyDraftRequest({
+    tweetId: "1",
+    tweetText: "hello world",
+    authorHandle: "creator",
+    tweetUrl: "https://x.com/creator/status/1",
+    stage: "0_to_1k",
+    tone: "playful",
+    goal: "followers",
+  });
+
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) {
+    assert.equal(parsed.data.tone, "playful");
+  }
+});
+
+test("parseExtensionReplyDraftRequest normalizes playful tone aliases", () => {
+  const parsed = parseExtensionReplyDraftRequest({
+    tweetId: "1",
+    tweetText: "hello world",
+    authorHandle: "creator",
+    tweetUrl: "https://x.com/creator/status/1",
+    stage: "0_to_1k",
+    tone: "comedic",
+    goal: "followers",
+  });
+
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) {
+    assert.equal(parsed.data.tone, "playful");
+  }
+});
+
 test("parseExtensionReplyDraftRequest accepts legacy alias fields", () => {
   const parsed = parseExtensionReplyDraftRequest({
     postId: "1",
@@ -200,6 +234,26 @@ test("parseExtensionReplyDraftRequest can synthesize tweetUrl from handle and tw
   assert.equal(parsed.ok, true);
   if (parsed.ok) {
     assert.equal(parsed.data.tweetUrl, "https://x.com/builder/status/3");
+  }
+});
+
+test("parseExtensionReplyDraftRequest lists playful in invalid tone errors", () => {
+  const parsed = parseExtensionReplyDraftRequest({
+    tweetId: "3",
+    tweetText: "tweet text",
+    authorHandle: "builder",
+    tweetUrl: "https://x.com/builder/status/3",
+    stage: "0_to_1k",
+    tone: "chaotic",
+    goal: "followers",
+  });
+
+  assert.equal(parsed.ok, false);
+  if (!parsed.ok) {
+    assert.equal(
+      parsed.message,
+      "Invalid option: expected one of \"dry\"|\"bold\"|\"builder\"|\"warm\"|\"playful\".",
+    );
   }
 });
 

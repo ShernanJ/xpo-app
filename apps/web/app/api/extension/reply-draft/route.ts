@@ -203,6 +203,7 @@ export async function POST(request: NextRequest) {
             looksAcceptableReplyDraft({
               draft: bufferedCandidate,
               sourceContext: promptPacket.sourceContext,
+              preflightResult: promptPacket.preflightResult,
             });
 
           if (shouldReleaseBufferedStream) {
@@ -221,6 +222,7 @@ export async function POST(request: NextRequest) {
           looksAcceptableReplyDraft({
             draft: finalDraft,
             sourceContext: promptPacket.sourceContext,
+            preflightResult: promptPacket.preflightResult,
           });
         const resolvedDraft = streamAccepted
           ? {

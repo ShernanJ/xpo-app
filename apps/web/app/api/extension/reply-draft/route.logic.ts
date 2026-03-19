@@ -69,6 +69,11 @@ function normalizeReplyTone(value: string) {
       return "builder" as const;
     case "warm":
       return "warm" as const;
+    case "playful":
+    case "comedic":
+    case "casual":
+    case "joke":
+      return "playful" as const;
     default:
       return null;
   }
@@ -370,7 +375,7 @@ const ExtensionReplyDraftRequestSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["tone"],
-        message: "Invalid option: expected one of \"dry\"|\"bold\"|\"builder\"|\"warm\".",
+        message: "Invalid option: expected one of \"dry\"|\"bold\"|\"builder\"|\"warm\"|\"playful\".",
       });
     }
 

@@ -5,7 +5,6 @@ import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { CreatorAgentContext } from "../onboarding/strategy/agentContext.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 import {
-  buildReplyDraftPreflightFallback,
   buildReplyDraftSystemPrompt as buildSharedReplyDraftSystemPrompt,
   buildReplyDraftUserPrompt as buildSharedReplyDraftUserPrompt,
   buildReplyGroundingPacket as buildSharedReplyGroundingPacket,
@@ -31,7 +30,6 @@ import type {
   ExtensionReplyIntentMetadata,
   ExtensionReplyDraftResponse,
   ExtensionReplyOption,
-  ExtensionReplyTone,
 } from "./types";
 
 export interface ExtensionReplyDraftBuildResult {
@@ -125,20 +123,6 @@ function formatVoiceRules(styleCard: VoiceStyleCard | null | undefined) {
   ].join("\n");
 }
 
-function resolveToneDirection(tone: ExtensionReplyTone) {
-  switch (tone) {
-    case "dry":
-      return "Be crisp, understated, and analytical.";
-    case "warm":
-      return "Be human and encouraging without sounding soft or generic.";
-    case "bold":
-      return "Be sharp and high-conviction without turning hostile.";
-    case "builder":
-    default:
-      return "Sound like an experienced operator giving a practical next layer.";
-  }
-}
-
 function buildPrimaryFallbackReply(args: {
   request: ExtensionReplyDraftRequest;
   strategy: GrowthStrategySnapshot;
@@ -151,9 +135,19 @@ function buildPrimaryFallbackReply(args: {
       ? "yeah. the part people usually miss is"
       : args.request.tone === "warm"
         ? "yeah. the part worth underscoring is"
+        : args.request.tone === "playful"
+          ? "lmao the whole bit is"
         : args.request.tone === "builder"
           ? "yeah. the thing that makes this usable is"
           : "hotter take: the whole thing is";
+
+  if (args.request.tone === "playful") {
+    if (args.focusPhrase) {
+      return `${lead} ${args.focusPhrase} framing ${lens}. kind of perfect honestly.`;
+    }
+
+    return `${lead} how casually it sneaks in ${lens}. kind of perfect honestly.`;
+  }
 
   if (args.focusPhrase) {
     return `${lead} ${lens}. that's what turns ${args.focusPhrase} from a take into something someone can actually use.`;
@@ -170,6 +164,10 @@ function buildSecondaryFallbackReply(args: {
   const lens = buildPillarLens(args.pillar);
   const focus = args.focusPhrase || "the headline";
   const lead = args.request.tone === "warm" ? "yeah but" : "hotter take:";
+
+  if (args.request.tone === "playful") {
+    return `${lead} ${focus} being the headline is exactly why this lands. anything more serious would ruin it.`;
+  }
 
   return `${lead} ${focus} isn't the hard part. ${lens} is. otherwise the reply reads true without really going anywhere.`;
 }
@@ -280,7 +278,7 @@ export function buildReplyDraftSystemPrompt(args: {
     groundingPacket: args.generation.groundingPacket,
     maxCharacterLimit: 280,
     visualContext: args.visualContext || null,
-    preflightResult: args.preflightResult || buildReplyDraftPreflightFallback(),
+    preflightResult: args.preflightResult || null,
     goldenExamples: args.goldenExamples || [],
     userHandle: args.userHandle || null,
   });
@@ -303,7 +301,7 @@ export function buildReplyDraftUserPrompt(args: {
     selectedIntent: args.generation.intent,
     groundingPacket: args.generation.groundingPacket,
     visualContext: args.visualContext || null,
-    preflightResult: args.preflightResult || buildReplyDraftPreflightFallback(),
+    preflightResult: args.preflightResult || null,
   });
 }
 
@@ -387,8 +385,14 @@ export function buildExtensionReplyDraft(args: {
   const focusPhrase = intentPlan.focusPhrase ?? pickFocusPhrase(args.request.tweetText);
   const generation = buildReplyDraftGenerationContext(args);
   const groundingPacket = generation.groundingPacket;
-  const safeFallback = `the missing layer is ${buildPillarLens(strategyPillar)}. that's usually what makes the point usable instead of just agreeable.`;
-  const boldFallback = `hotter take: without ${buildPillarLens(strategyPillar)}, this stays interesting but not actionable.`;
+  const safeFallback =
+    args.request.tone === "playful"
+      ? `${focusPhrase || "this"} being the whole bit is kind of perfect honestly.`
+      : `the missing layer is ${buildPillarLens(strategyPillar)}. that's usually what makes the point usable instead of just agreeable.`;
+  const boldFallback =
+    args.request.tone === "playful"
+      ? `hotter take: ${focusPhrase || "the joke"} working this well is exactly why a serious reply would ruin it.`
+      : `hotter take: without ${buildPillarLens(strategyPillar)}, this stays interesting but not actionable.`;
   const options = [
     sanitizeReplyOption({
       option: {

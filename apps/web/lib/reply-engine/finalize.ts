@@ -1,7 +1,9 @@
 import { normalizeWhitespace } from "../extension/replyQuality.ts";
+import type { ReplyDraftPreflightResult } from "../extension/types.ts";
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import { enforceVoiceStyleOnDraft } from "../agent-v2/core/voiceSignals.ts";
 
+import { inferReplySourceMode } from "./tone.ts";
 import type { ReplySourceContext } from "./types.ts";
 
 const LIST_MARKER_PATTERN = /^\s*(?:[-*•]+|\d+[.)])\s+/;
@@ -157,33 +159,6 @@ function collectAnchorTokens(sourceContext: ReplySourceContext): Set<string> {
   return new Set(source);
 }
 
-function inferReplySourceMode(sourceContext: ReplySourceContext): {
-  isPlayful: boolean;
-  shouldContinueMetaphor: boolean;
-} {
-  const primaryText = sourceContext.primaryPost.text.trim().toLowerCase();
-  const combinedText = [sourceContext.primaryPost.text, sourceContext.quotedPost?.text || ""]
-    .join("\n")
-    .toLowerCase();
-  const hasQuotedPunchline = /["“][^"”]{6,}["”]/.test(sourceContext.primaryPost.text);
-  const hasAnalogy =
-    /\b(like|as if|feels like|market themselves like|basically)\b/.test(primaryText);
-  const hasCasualJokeSignal =
-    /\b(lwk|lol|lmao|lmfao|haha|roast|meme|bit|joke|funny|drop out|dropped out of)\b/.test(
-      combinedText,
-    );
-  const hasPlayfulConstruction =
-    /\bshould market\b/.test(primaryText) || /\bdesigned to be\b/.test(primaryText);
-
-  const isPlayful =
-    (hasQuotedPunchline && hasAnalogy) || hasCasualJokeSignal || (hasAnalogy && hasPlayfulConstruction);
-
-  return {
-    isPlayful,
-    shouldContinueMetaphor: isPlayful && hasAnalogy,
-  };
-}
-
 function containsOffTopicProductDrift(args: {
   draft: string;
   sourceContext: ReplySourceContext;
@@ -204,8 +179,12 @@ function containsOffTopicProductDrift(args: {
 function isLiteralizingPlayfulSource(args: {
   draft: string;
   sourceContext: ReplySourceContext;
+  preflightResult?: ReplyDraftPreflightResult | null;
 }): boolean {
-  const sourceMode = inferReplySourceMode(args.sourceContext);
+  const sourceMode = inferReplySourceMode({
+    sourceContext: args.sourceContext,
+    preflightResult: args.preflightResult,
+  });
   if (!sourceMode.isPlayful) {
     return false;
   }
@@ -238,6 +217,7 @@ function isLiteralizingPlayfulSource(args: {
 export function looksAcceptableReplyDraft(args: {
   draft: string;
   sourceContext: ReplySourceContext;
+  preflightResult?: ReplyDraftPreflightResult | null;
 }): boolean {
   const normalized = finalizeReplyDraftText(args.draft);
   if (!normalized) {
@@ -260,7 +240,13 @@ export function looksAcceptableReplyDraft(args: {
     return false;
   }
 
-  if (isLiteralizingPlayfulSource({ draft: normalized, sourceContext: args.sourceContext })) {
+  if (
+    isLiteralizingPlayfulSource({
+      draft: normalized,
+      sourceContext: args.sourceContext,
+      preflightResult: args.preflightResult,
+    })
+  ) {
     return false;
   }
 

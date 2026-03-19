@@ -4,7 +4,7 @@ export type ExtensionReplyStage =
   | "10k_to_50k"
   | "50k_plus";
 
-export type ExtensionReplyTone = "dry" | "bold" | "builder" | "warm";
+export type ExtensionReplyTone = "dry" | "bold" | "builder" | "warm" | "playful";
 
 export type ExtensionReplyOptionLabel = "safe" | "bold";
 
