@@ -8,6 +8,31 @@ export type ExtensionReplyTone = "dry" | "bold" | "builder" | "warm";
 
 export type ExtensionReplyOptionLabel = "safe" | "bold";
 
+export interface ExtensionReplyQuotedPost {
+  tweetId?: string | null;
+  tweetText: string;
+  authorHandle?: string | null;
+  tweetUrl?: string | null;
+}
+
+export interface ExtensionReplyMediaImage {
+  imageUrl?: string | null;
+  imageDataUrl?: string | null;
+  altText?: string | null;
+}
+
+export interface ExtensionReplyMediaContext {
+  images: ExtensionReplyMediaImage[];
+  hasVideo: boolean;
+  hasGif: boolean;
+  hasLink: boolean;
+}
+
+export interface ExtensionReplyConversationContext {
+  inReplyToPostId?: string | null;
+  inReplyToHandle?: string | null;
+}
+
 export interface ExtensionReplyIntentMetadata {
   label: ExtensionSuggestedAngle;
   strategyPillar: string;
@@ -27,6 +52,10 @@ export interface ExtensionReplyDraftRequest {
   tweetText: string;
   authorHandle: string;
   tweetUrl: string;
+  postType?: ExtensionOpportunityPostType | null;
+  quotedPost?: ExtensionReplyQuotedPost | null;
+  media?: ExtensionReplyMediaContext | null;
+  conversation?: ExtensionReplyConversationContext | null;
   stage: ExtensionReplyStage;
   tone: ExtensionReplyTone;
   goal: string;
@@ -169,9 +198,14 @@ export interface ExtensionOpportunityBatchRequest {
   candidates: ExtensionOpportunityCandidate[];
 }
 
+export interface ExtensionOpportunityBatchScore {
+  tweetId: string;
+  opportunityScore: number;
+  reason: string;
+}
+
 export interface ExtensionOpportunityBatchResponse {
-  opportunities: ExtensionOpportunity[];
-  notes: string[];
+  scores: ExtensionOpportunityBatchScore[];
 }
 
 export interface ExtensionReplyOptionsRequest {

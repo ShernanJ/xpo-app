@@ -1,5 +1,8 @@
 import type { VoiceStyleCard } from "../../core/styleProfile.ts";
+import type { CreatorProfileHints } from "../../grounding/groundingPacket.ts";
+import type { ProfileReplyContext } from "../../grounding/profileReplyContext.ts";
 import type { GrowthStrategySnapshot } from "../../../onboarding/strategy/growthStrategy.ts";
+import type { CreatorAgentContext } from "../../../onboarding/strategy/agentContext.ts";
 import type { V2ConversationMemory } from "../../contracts/chat.ts";
 import {
   planReplyContinuation,
@@ -66,17 +69,29 @@ export function buildReplyMemorySnapshot(args: {
 
 export type ReplyAgentContext = {
   growthStrategySnapshot: GrowthStrategySnapshot;
-  creatorProfile?: {
-    identity?: {
-      followerBand?: string | null;
-    };
-  };
-};
+  creatorProfile?: CreatorAgentContext["creatorProfile"];
+} & Partial<CreatorAgentContext>;
 
 export interface StructuredReplyContextInput {
   sourceText?: string | null;
   sourceUrl?: string | null;
   authorHandle?: string | null;
+  sourceContext?: import("../../../reply-engine/types.ts").ReplySourceContext | null;
+  primaryPost?: {
+    id?: string | null;
+    url?: string | null;
+    text?: string | null;
+    authorHandle?: string | null;
+    postType?: string | null;
+  } | null;
+  quotedPost?: {
+    id?: string | null;
+    url?: string | null;
+    text?: string | null;
+    authorHandle?: string | null;
+  } | null;
+  media?: import("../../../reply-engine/types.ts").ReplySourceContext["media"];
+  conversation?: import("../../../reply-engine/types.ts").ReplySourceContext["conversation"];
 }
 
 export interface ResolvedReplyTurnState {
@@ -202,7 +217,7 @@ export function resolveReplyTurnState(args: {
   };
 }
 
-export function planReplyTurn(args: {
+export async function planReplyTurn(args: {
   activeReplyContext: ActiveReplyContext | null;
   replyContinuation: ReplyContinuationResult | null;
   replyParseResult: EmbeddedReplyParseResult;
@@ -212,8 +227,11 @@ export function planReplyTurn(args: {
   replyStrategy: GrowthStrategySnapshot;
   replyInsights: ReplyContinuationInsights;
   styleCard: VoiceStyleCard | null;
-}): PlannedReplyTurn | null {
-  const continuationPlan = planReplyContinuation({
+  creatorAgentContext?: CreatorAgentContext | null;
+  creatorProfileHints?: CreatorProfileHints | null;
+  profileReplyContext?: ProfileReplyContext | null;
+}): Promise<PlannedReplyTurn | null> {
+  const continuationPlan = await planReplyContinuation({
     activeReplyContext: args.activeReplyContext,
     replyContinuation: args.replyContinuation,
     highConfidenceReplyContext:
@@ -227,6 +245,9 @@ export function planReplyTurn(args: {
     replyStrategy: args.replyStrategy,
     replyInsights: args.replyInsights,
     styleCard: args.styleCard,
+    creatorAgentContext: args.creatorAgentContext || null,
+    creatorProfileHints: args.creatorProfileHints || null,
+    profileReplyContext: args.profileReplyContext || null,
   });
 
   if (continuationPlan?.kind === "decline") {
@@ -300,6 +321,7 @@ export function planReplyTurn(args: {
       sourceText: args.replyParseResult.context.sourceText,
       sourceUrl: args.replyParseResult.context.sourceUrl,
       authorHandle: args.replyParseResult.context.authorHandle,
+      sourceContext: args.replyParseResult.context.sourceContext || null,
       quotedUserAsk: args.replyParseResult.context.quotedUserAsk,
       confidence: args.replyParseResult.context.confidence,
       parseReason: args.replyParseResult.context.parseReason,

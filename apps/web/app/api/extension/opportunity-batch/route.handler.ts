@@ -33,18 +33,11 @@ interface ExtensionUserContextFailure {
 }
 
 interface RankedOpportunityBatch {
-  ranked: Array<{
-    candidate: { postId: string };
+  scores: Array<{
+    tweetId: string;
+    opportunityScore: number;
+    reason: string;
   }>;
-  topRanked: Array<{
-    candidate: { postId: string };
-  }>;
-  notes: string[];
-}
-
-interface PersistedRankedOpportunity {
-  candidate: { postId: string };
-  opportunity: unknown;
 }
 
 interface OpportunityBatchHandlerDeps {
@@ -60,20 +53,13 @@ interface OpportunityBatchHandlerDeps {
     userId: string;
     xHandle?: string | null;
   }): Promise<unknown>;
-  rankOpportunityBatch(args: {
+  scoreOpportunityBatch(args: {
     request: ExtensionOpportunityBatchRequest;
     strategy: unknown;
-    styleCard: unknown;
     replyInsights?: unknown;
-  }): RankedOpportunityBatch;
-  persistRankedOpportunity(args: {
-    userId: string;
-    xHandle: string;
     growthStage: string;
     goal: string;
-    tone: string;
-    ranked: RankedOpportunityBatch["ranked"][number];
-  }): Promise<PersistedRankedOpportunity>;
+  }): Promise<RankedOpportunityBatch>;
   assertExtensionOpportunityBatchResponseShape(response: unknown): boolean;
   recordProductEvent(args: {
     userId: string;
@@ -130,36 +116,18 @@ export async function handleExtensionOpportunityBatchPost(
       userId: auth.user.id,
       xHandle: userContext.xHandle,
     });
-    const rankedBatch = deps.rankOpportunityBatch({
-      request: parsed.data,
-      strategy: userContext.context.growthStrategySnapshot,
-      styleCard: userContext.styleCard,
-      replyInsights,
-    });
     const growthStage =
       userContext.storedRun.result.strategyState?.growthStage ||
       userContext.storedRun.result.growthStage ||
       "0-1k";
     const goal = userContext.storedRun.result.strategyState?.goal || "followers";
-    const persisted = await Promise.all(
-      rankedBatch.ranked.map((ranked) =>
-        deps.persistRankedOpportunity({
-          userId: auth.user.id,
-          xHandle: userContext.xHandle,
-          growthStage,
-          goal,
-          tone: "builder",
-          ranked,
-        }),
-      ),
-    );
-    const byPostId = new Map(persisted.map((entry) => [entry.candidate.postId, entry]));
-    const response = {
-      opportunities: rankedBatch.topRanked
-        .map((entry) => byPostId.get(entry.candidate.postId)?.opportunity)
-        .filter(Boolean),
-      notes: rankedBatch.notes,
-    };
+    const response = await deps.scoreOpportunityBatch({
+      request: parsed.data,
+      strategy: userContext.context.growthStrategySnapshot,
+      replyInsights,
+      growthStage,
+      goal,
+    });
 
     if (!deps.assertExtensionOpportunityBatchResponseShape(response)) {
       deps.logExtensionRouteFailure({
@@ -176,7 +144,7 @@ export async function handleExtensionOpportunityBatchPost(
       eventType: "extension_opportunity_batch_ranked",
       properties: {
         candidateCount: parsed.data.candidates.length,
-        returnedCount: response.opportunities.length,
+        returnedCount: response.scores.length,
         pageUrl: parsed.data.pageUrl,
         surface: parsed.data.surface,
       },

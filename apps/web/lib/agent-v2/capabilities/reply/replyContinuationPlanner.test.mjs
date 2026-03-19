@@ -49,8 +49,8 @@ function createReplyContext() {
   };
 }
 
-test("planReplyContinuation builds grounded reply options for a high-confidence post", () => {
-  const planned = planReplyContinuation({
+test("planReplyContinuation builds grounded reply options for a high-confidence post", async () => {
+  const planned = await planReplyContinuation({
     activeReplyContext: null,
     replyContinuation: null,
     highConfidenceReplyContext: {
@@ -75,7 +75,7 @@ test("planReplyContinuation builds grounded reply options for a high-confidence 
   assert.equal(planned.eventType, "chat_reply_options_generated");
 });
 
-test("planReplyContinuation turns a selected option into a reply draft", () => {
+test("planReplyContinuation turns a selected option into a reply draft", async () => {
   const activeReplyContext = createReplyContext();
   activeReplyContext.latestReplyOptions = [
     {
@@ -91,7 +91,7 @@ test("planReplyContinuation turns a selected option into a reply draft", () => {
     },
   ];
 
-  const planned = planReplyContinuation({
+  const planned = await planReplyContinuation({
     activeReplyContext,
     replyContinuation: { type: "select_option", optionIndex: 0 },
     highConfidenceReplyContext: null,
@@ -110,8 +110,8 @@ test("planReplyContinuation turns a selected option into a reply draft", () => {
   assert.equal(planned.eventType, "chat_reply_draft_generated");
 });
 
-test("planReplyTurn builds reply options with artifacts and quick replies for a high-confidence post", () => {
-  const planned = planReplyTurn({
+test("planReplyTurn builds reply options with artifacts and quick replies for a high-confidence post", async () => {
+  const planned = await planReplyTurn({
     activeReplyContext: null,
     replyContinuation: null,
     replyParseResult: {
@@ -144,7 +144,7 @@ test("planReplyTurn builds reply options with artifacts and quick replies for a 
   assert.ok((planned.activeReplyContext?.latestReplyOptions.length || 0) >= 1);
 });
 
-test("planReplyTurn converts a selected reply option into a reply draft artifact", () => {
+test("planReplyTurn converts a selected reply option into a reply draft artifact", async () => {
   const activeReplyContext = createReplyContext();
   activeReplyContext.latestReplyOptions = [
     {
@@ -160,7 +160,7 @@ test("planReplyTurn converts a selected reply option into a reply draft artifact
     },
   ];
 
-  const planned = planReplyTurn({
+  const planned = await planReplyTurn({
     activeReplyContext,
     replyContinuation: { type: "select_option", optionIndex: 0 },
     replyParseResult: {
@@ -183,8 +183,8 @@ test("planReplyTurn converts a selected reply option into a reply draft artifact
   assert.equal(planned.activeReplyContext?.selectedReplyOptionId, "option_1");
 });
 
-test("planReplyTurn asks for confirmation on medium-confidence embedded posts", () => {
-  const planned = planReplyTurn({
+test("planReplyTurn asks for confirmation on medium-confidence embedded posts", async () => {
+  const planned = await planReplyTurn({
     activeReplyContext: null,
     replyContinuation: null,
     replyParseResult: {
@@ -214,8 +214,8 @@ test("planReplyTurn asks for confirmation on medium-confidence embedded posts", 
   assert.equal(planned.quickReplies.length, 2);
 });
 
-test("planReplyTurn asks for the post when the reply request is missing source material", () => {
-  const planned = planReplyTurn({
+test("planReplyTurn asks for the post when the reply request is missing source material", async () => {
+  const planned = await planReplyTurn({
     activeReplyContext: null,
     replyContinuation: null,
     replyParseResult: {
@@ -237,8 +237,8 @@ test("planReplyTurn asks for the post when the reply request is missing source m
   assert.match(planned.reply, /paste the post text or x url/i);
 });
 
-test("planReplyTurn returns null when no explicit reply ask is present", () => {
-  const planned = planReplyTurn({
+test("planReplyTurn returns null when no explicit reply ask is present", async () => {
+  const planned = await planReplyTurn({
     activeReplyContext: null,
     replyContinuation: null,
     replyParseResult: {

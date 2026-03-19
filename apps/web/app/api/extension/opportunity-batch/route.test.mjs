@@ -51,7 +51,14 @@ const validPayload = {
 };
 
 test("parseExtensionOpportunityBatchRequest accepts the extension contract payload", () => {
-  const parsed = parseExtensionOpportunityBatchRequest(validPayload);
+  const parsed = parseExtensionOpportunityBatchRequest({
+    ...validPayload,
+    candidates: Array.from({ length: 3 }, (_, index) => ({
+      ...validPayload.candidates[0],
+      postId: `post_${index + 1}`,
+      url: `https://x.com/builder/status/${index + 1}`,
+    })),
+  });
   assert.equal(parsed.ok, true);
 });
 
@@ -67,71 +74,27 @@ test("parseExtensionOpportunityBatchRequest rejects unknown keys from strict sch
 test("assertExtensionOpportunityBatchResponseShape enforces exact response structure", () => {
   assert.equal(
     assertExtensionOpportunityBatchResponseShape({
-      opportunities: [
+      scores: [
         {
-          opportunityId: "opp_1",
-          postId: "post_1",
-          score: 81,
-          verdict: "reply",
-          why: ["Strong niche overlap with your saved content pillars."],
-          riskFlags: [],
-          suggestedAngle: "nuance",
-          expectedValue: {
-            visibility: "high",
-            profileClicks: "medium",
-            followConversion: "medium",
-          },
-          scoringBreakdown: {
-            niche_match: 85,
-            audience_fit: 70,
-            freshness: 82,
-            conversation_quality: 75,
-            profile_click_potential: 78,
-            follow_conversion_potential: 69,
-            visibility_potential: 64,
-            spam_risk: 10,
-            off_niche_risk: 14,
-            genericity_risk: 18,
-            negative_signal_risk: 4,
-          },
+          tweetId: "post_1",
+          opportunityScore: 81,
+          reason: "Strong niche overlap with the creator's saved content pillars.",
         },
+        { tweetId: "post_2", opportunityScore: 72, reason: "Good audience fit with room for a useful operator take." },
+        { tweetId: "post_3", opportunityScore: 64, reason: "Relevant topic, but the angle looks a bit crowded already." },
       ],
-      notes: ["Backend scoring is authoritative and tuned for 0 to 1,000 follower growth."],
     }),
     true,
   );
   assert.equal(
     assertExtensionOpportunityBatchResponseShape({
-      opportunities: [
+      scores: [
         {
-          opportunityId: "opp_1",
-          postId: "post_1",
-          score: 81,
-          verdict: "reply",
-          why: [],
-          riskFlags: [],
-          suggestedAngle: "nuance",
-          expectedValue: {
-            visibility: "high",
-            profileClicks: "medium",
-            followConversion: "medium",
-          },
-          scoringBreakdown: {
-            niche_match: 85,
-            audience_fit: 70,
-            freshness: 82,
-            conversation_quality: 75,
-            profile_click_potential: 78,
-            follow_conversion_potential: 69,
-            visibility_potential: 64,
-            spam_risk: 10,
-            off_niche_risk: 14,
-            genericity_risk: 18,
-            negative_signal_risk: 4,
-          },
+          tweetId: "post_1",
+          opportunityScore: 181,
+          reason: "ok",
         },
       ],
-      notes: ["note"],
     }),
     false,
   );
@@ -156,10 +119,7 @@ test("POST returns 401 when extension auth rejects the bearer token", async () =
       getReplyInsightsForUser: async () => {
         throw new Error("should not be reached");
       },
-      rankOpportunityBatch: () => {
-        throw new Error("should not be reached");
-      },
-      persistRankedOpportunity: async () => {
+      scoreOpportunityBatch: async () => {
         throw new Error("should not be reached");
       },
       assertExtensionOpportunityBatchResponseShape,
@@ -172,7 +132,15 @@ test("POST returns 401 when extension auth rejects the bearer token", async () =
 });
 
 test("POST passes reply insights into opportunity ranking", async () => {
-  const rankCalls = [];
+  const scoreCalls = [];
+  const expandedPayload = {
+    ...validPayload,
+    candidates: Array.from({ length: 5 }, (_, index) => ({
+      ...validPayload.candidates[0],
+      postId: `post_${index + 1}`,
+      url: `https://x.com/builder/status/${index + 1}`,
+    })),
+  };
 
   const response = await handleExtensionOpportunityBatchPost(
     new Request("http://localhost/api/extension/opportunity-batch", {
@@ -181,7 +149,7 @@ test("POST passes reply insights into opportunity ranking", async () => {
         "content-type": "application/json",
         authorization: "Bearer token_123",
       },
-      body: JSON.stringify(validPayload),
+      body: JSON.stringify(expandedPayload),
     }),
     {
       authenticateExtensionRequest: async () => ({
@@ -211,6 +179,8 @@ test("POST passes reply insights into opportunity ranking", async () => {
         },
       }),
       getReplyInsightsForUser: async () => ({
+        bestSignals: ["Example-driven replies are earning the strongest downstream action."],
+        cautionSignals: ["Generic agreement is underperforming."],
         topIntentAnchors: [
           {
             label: "proof | the proof layer",
@@ -218,75 +188,16 @@ test("POST passes reply insights into opportunity ranking", async () => {
           },
         ],
       }),
-      rankOpportunityBatch: (args) => {
-        rankCalls.push(args);
+      scoreOpportunityBatch: async (args) => {
+        scoreCalls.push(args);
         return {
-          ranked: [
-            {
-              candidate: { postId: "post_1" },
-              opportunity: {
-                opportunityId: "opp_1",
-                postId: "post_1",
-                score: 82,
-                verdict: "reply",
-                why: ["Strong niche overlap with your saved content pillars."],
-                riskFlags: [],
-                suggestedAngle: "example",
-                expectedValue: {
-                  visibility: "high",
-                  profileClicks: "medium",
-                  followConversion: "medium",
-                },
-                scoringBreakdown: {
-                  niche_match: 85,
-                  audience_fit: 70,
-                  freshness: 82,
-                  conversation_quality: 75,
-                  profile_click_potential: 78,
-                  follow_conversion_potential: 69,
-                  visibility_potential: 64,
-                  spam_risk: 10,
-                  off_niche_risk: 14,
-                  genericity_risk: 18,
-                  negative_signal_risk: 4,
-                },
-              },
-            },
-          ],
-          topRanked: [{ candidate: { postId: "post_1" } }],
-          notes: ["Ranking is biased toward reply patterns similar to \"proof | the proof layer\"."],
+          scores: expandedPayload.candidates.map((candidate, index) => ({
+            tweetId: candidate.postId,
+            opportunityScore: 82 - index,
+            reason: `Score uses reply history similar to proof | the proof layer for ${candidate.postId}.`,
+          })),
         };
       },
-      persistRankedOpportunity: async () => ({
-        candidate: { postId: "post_1" },
-        opportunity: {
-          opportunityId: "opp_1",
-          postId: "post_1",
-          score: 82,
-          verdict: "reply",
-          why: ["Strong niche overlap with your saved content pillars."],
-          riskFlags: [],
-          suggestedAngle: "example",
-          expectedValue: {
-            visibility: "high",
-            profileClicks: "medium",
-            followConversion: "medium",
-          },
-          scoringBreakdown: {
-            niche_match: 85,
-            audience_fit: 70,
-            freshness: 82,
-            conversation_quality: 75,
-            profile_click_potential: 78,
-            follow_conversion_potential: 69,
-            visibility_potential: 64,
-            spam_risk: 10,
-            off_niche_risk: 14,
-            genericity_risk: 18,
-            negative_signal_risk: 4,
-          },
-        },
-      }),
       assertExtensionOpportunityBatchResponseShape,
       recordProductEvent: async () => {},
       logExtensionRouteFailure: () => {},
@@ -294,6 +205,8 @@ test("POST passes reply insights into opportunity ranking", async () => {
   );
 
   assert.equal(response.status, 200);
-  assert.equal(rankCalls.length, 1);
-  assert.equal(rankCalls[0]?.replyInsights?.topIntentAnchors?.[0]?.label, "proof | the proof layer");
+  assert.equal(scoreCalls.length, 1);
+  assert.equal(scoreCalls[0]?.replyInsights?.topIntentAnchors?.[0]?.label, "proof | the proof layer");
+  assert.equal(scoreCalls[0]?.growthStage, "0_to_1k");
+  assert.equal(scoreCalls[0]?.goal, "followers");
 });

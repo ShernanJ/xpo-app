@@ -6,9 +6,12 @@ import type {
   NormalizedChatTurnDiagnostics,
 } from "../../contracts/turnContract.ts";
 import type { VoiceStyleCard } from "../../core/styleProfile.ts";
+import type { CreatorProfileHints } from "../../grounding/groundingPacket.ts";
+import type { ProfileReplyContext } from "../../grounding/profileReplyContext.ts";
 import { resolveRuntimeAction } from "../../runtime/resolveRuntimeAction.ts";
 import { summarizeRuntimeWorkerExecutions } from "../../runtime/runtimeTrace.ts";
 import type { RoutingTrace } from "../../runtime/conversationManager.ts";
+import type { CreatorAgentContext } from "../../../onboarding/strategy/agentContext.ts";
 import {
   planReplyTurn,
   resolveReplyTurnState,
@@ -41,6 +44,8 @@ export interface PrepareHandledReplyTurnArgs {
   routingDiagnostics: NormalizedChatTurnDiagnostics;
   activeHandle: string | null;
   creatorAgentContext: ReplyAgentContext | null;
+  creatorProfileHints?: CreatorProfileHints | null;
+  profileReplyContext?: ProfileReplyContext | null;
   structuredReplyContext: StructuredReplyContextInput | null;
   shouldBypassReplyHandling: boolean;
   memory: V2ConversationMemory;
@@ -103,7 +108,7 @@ export async function prepareHandledReplyTurn(
     goal: args.goal,
   });
 
-  const plannedTurn = planReplyTurn({
+  const plannedTurn = await planReplyTurn({
     activeReplyContext: args.memory.activeReplyContext,
     replyContinuation,
     replyParseResult,
@@ -113,6 +118,14 @@ export async function prepareHandledReplyTurn(
     replyStrategy,
     replyInsights: args.replyInsights,
     styleCard: args.styleCard,
+    creatorAgentContext:
+      args.creatorAgentContext &&
+      "generatedAt" in args.creatorAgentContext &&
+      typeof args.creatorAgentContext.generatedAt === "string"
+        ? (args.creatorAgentContext as CreatorAgentContext)
+        : null,
+    creatorProfileHints: args.creatorProfileHints || null,
+    profileReplyContext: args.profileReplyContext || null,
   });
 
   if (!plannedTurn) {

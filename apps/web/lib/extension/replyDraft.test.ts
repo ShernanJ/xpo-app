@@ -1,7 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildExtensionReplyDraft } from "./replyDraft.ts";
+import {
+  buildExtensionReplyDraft,
+  buildReplyDraftGenerationContext,
+  buildReplyDraftSystemPrompt,
+  buildReplyDraftUserPrompt,
+  cleanReplyDraftStreamChunk,
+  finalizeReplyDraftText,
+} from "./replyDraft.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 
 const strategy: GrowthStrategySnapshot = {
@@ -208,4 +215,162 @@ test("buildExtensionReplyDraft can stay locked to a selected reply intent", () =
     result.response.options.every((option) => option.intent?.label === "example"),
     true,
   );
+});
+
+test("reply draft prompt includes durable facts, analytics, and raw tweet text", () => {
+  const generation = buildReplyDraftGenerationContext({
+    request: {
+      tweetId: "tweet_7",
+      tweetText: "Replies should translate big ideas into workflows people can actually use.",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/7",
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+    },
+    strategy,
+    replyInsights: {
+      topAngleLabels: [
+        {
+          label: "translate",
+          generatedCount: 3,
+          selectedCount: 2,
+          postedCount: 1,
+          observedCount: 1,
+          selectionRate: 0.67,
+          postedRate: 0.33,
+        },
+      ],
+      bestSignals: ["Translate-style replies are most likely to get posted."],
+      cautionSignals: ["Generic agreement underperforms."],
+    } as never,
+  });
+
+  const systemPrompt = buildReplyDraftSystemPrompt({
+    request: {
+      tweetId: "tweet_7",
+      tweetText: "Replies should translate big ideas into workflows people can actually use.",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/7",
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+    },
+    strategy,
+    replyInsights: {
+      topAngleLabels: [
+        {
+          label: "translate",
+          generatedCount: 3,
+          selectedCount: 2,
+          postedCount: 1,
+          observedCount: 1,
+          selectionRate: 0.67,
+          postedRate: 0.33,
+        },
+      ],
+      bestSignals: ["Translate-style replies are most likely to get posted."],
+      cautionSignals: ["Generic agreement underperforms."],
+    } as never,
+    generation,
+  });
+  const userPrompt = buildReplyDraftUserPrompt({
+    request: {
+      tweetId: "tweet_7",
+      tweetText: "Replies should translate big ideas into workflows people can actually use.",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/7",
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+    },
+    generation,
+  });
+
+  assert.equal(systemPrompt.includes("Known for: software and product through product positioning"), true);
+  assert.equal(systemPrompt.includes("Target audience: builders who want clearer positioning on X"), true);
+  assert.equal(systemPrompt.includes("Translate-style replies are most likely to get posted."), true);
+  assert.equal(systemPrompt.includes("Generic agreement underperforms."), true);
+  assert.equal(userPrompt.includes('"""Replies should translate big ideas into workflows people can actually use."""'), true);
+});
+
+test("reply draft prompt keeps quote-tweet context visible before quoted context", () => {
+  const generation = buildReplyDraftGenerationContext({
+    request: {
+      tweetId: "tweet_8",
+      tweetText: "lwk thought that i was the only one that was frustrated with the ux",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/8",
+      postType: "quote",
+      quotedPost: {
+        tweetId: "tweet_9",
+        tweetText:
+          "the new posthog website is a prime example of why you shouldn't let your designers take LSD",
+        authorHandle: "posthog",
+      },
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+    },
+    strategy,
+  });
+
+  const systemPrompt = buildReplyDraftSystemPrompt({
+    request: {
+      tweetId: "tweet_8",
+      tweetText: "lwk thought that i was the only one that was frustrated with the ux",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/8",
+      postType: "quote",
+      quotedPost: {
+        tweetId: "tweet_9",
+        tweetText:
+          "the new posthog website is a prime example of why you shouldn't let your designers take LSD",
+        authorHandle: "posthog",
+      },
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+    },
+    strategy,
+    generation,
+  });
+  const userPrompt = buildReplyDraftUserPrompt({
+    request: {
+      tweetId: "tweet_8",
+      tweetText: "lwk thought that i was the only one that was frustrated with the ux",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/8",
+      postType: "quote",
+      quotedPost: {
+        tweetId: "tweet_9",
+        tweetText:
+          "the new posthog website is a prime example of why you shouldn't let your designers take LSD",
+        authorHandle: "posthog",
+      },
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+    },
+    generation,
+  });
+
+  assert.equal(systemPrompt.includes("respond to the visible quote-tweet text first"), true);
+  assert.equal(userPrompt.includes('"""lwk thought that i was the only one that was frustrated with the ux"""'), true);
+  assert.equal(
+    userPrompt.includes(
+      `"""the new posthog website is a prime example of why you shouldn't let your designers take LSD"""`,
+    ),
+    true,
+  );
+});
+
+test("reply draft stream cleanup strips labels, markdown, hashtags, and emoji wrappers", () => {
+  assert.equal(cleanReplyDraftStreamChunk("Reply: **Sharper point** #build 🚀", false), "Sharper point build");
+  assert.equal(finalizeReplyDraftText('  "Reply: useful angle first #signal 🚀"  '), "useful angle first signal");
+});
+
+test("reply draft stream cleanup preserves leading spaces in later chunks", () => {
+  assert.equal(cleanReplyDraftStreamChunk(" first", true), " first");
+  assert.equal(cleanReplyDraftStreamChunk(" second line", true), " second line");
 });

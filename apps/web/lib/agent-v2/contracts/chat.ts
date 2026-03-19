@@ -8,6 +8,8 @@ export type V2ChatIntent =
   | "edit"
   | "answer_question";
 
+import type { ReplySourceContext } from "../../reply-engine/types.ts";
+
 export type ConversationState =
   | "collecting_context"
   | "needs_more_context"
@@ -124,6 +126,7 @@ export interface ActiveReplyContext {
   sourceText: string;
   sourceUrl: string | null;
   authorHandle: string | null;
+  sourceContext?: ReplySourceContext | null;
   quotedUserAsk: string | null;
   confidence: "low" | "medium" | "high";
   parseReason: string;

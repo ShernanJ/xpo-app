@@ -1293,6 +1293,8 @@ async function handleChatRouteRequest(args: {
       routingDiagnostics: normalizedTurn.diagnostics,
       activeHandle,
       creatorAgentContext,
+      creatorProfileHints,
+      profileReplyContext,
       structuredReplyContext,
       shouldBypassReplyHandling: !normalizedTurn.shouldAllowReplyHandling,
       memory: storedMemory,

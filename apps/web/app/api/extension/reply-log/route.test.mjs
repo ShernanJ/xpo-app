@@ -46,6 +46,32 @@ test("parseExtensionReplyLogRequest rejects invalid lifecycle values", () => {
   assert.equal(parsed.ok, false);
 });
 
+test("parseExtensionReplyLogRequest accepts opened lifecycle payloads", () => {
+  const parsed = parseExtensionReplyLogRequest({
+    ...validPayload,
+    event: "opened",
+  });
+
+  assert.equal(parsed.ok, true);
+});
+
+test("parseExtensionReplyLogRequest accepts tweet aliases and missing surface", () => {
+  const parsed = parseExtensionReplyLogRequest({
+    event: "generated",
+    tweetId: "post_1",
+    tweetText: validPayload.postText,
+    authorHandle: "@builder",
+    generatedReplyIds: ["r1"],
+  });
+
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) {
+    assert.equal(parsed.data.postId, "post_1");
+    assert.equal(parsed.data.postUrl, "https://x.com/builder/status/post_1");
+    assert.equal(parsed.data.surface, "unknown");
+  }
+});
+
 test("parseExtensionReplyLogRequest keeps copied reply payloads", () => {
   const parsed = parseExtensionReplyLogRequest({
     ...validPayload,

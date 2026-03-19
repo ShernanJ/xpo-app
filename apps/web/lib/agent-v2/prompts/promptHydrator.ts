@@ -1,14 +1,14 @@
-import type { VoiceStyleCard } from "../core/styleProfile";
-import type { VoiceTarget } from "../core/voiceTarget";
+import type { VoiceStyleCard } from "../core/styleProfile.ts";
+import type { VoiceTarget } from "../core/voiceTarget.ts";
 import {
   inferLowercasePreference,
   inferPreferredListMarker,
-} from "../core/voiceSignals";
+} from "../core/voiceSignals.ts";
 import type {
   ConversationState,
   DraftFormatPreference,
   DraftPreference,
-} from "../contracts/chat";
+} from "../contracts/chat.ts";
 
 function normalizeList(values: string[], fallback: string): string {
   const filtered = values.map((value) => value.trim()).filter(Boolean);

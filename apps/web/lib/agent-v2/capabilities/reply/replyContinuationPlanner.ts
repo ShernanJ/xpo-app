@@ -2,7 +2,10 @@ import type {
   ActiveReplyContext,
 } from "../../contracts/chat.ts";
 import type { VoiceStyleCard } from "../../core/styleProfile.ts";
+import type { CreatorProfileHints } from "../../grounding/groundingPacket.ts";
+import type { ProfileReplyContext } from "../../grounding/profileReplyContext.ts";
 import type { GrowthStrategySnapshot } from "../../../onboarding/strategy/growthStrategy.ts";
+import type { CreatorAgentContext } from "../../../onboarding/strategy/agentContext.ts";
 import { buildChatReplyDraft, buildChatReplyOptions } from "../../../extension/chatReplyAdapter.ts";
 import type { ExtensionReplyIntentMetadata } from "../../../extension/types.ts";
 import type {
@@ -31,6 +34,7 @@ export interface ReplyEmbeddedRequestContext {
   sourceText: string;
   sourceUrl: string | null;
   authorHandle: string | null;
+  sourceContext?: ActiveReplyContext["sourceContext"];
   quotedUserAsk: string | null;
   confidence: "low" | "medium" | "high";
   parseReason: string;
@@ -62,7 +66,7 @@ export type ReplyContinuationPlan =
       selectedReplyOptionId: string | null;
       parseReason: "reply_option_selected" | "reply_draft_revised";
       confidence: ActiveReplyContext["confidence"];
-      generatedResponse: ReturnType<typeof buildChatReplyDraft>["response"];
+      generatedResponse: Awaited<ReturnType<typeof buildChatReplyDraft>>["response"];
       eventType: "chat_reply_draft_generated" | "chat_reply_draft_revised";
     };
 
@@ -111,6 +115,7 @@ function createReplyContext(args: {
     sourceText: args.sourceContext.sourceText,
     sourceUrl: args.sourceContext.sourceUrl,
     authorHandle: args.sourceContext.authorHandle,
+    ...(args.sourceContext.sourceContext ? { sourceContext: args.sourceContext.sourceContext } : {}),
     quotedUserAsk: args.sourceContext.quotedUserAsk,
     confidence: args.sourceContext.confidence,
     parseReason: args.sourceContext.parseReason,
@@ -125,7 +130,7 @@ function createReplyContext(args: {
   };
 }
 
-export function planReplyContinuation(args: {
+export async function planReplyContinuation(args: {
   activeReplyContext: ActiveReplyContext | null;
   replyContinuation: ReplyContinuationAction | null;
   highConfidenceReplyContext?: ReplyEmbeddedRequestContext | null;
@@ -135,7 +140,10 @@ export function planReplyContinuation(args: {
   replyStrategy: GrowthStrategySnapshot;
   replyInsights: ReplyContinuationInsights;
   styleCard: VoiceStyleCard | null;
-}): ReplyContinuationPlan | null {
+  creatorAgentContext?: CreatorAgentContext | null;
+  creatorProfileHints?: CreatorProfileHints | null;
+  profileReplyContext?: ProfileReplyContext | null;
+}): Promise<ReplyContinuationPlan | null> {
   const { activeReplyContext } = args;
   const selectedReplyIntent = toExtensionReplyIntentMetadata(
     activeReplyContext?.latestReplyOptions.find(
@@ -177,6 +185,8 @@ export function planReplyContinuation(args: {
         sourceText: sourceContext.sourceText,
         sourceUrl: sourceContext.sourceUrl,
         authorHandle: sourceContext.authorHandle,
+        postType: sourceContext.sourceContext?.primaryPost.postType,
+        sourceContext: sourceContext.sourceContext || null,
       },
       strategy: args.replyStrategy,
       strategyPillar,
@@ -211,14 +221,20 @@ export function planReplyContinuation(args: {
       return null;
     }
 
-    const generated = buildChatReplyDraft({
+    const generated = await buildChatReplyDraft({
       source: {
         opportunityId: activeReplyContext.opportunityId,
         sourceText: activeReplyContext.sourceText,
         sourceUrl: activeReplyContext.sourceUrl,
         authorHandle: activeReplyContext.authorHandle,
+        postType: activeReplyContext.sourceContext?.primaryPost.postType,
+        sourceContext: activeReplyContext.sourceContext || null,
       },
       strategy: args.replyStrategy,
+      styleCard: args.styleCard,
+      creatorAgentContext: args.creatorAgentContext || null,
+      creatorProfileHints: args.creatorProfileHints || null,
+      profileReplyContext: args.profileReplyContext || null,
       replyInsights: args.replyInsights,
       stage: activeReplyContext.stage,
       tone: activeReplyContext.tone,
@@ -243,14 +259,20 @@ export function planReplyContinuation(args: {
   }
 
   if (args.replyContinuation?.type === "revise_draft" && activeReplyContext) {
-    const generated = buildChatReplyDraft({
+    const generated = await buildChatReplyDraft({
       source: {
         opportunityId: activeReplyContext.opportunityId,
         sourceText: activeReplyContext.sourceText,
         sourceUrl: activeReplyContext.sourceUrl,
         authorHandle: activeReplyContext.authorHandle,
+        postType: activeReplyContext.sourceContext?.primaryPost.postType,
+        sourceContext: activeReplyContext.sourceContext || null,
       },
       strategy: args.replyStrategy,
+      styleCard: args.styleCard,
+      creatorAgentContext: args.creatorAgentContext || null,
+      creatorProfileHints: args.creatorProfileHints || null,
+      profileReplyContext: args.profileReplyContext || null,
       replyInsights: args.replyInsights,
       stage: activeReplyContext.stage,
       tone: args.replyContinuation.tone,

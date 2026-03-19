@@ -1,8 +1,17 @@
+import type { CreatorProfileHints } from "../agent-v2/grounding/groundingPacket.ts";
+import type { ProfileReplyContext } from "../agent-v2/grounding/profileReplyContext.ts";
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
-import { buildExtensionReplyDraft } from "./replyDraft.ts";
+import { buildExtensionReplyDraft, type ExtensionReplyDraftBuildResult } from "./replyDraft.ts";
 import { buildExtensionReplyOptions } from "./replyOptions.ts";
 import type { ReplyInsights } from "./replyOpportunities.ts";
+import {
+  buildReplySourceContextFromFlatInput,
+  generateReplyDraftText,
+  prepareReplyPromptPacket,
+  type ReplySourceContext,
+} from "../reply-engine/index.ts";
+import type { CreatorAgentContext } from "../onboarding/strategy/agentContext.ts";
 import type {
   ExtensionOpportunity,
   ExtensionOpportunityCandidate,
@@ -16,24 +25,40 @@ interface ChatReplySource {
   sourceText: string;
   sourceUrl: string | null;
   authorHandle: string | null;
+  postType?: ExtensionOpportunityCandidate["postType"];
+  sourceContext?: ReplySourceContext | null;
 }
 
 function normalizeHandle(value: string | null | undefined): string {
   return value?.trim().replace(/^@+/, "").toLowerCase() || "creator";
 }
 
+function shouldUseLiveGroqReplyDrafts() {
+  return Boolean(process.env.GROQ_API_KEY?.trim()) && !process.argv.includes("--test");
+}
+
 function buildSyntheticCandidate(source: ChatReplySource): ExtensionOpportunityCandidate {
+  const sourceContext = buildReplySourceContextFromFlatInput({
+    sourceText: source.sourceText,
+    sourceUrl: source.sourceUrl,
+    authorHandle: source.authorHandle,
+    postType: source.postType,
+    sourceContext: source.sourceContext || null,
+  });
+
   return {
-    postId: `${source.opportunityId}-post`,
+    postId: sourceContext.primaryPost.id || `${source.opportunityId}-post`,
     author: {
       id: null,
-      handle: normalizeHandle(source.authorHandle),
+      handle: normalizeHandle(sourceContext.primaryPost.authorHandle),
       name: null,
       verified: false,
       followerCount: 0,
     },
-    text: source.sourceText,
-    url: source.sourceUrl || `https://x.com/${normalizeHandle(source.authorHandle)}/status/${source.opportunityId}`,
+    text: sourceContext.primaryPost.text,
+    url:
+      sourceContext.primaryPost.url ||
+      `https://x.com/${normalizeHandle(sourceContext.primaryPost.authorHandle)}/status/${source.opportunityId}`,
     createdAtIso: null,
     engagement: {
       replyCount: 0,
@@ -42,18 +67,18 @@ function buildSyntheticCandidate(source: ChatReplySource): ExtensionOpportunityC
       quoteCount: 0,
       viewCount: 0,
     },
-    postType: "original",
+    postType: sourceContext.primaryPost.postType,
     conversation: {
       conversationId: null,
-      inReplyToPostId: null,
-      inReplyToHandle: null,
+      inReplyToPostId: sourceContext.conversation?.inReplyToPostId || null,
+      inReplyToHandle: sourceContext.conversation?.inReplyToHandle || null,
     },
     media: {
-      hasMedia: false,
-      hasImage: false,
-      hasVideo: false,
-      hasGif: false,
-      hasLink: Boolean(source.sourceUrl),
+      hasMedia: Boolean(sourceContext.media?.images.length),
+      hasImage: Boolean(sourceContext.media?.images.length),
+      hasVideo: Boolean(sourceContext.media?.hasVideo),
+      hasGif: Boolean(sourceContext.media?.hasGif),
+      hasLink: Boolean(sourceContext.media?.hasLink || source.sourceUrl),
       hasPoll: false,
     },
     surface: "unknown",
@@ -179,38 +204,124 @@ export function buildChatReplyOptions(args: {
   };
 }
 
-export function buildChatReplyDraft(args: {
+export async function buildChatReplyDraft(args: {
   source: ChatReplySource;
   strategy: GrowthStrategySnapshot;
+  styleCard: VoiceStyleCard | null;
+  creatorAgentContext?: CreatorAgentContext | null;
+  creatorProfileHints?: CreatorProfileHints | null;
+  profileReplyContext?: ProfileReplyContext | null;
   replyInsights?: ReplyInsights | null;
   stage: ExtensionReplyDraftRequest["stage"];
   tone: ExtensionReplyTone;
   goal: string;
   selectedIntent?: ExtensionReplyIntentMetadata | null;
   length?: "same" | "shorter" | "longer";
-}) {
-  const generated = buildExtensionReplyDraft({
+}): Promise<ExtensionReplyDraftBuildResult> {
+  const sourceContext = buildReplySourceContextFromFlatInput({
+    sourceText: args.source.sourceText,
+    sourceUrl: args.source.sourceUrl,
+    authorHandle: args.source.authorHandle,
+    postType: args.source.postType,
+    sourceContext: args.source.sourceContext || null,
+  });
+
+  const fallback = buildExtensionReplyDraft({
     request: {
-      tweetId: `${args.source.opportunityId}-post`,
-      tweetText: args.source.sourceText,
-      authorHandle: normalizeHandle(args.source.authorHandle),
+      tweetId: sourceContext.primaryPost.id || `${args.source.opportunityId}-post`,
+      tweetText: sourceContext.primaryPost.text,
+      authorHandle: normalizeHandle(sourceContext.primaryPost.authorHandle),
       tweetUrl:
-        args.source.sourceUrl ||
-        `https://x.com/${normalizeHandle(args.source.authorHandle)}/status/${args.source.opportunityId}`,
+        sourceContext.primaryPost.url ||
+        `https://x.com/${normalizeHandle(sourceContext.primaryPost.authorHandle)}/status/${args.source.opportunityId}`,
       stage: args.stage,
       tone: args.tone,
       goal: args.goal,
+      ...(sourceContext.primaryPost.postType ? { postType: sourceContext.primaryPost.postType } : {}),
+      ...(sourceContext.quotedPost
+        ? {
+            quotedPost: {
+              ...(sourceContext.quotedPost.id ? { tweetId: sourceContext.quotedPost.id } : {}),
+              tweetText: sourceContext.quotedPost.text,
+              ...(sourceContext.quotedPost.authorHandle
+                ? { authorHandle: sourceContext.quotedPost.authorHandle }
+                : {}),
+              ...(sourceContext.quotedPost.url ? { tweetUrl: sourceContext.quotedPost.url } : {}),
+            },
+          }
+        : {}),
+      ...(sourceContext.media ? { media: sourceContext.media } : {}),
+      ...(sourceContext.conversation ? { conversation: sourceContext.conversation } : {}),
     },
     strategy: args.strategy,
     replyInsights: args.replyInsights,
     selectedIntent: args.selectedIntent || undefined,
   });
 
-  return {
-    ...generated,
-    response: lengthAdjustDraftOptions({
-      response: generated.response,
-      length: args.length || "same",
-    }),
-  };
+  if (!shouldUseLiveGroqReplyDrafts()) {
+    return {
+      ...fallback,
+      response: lengthAdjustDraftOptions({
+        response: fallback.response,
+        length: args.length || "same",
+      }),
+    };
+  }
+
+  const creatorProfileHints = args.creatorProfileHints || null;
+
+  try {
+    const promptPacket = await prepareReplyPromptPacket({
+      sourceContext,
+      strategy: args.strategy,
+      tone: args.tone,
+      goal: args.goal,
+      stage: args.stage,
+      selectedIntent: args.selectedIntent || null,
+      replyInsights: args.replyInsights,
+      styleCard: args.styleCard,
+      creatorProfileHints,
+      creatorAgentContext: args.creatorAgentContext || null,
+      profileReplyContext: args.profileReplyContext || null,
+      groundingPacket: fallback.groundingPacket,
+      maxCharacterLimit: 280,
+    });
+    const generated = await generateReplyDraftText({
+      promptPacket,
+    });
+    const optionLabel: "safe" | "bold" = args.tone === "bold" ? "bold" : "safe";
+
+    const response = {
+      options: [
+        {
+          id: "draft-1",
+          label: optionLabel,
+          text: generated.draft,
+          intent: fallback.response.options[0]?.intent || args.selectedIntent || undefined,
+        },
+      ],
+      notes: [
+        ...(fallback.response.notes || []),
+        generated.visualContext ? "Used image context to sharpen the reply." : null,
+        `Voice target: ${generated.voiceTarget.summary}`,
+      ].filter((entry): entry is string => Boolean(entry)).slice(0, 6),
+    };
+
+    return {
+      ...fallback,
+      response: lengthAdjustDraftOptions({
+        response,
+        length: args.length || "same",
+      }),
+    };
+  } catch (error) {
+    console.warn("Falling back to heuristic chat reply draft:", error);
+    return {
+      ...fallback,
+      response: lengthAdjustDraftOptions({
+        response: fallback.response,
+        length: args.length || "same",
+      }),
+    };
+  }
 }

@@ -4,6 +4,10 @@ import type {
   ExtensionReplyOption,
   ExtensionReplyOptionChoice,
 } from "../../../extension/types.ts";
+import {
+  buildReplySourceContextFromFlatInput,
+  type ReplySourceContext,
+} from "../../../reply-engine/index.ts";
 import type {
   ActiveReplyArtifactRef,
   ActiveReplyContext,
@@ -22,6 +26,7 @@ export interface EmbeddedReplyContext {
   sourceText: string;
   sourceUrl: string | null;
   authorHandle: string | null;
+  sourceContext?: ReplySourceContext | null;
   quotedUserAsk: string | null;
   confidence: EmbeddedReplyConfidence;
   parseReason: string;
@@ -88,6 +93,22 @@ interface StructuredReplyContextInput {
   sourceText?: string | null;
   sourceUrl?: string | null;
   authorHandle?: string | null;
+  sourceContext?: ReplySourceContext | null;
+  primaryPost?: {
+    id?: string | null;
+    url?: string | null;
+    text?: string | null;
+    authorHandle?: string | null;
+    postType?: string | null;
+  } | null;
+  quotedPost?: {
+    id?: string | null;
+    url?: string | null;
+    text?: string | null;
+    authorHandle?: string | null;
+  } | null;
+  media?: ReplySourceContext["media"];
+  conversation?: ReplySourceContext["conversation"];
 }
 
 const REPLY_ASK_PATTERNS = [
@@ -169,6 +190,58 @@ function buildFallbackSourceText(lines: string[]): string {
     .trim();
 }
 
+function normalizeStructuredReplySourceContext(
+  value: StructuredReplyContextInput | null | undefined,
+): ReplySourceContext | null {
+  if (!value) {
+    return null;
+  }
+
+  if (value.sourceContext?.primaryPost?.text?.trim()) {
+    return value.sourceContext;
+  }
+
+  const primaryPost = value.primaryPost;
+  if (primaryPost?.text?.trim()) {
+    return {
+      primaryPost: {
+        id: primaryPost.id?.trim() || "reply-source",
+        url: primaryPost.url?.trim() || null,
+        text: primaryPost.text.trim(),
+        authorHandle: primaryPost.authorHandle?.trim().replace(/^@+/, "").toLowerCase() || null,
+        postType:
+          primaryPost.postType === "reply" ||
+          primaryPost.postType === "quote" ||
+          primaryPost.postType === "repost" ||
+          primaryPost.postType === "unknown"
+            ? primaryPost.postType
+            : "original",
+      },
+      quotedPost: value.quotedPost?.text?.trim()
+        ? {
+            id: value.quotedPost.id?.trim() || null,
+            url: value.quotedPost.url?.trim() || null,
+            text: value.quotedPost.text.trim(),
+            authorHandle:
+              value.quotedPost.authorHandle?.trim().replace(/^@+/, "").toLowerCase() || null,
+          }
+        : null,
+      media: value.media || null,
+      conversation: value.conversation || null,
+    };
+  }
+
+  if (value.sourceText?.trim()) {
+    return buildReplySourceContextFromFlatInput({
+      sourceText: value.sourceText,
+      sourceUrl: value.sourceUrl,
+      authorHandle: value.authorHandle,
+    });
+  }
+
+  return null;
+}
+
 export function parseEmbeddedReplyRequest(args: {
   message: string;
   replyContext?: StructuredReplyContextInput | null;
@@ -181,11 +254,19 @@ export function parseEmbeddedReplyRequest(args: {
     };
   }
 
-  const structuredSourceText = normalizeMultilineWhitespace(args.replyContext?.sourceText || "");
-  const structuredSourceUrl = normalizeWhitespace(args.replyContext?.sourceUrl || "") || null;
-  const structuredAuthorHandle =
-    normalizeWhitespace(args.replyContext?.authorHandle || "").replace(/^@+/, "").toLowerCase() ||
+  const structuredSourceContext = normalizeStructuredReplySourceContext(args.replyContext || null);
+  const structuredSourceText = normalizeMultilineWhitespace(
+    structuredSourceContext?.primaryPost.text || args.replyContext?.sourceText || "",
+  );
+  const structuredSourceUrl =
+    normalizeWhitespace(structuredSourceContext?.primaryPost.url || args.replyContext?.sourceUrl || "") ||
     null;
+  const structuredAuthorHandle =
+    normalizeWhitespace(
+      structuredSourceContext?.primaryPost.authorHandle || args.replyContext?.authorHandle || "",
+    )
+      .replace(/^@+/, "")
+      .toLowerCase() || null;
 
   if (structuredSourceText) {
     const hasReplyAsk = looksLikeReplyAsk(rawMessage);
@@ -196,6 +277,7 @@ export function parseEmbeddedReplyRequest(args: {
             sourceText: structuredSourceText,
             sourceUrl: structuredSourceUrl,
             authorHandle: structuredAuthorHandle,
+            sourceContext: structuredSourceContext,
             quotedUserAsk: rawMessage,
             confidence: structuredSourceUrl || structuredAuthorHandle ? "high" : "medium",
             parseReason: "structured_reply_context",
@@ -243,6 +325,7 @@ export function parseEmbeddedReplyRequest(args: {
         sourceText,
         sourceUrl: urlMatch?.[0] || null,
         authorHandle,
+        sourceContext: null,
         quotedUserAsk: askLine,
         confidence,
         parseReason:
@@ -448,6 +531,7 @@ export function createEmptyActiveReplyContext(args: {
   sourceText: string;
   sourceUrl: string | null;
   authorHandle: string | null;
+  sourceContext?: ReplySourceContext | null;
   quotedUserAsk: string | null;
   confidence: EmbeddedReplyConfidence;
   parseReason: string;
@@ -460,6 +544,7 @@ export function createEmptyActiveReplyContext(args: {
     sourceText: args.sourceText,
     sourceUrl: args.sourceUrl,
     authorHandle: args.authorHandle,
+    ...(args.sourceContext ? { sourceContext: args.sourceContext } : {}),
     quotedUserAsk: args.quotedUserAsk,
     confidence: args.confidence,
     parseReason: args.parseReason,

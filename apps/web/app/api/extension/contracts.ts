@@ -145,14 +145,21 @@ export const ExtensionOpportunityBatchRequestSchema = z
   .object({
     pageUrl: z.string().trim().url(),
     surface: ExtensionOpportunitySurfaceSchema,
-    candidates: z.array(ExtensionOpportunityCandidateSchema).min(1).max(50),
+    candidates: z.array(ExtensionOpportunityCandidateSchema).min(1).max(10),
+  })
+  .strict();
+
+export const ExtensionOpportunityBatchScoreSchema = z
+  .object({
+    tweetId: z.string().trim().min(1),
+    opportunityScore: z.number().int().min(0).max(100),
+    reason: z.string().trim().min(1).max(240),
   })
   .strict();
 
 export const ExtensionOpportunityBatchResponseSchema = z
   .object({
-    opportunities: z.array(ExtensionOpportunitySchema).max(5),
-    notes: z.array(z.string().trim().min(1)).max(6),
+    scores: z.array(ExtensionOpportunityBatchScoreSchema).min(1).max(10),
   })
   .strict();
 
@@ -183,7 +190,16 @@ export const ExtensionReplyOptionsResponseSchema = z
 
 export const ExtensionReplyLogRequestSchema = z
   .object({
-    event: z.enum(["observed", "ranked", "selected", "generated", "copied", "posted", "dismissed"]),
+    event: z.enum([
+      "observed",
+      "ranked",
+      "opened",
+      "selected",
+      "generated",
+      "copied",
+      "posted",
+      "dismissed",
+    ]),
     opportunityId: z.string().trim().min(1).nullable().optional(),
     postId: z.string().trim().min(1),
     postText: z.string().trim().min(1).max(4_000),

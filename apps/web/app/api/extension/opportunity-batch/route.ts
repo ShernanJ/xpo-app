@@ -3,10 +3,7 @@ import { NextRequest } from "next/server.js";
 import { authenticateExtensionRequest } from "../../../../lib/extension/auth.ts";
 import { loadExtensionUserContext } from "../../../../lib/extension/context.ts";
 import { logExtensionRouteFailure } from "../../../../lib/extension/http.ts";
-import {
-  persistRankedOpportunity,
-  rankOpportunityBatch,
-} from "../../../../lib/extension/opportunityBatch.ts";
+import { scoreOpportunityBatchWithGroq } from "../../../../lib/extension/opportunityBatchGroq.ts";
 import { getReplyInsightsForUser } from "../../../../lib/extension/replyOpportunities.ts";
 import { recordProductEvent } from "../../../../lib/productEvents.ts";
 import {
@@ -21,8 +18,7 @@ export async function POST(request: NextRequest) {
     parseExtensionOpportunityBatchRequest,
     loadExtensionUserContext,
     getReplyInsightsForUser,
-    rankOpportunityBatch,
-    persistRankedOpportunity,
+    scoreOpportunityBatch: scoreOpportunityBatchWithGroq,
     assertExtensionOpportunityBatchResponseShape,
     recordProductEvent,
     logExtensionRouteFailure,

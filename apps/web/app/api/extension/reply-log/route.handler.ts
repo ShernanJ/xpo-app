@@ -80,6 +80,9 @@ interface ReplyLogHandlerDeps {
 function getLifecycleUpdate(event: string) {
   const now = new Date();
 
+  if (event === "opened") {
+    return { state: "opened", openedAt: now };
+  }
   if (event === "generated") {
     return { state: "generated", generatedAt: now };
   }
