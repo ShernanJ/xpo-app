@@ -15,6 +15,12 @@ export type ExtensionReplyMode =
   | "insightful_add_on"
   | "empathetic_support";
 
+export type ReplyDraftSourceShape =
+  | "strategic_take"
+  | "casual_observation"
+  | "joke_setup"
+  | "emotional_update";
+
 export interface ExtensionReplyQuotedPost {
   tweetId?: string | null;
   tweetText: string;
@@ -51,6 +57,7 @@ export interface ReplyDraftPreflightResult {
   op_tone: string;
   post_intent: string;
   recommended_reply_mode: ExtensionReplyMode;
+  source_shape: ReplyDraftSourceShape;
 }
 
 export interface ExtensionObservedReplyMetrics {

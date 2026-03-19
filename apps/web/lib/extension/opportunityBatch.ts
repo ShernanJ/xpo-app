@@ -2,6 +2,7 @@ import { Prisma, type ReplyOpportunity } from "../generated/prisma/client.ts";
 import { prisma } from "../db.ts";
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
+import { resolveReplyConstraintPolicy } from "../reply-engine/index.ts";
 import type {
   ExtensionExpectedValueLevel,
   ExtensionOpportunity,
@@ -896,6 +897,10 @@ export function scoreOpportunityCandidate(args: {
   styleCard: VoiceStyleCard | null;
   replyInsights?: ReplyInsights | null;
 }): RankedExtensionOpportunity {
+  const constraintPolicy = resolveReplyConstraintPolicy({
+    sourceText: args.candidate.text,
+    strategy: args.strategy,
+  });
   const strategyPillar = pickStrategyPillar({
     candidate: args.candidate,
     strategy: args.strategy,
@@ -912,34 +917,44 @@ export function scoreOpportunityCandidate(args: {
     createdAtIso: args.candidate.createdAtIso,
     capturedAtIso: args.candidate.capturedAtIso,
   });
-  const conversationQuality = computeConversationQuality(args.candidate);
+  let conversationQuality = computeConversationQuality(args.candidate);
   const visibilityPotential = computeVisibilityPotential(args.candidate, freshness);
-  const genericityRisk = computeGenericityRisk(args.candidate);
+  let genericityRisk = computeGenericityRisk(args.candidate);
   const spamRisk = computeSpamRisk(args.candidate);
   const negativeSignalRisk = computeNegativeSignalRisk(args.candidate);
-  const offNicheRisk = computeOffNicheRisk({
+  let offNicheRisk = computeOffNicheRisk({
     candidate: args.candidate,
     strategy: args.strategy,
     nicheMatch,
   });
-  const profileClickPotential = computeProfileClickPotential({
+  let profileClickPotential = computeProfileClickPotential({
     candidate: args.candidate,
     nicheMatch,
     audienceFit,
   });
-  const followConversionPotential = computeFollowConversionPotential({
+  let followConversionPotential = computeFollowConversionPotential({
     candidate: args.candidate,
     nicheMatch,
     audienceFit,
     offNicheRisk,
   });
 
-  const baseSuggestedAngle = pickSuggestedAngle({
-    candidate: args.candidate,
-    strategy: args.strategy,
-    strategyPillar,
-    nicheMatch,
-  });
+  if (constraintPolicy.treatAsLowSignalCasual) {
+    conversationQuality = roundScore(conversationQuality - 24);
+    genericityRisk = roundScore(genericityRisk + 20);
+    offNicheRisk = roundScore(offNicheRisk + 26);
+    profileClickPotential = roundScore(profileClickPotential - 14);
+    followConversionPotential = roundScore(followConversionPotential - 18);
+  }
+
+  const baseSuggestedAngle = constraintPolicy.treatAsLowSignalCasual
+    ? ("nuance" as const)
+    : pickSuggestedAngle({
+        candidate: args.candidate,
+        strategy: args.strategy,
+        strategyPillar,
+        nicheMatch,
+      });
   const suggestedAngle = applyReplyLearningSuggestedAngleBias({
     candidate: args.candidate,
     strategyPillar,
@@ -1005,6 +1020,9 @@ export function scoreOpportunityCandidate(args: {
     args.styleCard ? null : "No parsed voice profile was available, so scoring used onboarding context only.",
     learningFit >= 55 && args.replyInsights?.topIntentAnchors?.[0]?.label
       ? `Learning bias favored opportunities similar to the recently converting anchor "${args.replyInsights.topIntentAnchors[0].label}".`
+      : null,
+    constraintPolicy.treatAsLowSignalCasual
+      ? "Casual/off-niche penalty applied because the post reads like a low-signal life update."
       : null,
     args.strategy.ambiguities[0] || null,
   ]);

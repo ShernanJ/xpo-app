@@ -9,6 +9,7 @@ import type {
 export * from "./context.ts";
 export * from "./finalize.ts";
 export * from "./goldenExamples.ts";
+export * from "./policy.ts";
 export * from "./preflight.ts";
 export * from "./prompt.ts";
 export * from "./tone.ts";

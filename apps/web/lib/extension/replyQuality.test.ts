@@ -85,3 +85,38 @@ test("sanitizeReplyText falls back when the candidate invents first-person proof
   assert.equal(/\b(i|my|we|our)\b/i.test(sanitized), false);
   assert.equal(/\b\d[\d,.%]*\b/.test(sanitized), false);
 });
+
+test("sanitizeReplyText strips business and advice drift from casual observations", () => {
+  const groundingPacket = buildReplyGroundingPacket({
+    request: {
+      tweetId: "tweet_3",
+      tweetText: "Just had a full bag of chips #fuckit",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/3",
+      stage: "0_to_1k",
+      tone: "playful",
+      goal: "followers",
+    },
+    strategy,
+    strategyPillar: "product positioning",
+    angleLabel: "nuance",
+  });
+
+  const sanitized = sanitizeReplyText({
+    candidate: "chips are the unofficial fuel for sprint sessions. remember to take a walk after",
+    fallbackText: 'honestly the "just had a full bag of chips" energy is so real.',
+    sourceText: "Just had a full bag of chips #fuckit",
+    strategyPillar: "product positioning",
+    strategy,
+    groundingPacket,
+    preflightResult: {
+      op_tone: "casual",
+      post_intent: "share a casual observation or shrug",
+      recommended_reply_mode: "joke_riff",
+      source_shape: "casual_observation",
+    },
+  });
+
+  assert.equal(/\b(sprint|remember to|take a walk)\b/i.test(sanitized), false);
+  assert.equal(sanitized.includes("chips"), true);
+});

@@ -2,6 +2,12 @@ import { checkDraftClaimsAgainstGrounding } from "../agent-v2/grounding/claimChe
 import type { GroundingPacket } from "../agent-v2/grounding/groundingPacket.ts";
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
+import type { ReplyDraftPreflightResult } from "./types.ts";
+import type { ReplyConstraintPolicy } from "../reply-engine/policy.ts";
+import {
+  resolveReplyConstraintPolicy,
+  violatesReplyConstraintPolicy,
+} from "../reply-engine/policy.ts";
 
 const STOPWORDS = new Set([
   "a",
@@ -109,7 +115,7 @@ export function violatesReplyHardGates(args: {
   });
 }
 
-export function looksLowValueReply(value: string): boolean {
+export function looksLowValueReply(value: string, policy?: ReplyConstraintPolicy | null): boolean {
   const normalized = normalizeComparable(value);
   if (!normalized) {
     return true;
@@ -124,6 +130,10 @@ export function looksLowValueReply(value: string): boolean {
   }
 
   const wordCount = normalized.split(" ").filter(Boolean).length;
+  if (policy?.preferShortRiff) {
+    return wordCount < 4;
+  }
+
   if (wordCount < 9) {
     return true;
   }
@@ -138,13 +148,14 @@ function lacksReplyAnchor(args: {
   sourceText: string;
   strategyPillar: string;
   knownFor?: string | null;
+  policy?: ReplyConstraintPolicy | null;
 }): boolean {
   const replyTokens = new Set(collectKeywords(args.value));
   const anchorTokens = new Set(
     [
       ...collectKeywords(args.sourceText),
-      ...collectKeywords(args.strategyPillar),
-      ...collectKeywords(args.knownFor || ""),
+      ...(args.policy?.allowStrategyLens !== false ? collectKeywords(args.strategyPillar) : []),
+      ...(args.policy?.allowStrategyLens !== false ? collectKeywords(args.knownFor || "") : []),
     ].slice(0, 18),
   );
 
@@ -169,7 +180,16 @@ export function sanitizeReplyText(args: {
   strategy: GrowthStrategySnapshot;
   groundingPacket: GroundingPacket;
   styleCard?: VoiceStyleCard | null;
+  preflightResult?: ReplyDraftPreflightResult | null;
+  policy?: ReplyConstraintPolicy | null;
 }): string {
+  const policy =
+    args.policy ||
+    resolveReplyConstraintPolicy({
+      sourceText: args.sourceText,
+      strategy: args.strategy,
+      preflightResult: args.preflightResult || null,
+    });
   const candidateChecked = checkDraftClaimsAgainstGrounding({
     draft: normalizeWhitespace(args.candidate),
     groundingPacket: args.groundingPacket,
@@ -188,12 +208,18 @@ export function sanitizeReplyText(args: {
       strategy: args.strategy,
       styleCard: args.styleCard || null,
     }) &&
-    !looksLowValueReply(candidateText) &&
+    !looksLowValueReply(candidateText, policy) &&
+    !violatesReplyConstraintPolicy({
+      draft: candidateText,
+      sourceText: args.sourceText,
+      policy,
+    }) &&
     !lacksReplyAnchor({
       value: candidateText,
       sourceText: args.sourceText,
       strategyPillar: args.strategyPillar,
       knownFor: args.strategy.knownFor,
+      policy,
     });
 
   if (candidateIsSafe) {

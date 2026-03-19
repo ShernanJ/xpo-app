@@ -13,6 +13,7 @@ import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrate
 
 import { analyzeReplySourceVisualContext } from "./context.ts";
 import { retrieveReplyGoldenExamples } from "./goldenExamples.ts";
+import { resolveReplyConstraintPolicy } from "./policy.ts";
 import { buildReplyDraftPreflightFallback, classifyReplyDraftMode } from "./preflight.ts";
 import { inferReplySourceMode, resolveReplyToneDirection } from "./tone.ts";
 import type {
@@ -364,11 +365,13 @@ function formatPreflightBlock(args: {
   opTone: string;
   postIntent: string;
   recommendedReplyMode: string;
+  sourceShape: string;
 }) {
   return [
     `- Observed OP tone: ${args.opTone}`,
     `- Inferred post intent: ${args.postIntent}`,
     `- Recommended reply mode: ${args.recommendedReplyMode}`,
+    `- Source shape: ${args.sourceShape}`,
   ].join("\n");
 }
 
@@ -397,11 +400,18 @@ export function buildReplyGroundingPacket(args: {
     sourceContext: args.sourceContext,
     preflightResult: args.preflightResult,
   });
-  const useIntentOverlay = shouldUseIntentOverlay({
+  const policy = resolveReplyConstraintPolicy({
     sourceContext: args.sourceContext,
-    strategyPillar: args.strategyPillar,
-    angleLabel: args.angleLabel,
+    strategy: args.strategy,
+    preflightResult: args.preflightResult,
   });
+  const useIntentOverlay =
+    policy.allowStrategyLens &&
+    shouldUseIntentOverlay({
+      sourceContext: args.sourceContext,
+      strategyPillar: args.strategyPillar,
+      angleLabel: args.angleLabel,
+    });
 
   return {
     durableFacts: [
@@ -443,12 +453,19 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     preflightResult: args.preflightResult,
   });
   const classifierRead = args.preflightResult || buildReplyDraftPreflightFallback();
-  const useIntentOverlay = shouldUseIntentOverlay({
+  const policy = resolveReplyConstraintPolicy({
     sourceContext: args.sourceContext,
-    selectedIntent: args.selectedIntent,
-    strategyPillar: args.selectedIntent?.strategyPillar || null,
-    angleLabel: args.selectedIntent?.label || null,
+    strategy: args.strategy,
+    preflightResult: args.preflightResult,
   });
+  const useIntentOverlay =
+    policy.allowStrategyLens &&
+    shouldUseIntentOverlay({
+      sourceContext: args.sourceContext,
+      selectedIntent: args.selectedIntent,
+      strategyPillar: args.selectedIntent?.strategyPillar || null,
+      angleLabel: args.selectedIntent?.label || null,
+    });
   const voiceEvidence =
     args.voiceEvidence ||
     {
@@ -531,6 +548,7 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
       opTone: classifierRead.op_tone,
       postIntent: classifierRead.post_intent,
       recommendedReplyMode: classifierRead.recommended_reply_mode,
+      sourceShape: classifierRead.source_shape,
     }),
     "",
     "RETRIEVED GOLDEN EXAMPLES:",
@@ -551,9 +569,21 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     sourceMode.isPlayful
       ? "- This post is playful / joke-shaped. Prioritize a short riff, pile-on, or extension of the bit."
       : "- This post is straightforward. Prioritize a direct, native reply.",
+    policy.treatAsLowSignalCasual
+      ? "- This source is a casual low-signal observation. Stay literal to the post and do not smuggle in a niche or strategy lens."
+      : "- If the post is niche-relevant, you can add a sharper layer without changing the subject.",
     sourceMode.shouldContinueMetaphor
       ? "- Continue the metaphor instead of stepping outside it to explain product strategy."
       : "- Do not over-interpret the post beyond what it actually says.",
+    !policy.allowBusinessInference
+      ? "- Do not turn snacks, sleep, errands, vibes, or jokes into work, product, startup, or operator advice unless the post itself is already there."
+      : "- Business/product language is allowed only when it is already grounded in the visible post.",
+    !policy.allowAdvice
+      ? "- Do not give unsolicited self-improvement, productivity, or behavioral advice."
+      : "- Advice is only useful if it feels naturally invited by the source post.",
+    policy.preferShortRiff
+      ? "- Prefer one short human riff over a useful next layer or mini-framework."
+      : "- Add value without turning the reply into a mini post.",
     "",
     "CREATOR REPLY STYLE:",
     buildCreatorReplyStyleBlock(args.creatorAgentContext),
@@ -575,6 +605,12 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     sourceMode.shouldContinueMetaphor
       ? "11. For this reply, do not explain the joke. Add to the joke."
       : "11. Do not over-explain the source post.",
+    !policy.allowBusinessInference
+      ? "12. Do not introduce startup, product, workflow, or operator framing that is not already in the source."
+      : "12. If you use business language, it must stay anchored to terms the source already introduced.",
+    !policy.allowAdvice
+      ? "13. Do not tell the author what they should do next."
+      : "13. If you give advice, keep it native and directly grounded in the source.",
     "",
     "OPTIONAL REPLY LENS:",
     useIntentOverlay
@@ -619,6 +655,7 @@ export function buildReplyDraftUserPrompt(args: Pick<
       : []),
     ...(args.preflightResult
       ? [
+          `Classifier source shape: ${args.preflightResult.source_shape}`,
           `Classifier reply mode: ${args.preflightResult.recommended_reply_mode}`,
           `Classifier post intent: ${args.preflightResult.post_intent}`,
           "",

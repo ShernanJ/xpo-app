@@ -47,7 +47,9 @@ export function inferReplySourceMode(args: {
     return heuristicMode;
   }
 
-  const isPlayful = args.preflightResult.recommended_reply_mode === "joke_riff";
+  const isPlayful =
+    args.preflightResult.recommended_reply_mode === "joke_riff" ||
+    args.preflightResult.source_shape === "joke_setup";
   return {
     isPlayful,
     shouldContinueMetaphor: isPlayful && hasAnalogy,

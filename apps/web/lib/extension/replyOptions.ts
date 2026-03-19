@@ -1,10 +1,12 @@
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
+import type { ReplyDraftPreflightResult } from "./types.ts";
 import { buildReplyGroundingPacket } from "./replyDraft.ts";
 import {
   buildReplyIntentPlansFromOpportunity,
   buildReplyLearningNotes,
 } from "./replyIntent.ts";
+import { buildCasualReplyText } from "./casualReply.ts";
 import {
   collectKeywords,
   normalizeComparable,
@@ -18,6 +20,11 @@ import type {
   ExtensionSuggestedAngle,
 } from "./types.ts";
 import type { ReplyInsights } from "./replyOpportunities.ts";
+import type { ReplyConstraintPolicy } from "../reply-engine/index.ts";
+import {
+  classifyReplyDraftMode,
+  resolveReplyConstraintPolicy,
+} from "../reply-engine/index.ts";
 
 function inferLowercasePreference(styleCard: VoiceStyleCard | null): boolean {
   if (!styleCard) {
@@ -144,6 +151,72 @@ function buildTemplate(args: {
   }
 }
 
+function sourceInvitesPlayfulPushback(text: string) {
+  const normalized = normalizeComparable(text);
+  return /\b(always|never|worst|best|illegal|overrated|underrated|shouldn'?t)\b/.test(normalized);
+}
+
+function buildCasualTemplate(args: {
+  label: ExtensionSuggestedAngle;
+  candidate: ExtensionOpportunityCandidate;
+  concise: boolean;
+}) {
+  switch (args.label) {
+    case "sharpen":
+      return buildCasualReplyText({
+        sourceText: args.candidate.text,
+        variant: "pile_on",
+        concise: args.concise,
+      });
+    case "disagree":
+      return sourceInvitesPlayfulPushback(args.candidate.text)
+        ? `counterpoint: ${buildCasualReplyText({
+            sourceText: args.candidate.text,
+            variant: "deadpan",
+            concise: true,
+          })}`
+        : buildCasualReplyText({
+            sourceText: args.candidate.text,
+            variant: "deadpan",
+            concise: args.concise,
+          });
+    case "example":
+    case "translate":
+    case "known_for":
+    case "nuance":
+    default:
+      return buildCasualReplyText({
+        sourceText: args.candidate.text,
+        variant: "relatable",
+        concise: args.concise,
+      });
+  }
+}
+
+function buildCasualLabels(base: ExtensionSuggestedAngle): ExtensionSuggestedAngle[] {
+  const next = [base, "sharpen", "nuance", "disagree"];
+  return next.filter((label, index) => next.indexOf(label) === index).slice(0, 3);
+}
+
+export async function prepareExtensionReplyOptionsPolicy(args: {
+  post: ExtensionOpportunityCandidate;
+  strategy: GrowthStrategySnapshot;
+}) {
+  const preflightResult = await classifyReplyDraftMode({
+    sourceText: args.post.text,
+  });
+  const policy = resolveReplyConstraintPolicy({
+    sourceText: args.post.text,
+    strategy: args.strategy,
+    preflightResult,
+  });
+
+  return {
+    preflightResult,
+    policy,
+  };
+}
+
 export function buildExtensionReplyOptions(args: {
   post: ExtensionOpportunityCandidate;
   opportunity: ExtensionOpportunity;
@@ -154,9 +227,18 @@ export function buildExtensionReplyOptions(args: {
   tone: string;
   goal: string;
   replyInsights?: ReplyInsights | null;
+  preflightResult?: ReplyDraftPreflightResult | null;
+  policy?: ReplyConstraintPolicy | null;
 }): ExtensionReplyOptionsResponse {
   const lowercase = inferLowercasePreference(args.styleCard);
   const concise = inferConcisePreference(args.styleCard);
+  const policy =
+    args.policy ||
+    resolveReplyConstraintPolicy({
+      sourceText: args.post.text,
+      strategy: args.strategy,
+      preflightResult: args.preflightResult || null,
+    });
   const intents = buildReplyIntentPlansFromOpportunity({
     post: args.post,
     opportunity: args.opportunity,
@@ -169,7 +251,7 @@ export function buildExtensionReplyOptions(args: {
     ...args.strategy.ambiguities.slice(0, 1),
   ];
   const groundingNotes = [
-    `Anchored to ${args.strategyPillar}.`,
+    ...(policy.allowStrategyLens ? [`Anchored to ${args.strategyPillar}.`] : ["Staying literal to the visible post only."]),
     `Known for ${args.strategy.knownFor}.`,
     ...args.strategy.truthBoundary.verifiedFacts.slice(0, 1),
     ...buildReplyLearningNotes(args.replyInsights),
@@ -189,9 +271,46 @@ export function buildExtensionReplyOptions(args: {
     angleLabel: args.opportunity.suggestedAngle,
   });
 
-  const seen = new Set<string>();
-  const fallback = `the useful nuance is ${buildPillarLens(args.strategyPillar)}. that's the part that makes the point usable instead of just agreeable.`;
-  const options = intents
+  const fallback = policy.treatAsLowSignalCasual
+    ? buildCasualReplyText({
+        sourceText: args.post.text,
+        variant: "relatable",
+      })
+    : `the useful nuance is ${buildPillarLens(args.strategyPillar)}. that's the part that makes the point usable instead of just agreeable.`;
+  const casualSeen = new Set<string>();
+  const casualOptions = buildCasualLabels(args.opportunity.suggestedAngle)
+    .map((label, index) => {
+      const sanitized = sanitizeReplyText({
+        candidate: buildCasualTemplate({
+          label,
+          candidate: args.post,
+          concise,
+        }),
+        fallbackText: fallback,
+        sourceText: args.post.text,
+        strategyPillar: args.strategyPillar,
+        strategy: args.strategy,
+        groundingPacket,
+        styleCard: args.styleCard,
+        preflightResult: args.preflightResult || null,
+        policy,
+      });
+      const nextText = applyVoiceCase(sanitized, lowercase);
+      const dedupeKey = normalizeComparable(nextText);
+      if (!dedupeKey || casualSeen.has(dedupeKey)) {
+        return null;
+      }
+
+      casualSeen.add(dedupeKey);
+      return {
+        id: `${label}-${index + 1}`,
+        label,
+        text: nextText,
+      };
+    })
+    .filter((option): option is NonNullable<typeof option> => Boolean(option));
+  const strategicSeen = new Set<string>();
+  const strategicOptions = intents
     .map((intent) => {
       const template = buildTemplate({
         label: intent.angleLabel,
@@ -208,16 +327,18 @@ export function buildExtensionReplyOptions(args: {
         strategy: args.strategy,
         groundingPacket,
         styleCard: args.styleCard,
+        preflightResult: args.preflightResult || null,
+        policy,
       });
       const nextText = applyVoiceCase(sanitized, lowercase);
       const dedupeKey = normalizeComparable(nextText);
-      if (!dedupeKey || seen.has(dedupeKey)) {
+      if (!dedupeKey || strategicSeen.has(dedupeKey)) {
         return null;
       }
 
-      seen.add(dedupeKey);
+      strategicSeen.add(dedupeKey);
       return {
-        id: `${intent.angleLabel}-${seen.size}`,
+        id: `${intent.angleLabel}-${strategicSeen.size}`,
         label: intent.angleLabel,
         text: nextText,
         intent: {
@@ -230,6 +351,7 @@ export function buildExtensionReplyOptions(args: {
     })
     .filter((option): option is NonNullable<typeof option> => Boolean(option))
     .slice(0, 3);
+  const options = policy.treatAsLowSignalCasual ? casualOptions : strategicOptions;
   const fallbackOption = applyVoiceCase(
     sanitizeReplyText({
       candidate: fallback,
@@ -239,13 +361,25 @@ export function buildExtensionReplyOptions(args: {
       strategy: args.strategy,
       groundingPacket,
       styleCard: args.styleCard,
+      preflightResult: args.preflightResult || null,
+      policy,
     }),
     lowercase,
   );
 
   return {
     options: options.length > 0 ? options : [{ id: "nuance-1", label: "nuance", text: fallbackOption }],
-    warnings,
-    groundingNotes,
+    warnings: [
+      ...warnings,
+      ...(policy.treatAsLowSignalCasual
+        ? ["Source reads as a casual/off-niche observation, so options stay literal on purpose."]
+        : []),
+    ],
+    groundingNotes: [
+      ...groundingNotes,
+      ...(policy.treatAsLowSignalCasual
+        ? ["Literal casual riff mode is active; no strategy or business overlay was applied."]
+        : []),
+    ],
   };
 }

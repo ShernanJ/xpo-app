@@ -342,6 +342,7 @@ test("reply draft prompt prioritizes lane-matched anchors and anti-pattern guida
       op_tone: "practical",
       post_intent: "push a useful next layer",
       recommended_reply_mode: "insightful_add_on",
+      source_shape: "strategic_take",
     },
     goldenExamples: [
       {
@@ -371,6 +372,7 @@ test("reply draft prompt prioritizes lane-matched anchors and anti-pattern guida
       op_tone: "practical",
       post_intent: "push a useful next layer",
       recommended_reply_mode: "insightful_add_on",
+      source_shape: "strategic_take",
     },
   });
 
@@ -534,6 +536,7 @@ test("reply draft prompt injects explicit playful tone enforcement", () => {
       op_tone: "playful",
       post_intent: "riff on a joke or observation",
       recommended_reply_mode: "joke_riff",
+      source_shape: "joke_setup",
     },
   });
 
@@ -575,6 +578,7 @@ test("reply draft prompt trusts joke-riff preflight for playful source handling"
       op_tone: "playful",
       post_intent: "riff on a joke or observation",
       recommended_reply_mode: "joke_riff",
+      source_shape: "joke_setup",
     },
   });
 
@@ -597,7 +601,88 @@ test("buildExtensionReplyDraft keeps playful fallback copy casual", () => {
   });
 
   assert.equal(result.response.options[0]?.text.includes("whole bit"), true);
-  assert.equal(result.response.options[1]?.text.includes("serious reply would ruin it"), true);
+  assert.equal(result.response.options[1]?.text.includes("serious"), true);
+  assert.equal(result.response.options[1]?.text.includes("ruin it"), true);
+});
+
+test("casual observation drafts drop the strategic lens and stay literal", () => {
+  const generation = buildReplyDraftGenerationContext({
+    request: {
+      tweetId: "tweet_9e",
+      tweetText: "Just had a full bag of chips #fuckit",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/9e",
+      stage: "0_to_1k",
+      tone: "playful",
+      goal: "followers",
+    },
+    strategy,
+    preflightResult: {
+      op_tone: "casual",
+      post_intent: "share a casual observation or shrug",
+      recommended_reply_mode: "joke_riff",
+      source_shape: "casual_observation",
+    },
+  });
+
+  const systemPrompt = buildReplyDraftSystemPrompt({
+    request: {
+      tweetId: "tweet_9e",
+      tweetText: "Just had a full bag of chips #fuckit",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/9e",
+      stage: "0_to_1k",
+      tone: "playful",
+      goal: "followers",
+    },
+    strategy,
+    generation,
+    preflightResult: {
+      op_tone: "casual",
+      post_intent: "share a casual observation or shrug",
+      recommended_reply_mode: "joke_riff",
+      source_shape: "casual_observation",
+    },
+  });
+
+  assert.equal(generation.intent, null);
+  assert.equal(
+    systemPrompt.includes(
+      "Do not turn snacks, sleep, errands, vibes, or jokes into work, product, startup, or operator advice unless the post itself is already there.",
+    ),
+    true,
+  );
+  assert.equal(systemPrompt.includes("No aligned strategic lens. Stay with the literal post and creator voice instead."), true);
+  assert.equal(systemPrompt.includes("Do not tell the author what they should do next."), true);
+});
+
+test("buildExtensionReplyDraft keeps casual observation fallback copy out of business advice", () => {
+  const result = buildExtensionReplyDraft({
+    request: {
+      tweetId: "tweet_9f",
+      tweetText: "Just had a full bag of chips #fuckit",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/9f",
+      stage: "0_to_1k",
+      tone: "playful",
+      goal: "followers",
+    },
+    strategy,
+    preflightResult: {
+      op_tone: "casual",
+      post_intent: "share a casual observation or shrug",
+      recommended_reply_mode: "joke_riff",
+      source_shape: "casual_observation",
+    },
+  });
+
+  assert.equal(result.response.options.every((option) => option.intent === undefined), true);
+  assert.equal(
+    result.response.options.every(
+      (option) => !/\b(sprint|workflow|operator|product|startup|next build)\b/i.test(option.text),
+    ),
+    true,
+  );
 });
 
 test("reply draft stream cleanup strips labels, markdown, hashtags, and emoji wrappers", () => {
@@ -752,8 +837,51 @@ test("looksAcceptableReplyDraft rejects serious product language when preflight 
       op_tone: "playful",
       post_intent: "riff on a joke or observation",
       recommended_reply_mode: "joke_riff",
+      source_shape: "joke_setup",
     },
   });
 
   assert.equal(rejected, false);
+});
+
+test("looksAcceptableReplyDraft rejects business and advice drift on casual observations", () => {
+  const businessDrift = looksAcceptableReplyDraft({
+    draft: "chips are the unofficial fuel for sprint sessions",
+    sourceContext: {
+      primaryPost: {
+        id: "tweet_16",
+        url: "https://x.com/creator/status/16",
+        text: "Just had a full bag of chips #fuckit",
+        authorHandle: "creator",
+        postType: "original",
+      },
+    },
+    preflightResult: {
+      op_tone: "casual",
+      post_intent: "share a casual observation or shrug",
+      recommended_reply_mode: "joke_riff",
+      source_shape: "casual_observation",
+    },
+  });
+  const adviceDrift = looksAcceptableReplyDraft({
+    draft: "just remember to swap that for a quick walk before the next build",
+    sourceContext: {
+      primaryPost: {
+        id: "tweet_17",
+        url: "https://x.com/creator/status/17",
+        text: "Just had a full bag of chips #fuckit",
+        authorHandle: "creator",
+        postType: "original",
+      },
+    },
+    preflightResult: {
+      op_tone: "casual",
+      post_intent: "share a casual observation or shrug",
+      recommended_reply_mode: "joke_riff",
+      source_shape: "casual_observation",
+    },
+  });
+
+  assert.equal(businessDrift, false);
+  assert.equal(adviceDrift, false);
 });

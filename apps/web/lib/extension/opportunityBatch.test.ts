@@ -406,3 +406,24 @@ test("scoreOpportunityCandidate safely falls back when viewCount is invalid", ()
   assert.equal(scored.opportunity.scoringBreakdown.conversation_quality, 86);
   assert.equal(Number.isFinite(scored.opportunity.scoringBreakdown.visibility_potential), true);
 });
+
+test("scoreOpportunityCandidate penalizes casual off-niche life updates", () => {
+  const scored = scoreCandidate(
+    makeCandidate({
+      text: "Just had a full bag of chips #fuckit",
+      engagement: {
+        replyCount: 1,
+        viewCount: 240,
+      },
+    }),
+  );
+
+  assert.equal(scored.opportunity.scoringBreakdown.off_niche_risk >= 70, true);
+  assert.equal(scored.opportunity.scoringBreakdown.genericity_risk >= 45, true);
+  assert.equal(scored.opportunity.scoringBreakdown.conversation_quality <= 54, true);
+  assert.equal(["watch", "dont_reply"].includes(scored.opportunity.verdict), true);
+  assert.equal(
+    scored.storedNotes.batchNotes.some((note) => note.includes("Casual/off-niche penalty applied")),
+    true,
+  );
+});

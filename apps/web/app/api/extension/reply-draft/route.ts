@@ -20,6 +20,7 @@ import { recordProductEvent } from "@/lib/productEvents";
 import {
   analyzeReplySourceVisualContext,
   buildReplySourceContextFromExtensionRequest,
+  classifyReplyDraftMode,
   DEFAULT_REPLY_PREFLIGHT_MODEL,
   generateReplyDraftText,
   looksAcceptableReplyDraft,
@@ -126,10 +127,17 @@ export async function POST(request: NextRequest) {
     strategySnapshot: userContext.context.growthStrategySnapshot,
     replyInsights,
   });
+  const visualContext = await visualContextPromise;
+  const preflightResult = await classifyReplyDraftMode({
+    sourceText: parsed.data.tweetText,
+    quotedText: parsed.data.quotedPost?.tweetText || null,
+    imageSummaryLines: visualContext?.summaryLines || [],
+  });
   const generation = buildReplyDraftGenerationContext({
     request: parsed.data,
     strategy: userContext.context.growthStrategySnapshot,
     replyInsights,
+    preflightResult,
   });
   const creatorProfileHints = buildCreatorProfileHintsFromOnboarding({
     runId: userContext.storedRun.runId,
@@ -140,7 +148,6 @@ export async function POST(request: NextRequest) {
     creatorProfileHints,
     creatorAgentContext: userContext.context,
   });
-  const visualContext = await visualContextPromise;
   const promptPacket = await prepareExtensionReplyDraftPromptPacket({
     request: parsed.data,
     strategy: userContext.context.growthStrategySnapshot,
@@ -154,6 +161,7 @@ export async function POST(request: NextRequest) {
     xHandle: userContext.xHandle,
     sourceContext,
     visualContext,
+    preflightResult,
   });
 
   const chatCompletion = await groq.chat.completions.create({
@@ -256,7 +264,7 @@ export async function POST(request: NextRequest) {
           id: "draft-1",
           label: parsed.data.tone === "bold" ? "bold" : "safe",
           text: resolvedDraft.draft,
-          intent: generation.intent,
+          ...(generation.intent ? { intent: generation.intent } : {}),
           replyMode: promptPacket.preflightResult.recommended_reply_mode,
         };
 

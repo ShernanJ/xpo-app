@@ -9,6 +9,7 @@ test("classifyReplyDraftMode falls back to joke riff for playful posts in tests"
   });
 
   assert.equal(result.recommended_reply_mode, "joke_riff");
+  assert.equal(result.source_shape, "joke_setup");
 });
 
 test("classifyReplyDraftMode falls back to joke riff for self-own shitposts in tests", async () => {
@@ -17,6 +18,7 @@ test("classifyReplyDraftMode falls back to joke riff for self-own shitposts in t
   });
 
   assert.equal(result.recommended_reply_mode, "joke_riff");
+  assert.equal(result.source_shape, "joke_setup");
 });
 
 test("classifyReplyDraftMode falls back to joke riff for internet slang sarcasm in tests", async () => {
@@ -25,6 +27,16 @@ test("classifyReplyDraftMode falls back to joke riff for internet slang sarcasm 
   });
 
   assert.equal(result.recommended_reply_mode, "joke_riff");
+  assert.equal(result.source_shape, "joke_setup");
+});
+
+test("classifyReplyDraftMode tags casual self-reports as casual observations", async () => {
+  const result = await classifyReplyDraftMode({
+    sourceText: "Just had a full bag of chips #fuckit",
+  });
+
+  assert.equal(result.recommended_reply_mode, "joke_riff");
+  assert.equal(result.source_shape, "casual_observation");
 });
 
 test("classifyReplyDraftMode falls back to empathetic support for emotionally heavy posts in tests", async () => {
@@ -33,6 +45,7 @@ test("classifyReplyDraftMode falls back to empathetic support for emotionally he
   });
 
   assert.equal(result.recommended_reply_mode, "empathetic_support");
+  assert.equal(result.source_shape, "emotional_update");
 });
 
 test("classifyReplyDraftMode defaults to insightful add-on when no strong heuristic fires", async () => {
@@ -41,4 +54,5 @@ test("classifyReplyDraftMode defaults to insightful add-on when no strong heuris
   });
 
   assert.equal(result.recommended_reply_mode, "insightful_add_on");
+  assert.equal(result.source_shape, "strategic_take");
 });

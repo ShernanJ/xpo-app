@@ -21,8 +21,10 @@ import {
 import {
   buildReplyIntentPlanForDraft,
   buildReplyLearningNotes,
+  pickReplyStrategyPillar,
   type ExtensionReplyIntentPlan,
 } from "./replyIntent.ts";
+import { buildCasualReplyText } from "./casualReply.ts";
 import { collectKeywords, normalizeWhitespace, sanitizeReplyText } from "./replyQuality.ts";
 import type { ReplyInsights } from "./replyOpportunities.ts";
 import type {
@@ -31,6 +33,8 @@ import type {
   ExtensionReplyDraftResponse,
   ExtensionReplyOption,
 } from "./types";
+import type { ReplyConstraintPolicy } from "../reply-engine/index.ts";
+import { resolveReplyConstraintPolicy } from "../reply-engine/index.ts";
 
 export interface ExtensionReplyDraftBuildResult {
   response: ExtensionReplyDraftResponse;
@@ -43,7 +47,8 @@ export interface ReplyDraftGenerationContext {
   strategyPillar: string;
   angleLabel: string;
   groundingPacket: GroundingPacket;
-  intent: ExtensionReplyIntentMetadata;
+  intent: ExtensionReplyIntentMetadata | null;
+  policy: ReplyConstraintPolicy;
   notes: string[];
 }
 
@@ -128,7 +133,15 @@ function buildPrimaryFallbackReply(args: {
   strategy: GrowthStrategySnapshot;
   pillar: string;
   focusPhrase: string | null;
+  policy: ReplyConstraintPolicy;
 }) {
+  if (args.policy.sourceShape === "casual_observation") {
+    return buildCasualReplyText({
+      sourceText: args.request.tweetText,
+      variant: "relatable",
+    });
+  }
+
   const lens = buildPillarLens(args.pillar);
   const lead =
     args.request.tone === "dry"
@@ -160,7 +173,16 @@ function buildSecondaryFallbackReply(args: {
   request: ExtensionReplyDraftRequest;
   pillar: string;
   focusPhrase: string | null;
+  policy: ReplyConstraintPolicy;
 }) {
+  if (args.policy.sourceShape === "casual_observation") {
+    return buildCasualReplyText({
+      sourceText: args.request.tweetText,
+      variant: args.request.tone === "playful" ? "pile_on" : "deadpan",
+      concise: args.request.tone === "dry",
+    });
+  }
+
   const lens = buildPillarLens(args.pillar);
   const focus = args.focusPhrase || "the headline";
   const lead = args.request.tone === "warm" ? "yeah but" : "hotter take:";
@@ -191,7 +213,8 @@ function resolveReplyIntentPlan(args: {
   strategy: GrowthStrategySnapshot;
   replyInsights?: ReplyInsights | null;
   selectedIntent?: ExtensionReplyIntentMetadata;
-}): ExtensionReplyIntentPlan {
+  policy: ReplyConstraintPolicy;
+}): ExtensionReplyIntentPlan | null {
   if (args.selectedIntent) {
     return {
       angleLabel: args.selectedIntent.label,
@@ -201,6 +224,10 @@ function resolveReplyIntentPlan(args: {
       rationale: args.selectedIntent.rationale,
       anchor: args.selectedIntent.anchor,
     };
+  }
+
+  if (!args.policy.allowStrategyLens) {
+    return null;
   }
 
   return buildReplyIntentPlanForDraft({
@@ -216,32 +243,60 @@ export function buildReplyDraftGenerationContext(args: {
   strategy: GrowthStrategySnapshot;
   replyInsights?: ReplyInsights | null;
   selectedIntent?: ExtensionReplyIntentMetadata;
+  preflightResult?: ReplyDraftPreflightResult | null;
 }): ReplyDraftGenerationContext {
-  const intentPlan = resolveReplyIntentPlan(args);
+  const policy = resolveReplyConstraintPolicy({
+    sourceText: args.request.tweetText,
+    quotedText: args.request.quotedPost?.tweetText || null,
+    strategy: args.strategy,
+    preflightResult: args.preflightResult || null,
+  });
+  const defaultStrategyPillar =
+    args.selectedIntent?.strategyPillar ||
+    pickReplyStrategyPillar({
+      sourceText: args.request.tweetText,
+      strategy: args.strategy,
+    });
+  const intentPlan = resolveReplyIntentPlan({
+    ...args,
+    policy,
+  });
+  const strategyPillar = intentPlan?.strategyPillar || defaultStrategyPillar;
+  const angleLabel = intentPlan?.angleLabel || "nuance";
   const groundingPacket = buildReplyGroundingPacket({
     request: args.request,
     strategy: args.strategy,
-    strategyPillar: intentPlan.strategyPillar,
-    angleLabel: intentPlan.angleLabel,
+    strategyPillar,
+    angleLabel,
   });
   const notes = [
-    `Anchored to: ${intentPlan.strategyPillar}`,
-    `Angle: ${intentPlan.angleLabel.replace(/_/g, " ")}`,
-    `Intent: ${intentPlan.rationale}`,
+    ...(intentPlan
+      ? [
+          `Anchored to: ${intentPlan.strategyPillar}`,
+          `Angle: ${intentPlan.angleLabel.replace(/_/g, " ")}`,
+          `Intent: ${intentPlan.rationale}`,
+        ]
+      : [
+          `Source shape: ${policy.sourceShape.replace(/_/g, " ")}`,
+          "No strategic lens selected: stay literal to the post and keep the reply conversational.",
+        ]),
     ...buildReplyLearningNotes(args.replyInsights),
     ...args.strategy.ambiguities.slice(0, 1).map((entry) => `Tentative positioning: ${entry}`),
   ];
 
   return {
-    strategyPillar: intentPlan.strategyPillar,
-    angleLabel: intentPlan.angleLabel,
+    strategyPillar,
+    angleLabel,
     groundingPacket,
-    intent: {
-      label: intentPlan.label,
-      strategyPillar: intentPlan.strategyPillar,
-      anchor: intentPlan.anchor,
-      rationale: intentPlan.rationale,
-    },
+    intent: intentPlan
+      ? {
+          label: intentPlan.label,
+          strategyPillar: intentPlan.strategyPillar,
+          anchor: intentPlan.anchor,
+          rationale: intentPlan.rationale,
+        }
+      : null,
+    policy,
     notes,
   };
 }
@@ -318,6 +373,7 @@ export async function prepareExtensionReplyDraftPromptPacket(args: {
   xHandle?: string | null;
   sourceContext?: ReplySourceContext | null;
   visualContext?: ReplyVisualContextSummary | null;
+  preflightResult?: ReplyDraftPreflightResult | null;
 }): Promise<PreparedReplyPromptPacket> {
   const sourceContext = args.sourceContext || buildReplySourceContextFromExtensionRequest(args.request);
 
@@ -339,6 +395,7 @@ export async function prepareExtensionReplyDraftPromptPacket(args: {
     maxCharacterLimit: 280,
     userHandle: args.xHandle || null,
     visualContext: args.visualContext,
+    preflightResult: args.preflightResult || null,
     retrievalContext:
       args.userId && args.xHandle
         ? {
@@ -359,6 +416,7 @@ function sanitizeReplyOption(args: {
   groundingPacket: GroundingPacket;
   sourceText: string;
   strategyPillar: string;
+  policy?: ReplyConstraintPolicy | null;
 }) {
   return {
     ...args.option,
@@ -369,6 +427,7 @@ function sanitizeReplyOption(args: {
       strategyPillar: args.strategyPillar,
       strategy: args.strategy,
       groundingPacket: args.groundingPacket,
+      policy: args.policy || null,
     }),
   };
 }
@@ -379,18 +438,27 @@ export function buildExtensionReplyDraft(args: {
   replyInsights?: ReplyInsights | null;
   selectedIntent?: ExtensionReplyIntentMetadata;
 }): ExtensionReplyDraftBuildResult {
-  const intentPlan = resolveReplyIntentPlan(args);
-  const strategyPillar = intentPlan.strategyPillar;
-  const angleLabel = intentPlan.angleLabel;
-  const focusPhrase = intentPlan.focusPhrase ?? pickFocusPhrase(args.request.tweetText);
   const generation = buildReplyDraftGenerationContext(args);
+  const strategyPillar = generation.strategyPillar;
+  const angleLabel = generation.angleLabel;
+  const focusPhrase = pickFocusPhrase(args.request.tweetText);
   const groundingPacket = generation.groundingPacket;
   const safeFallback =
-    args.request.tone === "playful"
+    generation.policy.sourceShape === "casual_observation"
+      ? buildCasualReplyText({
+          sourceText: args.request.tweetText,
+          variant: "relatable",
+        })
+      : args.request.tone === "playful"
       ? `${focusPhrase || "this"} being the whole bit is kind of perfect honestly.`
       : `the missing layer is ${buildPillarLens(strategyPillar)}. that's usually what makes the point usable instead of just agreeable.`;
   const boldFallback =
-    args.request.tone === "playful"
+    generation.policy.sourceShape === "casual_observation"
+      ? buildCasualReplyText({
+          sourceText: args.request.tweetText,
+          variant: "deadpan",
+        })
+      : args.request.tone === "playful"
       ? `hotter take: ${focusPhrase || "the joke"} working this well is exactly why a serious reply would ruin it.`
       : `hotter take: without ${buildPillarLens(strategyPillar)}, this stays interesting but not actionable.`;
   const options = [
@@ -403,19 +471,16 @@ export function buildExtensionReplyDraft(args: {
           strategy: args.strategy,
           pillar: strategyPillar,
           focusPhrase,
+          policy: generation.policy,
         }),
-        intent: {
-          label: intentPlan.label,
-          strategyPillar,
-          anchor: intentPlan.anchor,
-          rationale: intentPlan.rationale,
-        },
+        ...(generation.intent ? { intent: generation.intent } : {}),
       },
       fallbackText: safeFallback,
       strategy: args.strategy,
       groundingPacket,
       sourceText: args.request.tweetText,
       strategyPillar,
+      policy: generation.policy,
     }),
     sanitizeReplyOption({
       option: {
@@ -425,19 +490,16 @@ export function buildExtensionReplyDraft(args: {
           request: args.request,
           pillar: strategyPillar,
           focusPhrase,
+          policy: generation.policy,
         }),
-        intent: {
-          label: intentPlan.label,
-          strategyPillar,
-          anchor: intentPlan.anchor,
-          rationale: intentPlan.rationale,
-        },
+        ...(generation.intent ? { intent: generation.intent } : {}),
       },
       fallbackText: boldFallback,
       strategy: args.strategy,
       groundingPacket,
       sourceText: args.request.tweetText,
       strategyPillar,
+      policy: generation.policy,
     }),
   ];
 

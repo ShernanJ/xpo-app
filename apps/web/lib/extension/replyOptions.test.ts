@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildExtensionReplyOptions } from "./replyOptions.ts";
+import {
+  buildExtensionReplyOptions,
+  prepareExtensionReplyOptionsPolicy,
+} from "./replyOptions.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 
 const strategy: GrowthStrategySnapshot = {
@@ -393,6 +396,144 @@ test("buildExtensionReplyOptions biases the first option toward converting learn
   assert.equal(response.options[0]?.label, "example");
   assert.equal(
     response.groundingNotes.some((entry) => entry.toLowerCase().includes("learning bias")),
+    true,
+  );
+});
+
+test("prepareExtensionReplyOptionsPolicy tags casual off-niche posts before generation", async () => {
+  const prepared = await prepareExtensionReplyOptionsPolicy({
+    post: {
+      postId: "post_5",
+      author: {
+        id: "author_5",
+        handle: "snacker",
+        name: "Snacker",
+        verified: false,
+        followerCount: 1800,
+      },
+      text: "Just had a full bag of chips #fuckit",
+      url: "https://x.com/snacker/status/5",
+      createdAtIso: "2026-03-11T13:00:00.000Z",
+      engagement: {
+        replyCount: 1,
+        repostCount: 0,
+        likeCount: 5,
+        quoteCount: 0,
+        viewCount: 240,
+      },
+      postType: "original",
+      conversation: {
+        conversationId: "conv_5",
+        inReplyToPostId: null,
+        inReplyToHandle: null,
+      },
+      media: {
+        hasMedia: false,
+        hasImage: false,
+        hasVideo: false,
+        hasGif: false,
+        hasLink: false,
+        hasPoll: false,
+      },
+      surface: "home",
+      captureSource: "graphql",
+      capturedAtIso: "2026-03-11T13:05:00.000Z",
+    },
+    strategy,
+  });
+
+  assert.equal(prepared.preflightResult.source_shape, "casual_observation");
+  assert.equal(prepared.policy.allowStrategyLens, false);
+  assert.equal(prepared.policy.allowBusinessInference, false);
+});
+
+test("buildExtensionReplyOptions uses literal casual riffs for off-niche observations", async () => {
+  const post = {
+    postId: "post_6",
+    author: {
+      id: "author_6",
+      handle: "snacker",
+      name: "Snacker",
+      verified: false,
+      followerCount: 1800,
+    },
+    text: "Just had a full bag of chips #fuckit",
+    url: "https://x.com/snacker/status/6",
+    createdAtIso: "2026-03-11T13:00:00.000Z",
+    engagement: {
+      replyCount: 1,
+      repostCount: 0,
+      likeCount: 5,
+      quoteCount: 0,
+      viewCount: 240,
+    },
+    postType: "original" as const,
+    conversation: {
+      conversationId: "conv_6",
+      inReplyToPostId: null,
+      inReplyToHandle: null,
+    },
+    media: {
+      hasMedia: false,
+      hasImage: false,
+      hasVideo: false,
+      hasGif: false,
+      hasLink: false,
+      hasPoll: false,
+    },
+    surface: "home" as const,
+    captureSource: "graphql" as const,
+    capturedAtIso: "2026-03-11T13:05:00.000Z",
+  };
+  const prepared = await prepareExtensionReplyOptionsPolicy({ post, strategy });
+  const response = buildExtensionReplyOptions({
+    post,
+    opportunity: {
+      opportunityId: "opp_6",
+      postId: "post_6",
+      score: 48,
+      verdict: "watch",
+      why: ["Low-signal casual observation."],
+      riskFlags: ["off niche risk"],
+      suggestedAngle: "nuance",
+      expectedValue: {
+        visibility: "low",
+        profileClicks: "low",
+        followConversion: "low",
+      },
+      scoringBreakdown: {
+        niche_match: 12,
+        audience_fit: 18,
+        freshness: 78,
+        conversation_quality: 32,
+        profile_click_potential: 22,
+        follow_conversion_potential: 18,
+        visibility_potential: 41,
+        spam_risk: 6,
+        off_niche_risk: 74,
+        genericity_risk: 52,
+        negative_signal_risk: 2,
+      },
+    },
+    strategy,
+    strategyPillar: "product positioning",
+    styleCard: null,
+    stage: "0-1k",
+    tone: "playful",
+    goal: "followers",
+    preflightResult: prepared.preflightResult,
+    policy: prepared.policy,
+  });
+
+  assert.equal(response.options.length >= 1, true);
+  assert.equal(
+    response.options.every(
+      (option) => !/\b(sprint|workflow|operator|product|startup|next build|remember to|you should)\b/i.test(option.text),
+    ),
+    true,
+  );
+  assert.equal(
+    response.groundingNotes.some((note) => note.includes("Literal casual riff mode is active")),
     true,
   );
 });

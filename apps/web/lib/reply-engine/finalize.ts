@@ -3,6 +3,10 @@ import type { ReplyDraftPreflightResult } from "../extension/types.ts";
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import { enforceVoiceStyleOnDraft } from "../agent-v2/core/voiceSignals.ts";
 
+import {
+  resolveReplyConstraintPolicy,
+  violatesReplyConstraintPolicy,
+} from "./policy.ts";
 import { inferReplySourceMode } from "./tone.ts";
 import type { ReplySourceContext } from "./types.ts";
 
@@ -236,7 +240,22 @@ export function looksAcceptableReplyDraft(args: {
     return false;
   }
 
+  const policy = resolveReplyConstraintPolicy({
+    sourceContext: args.sourceContext,
+    preflightResult: args.preflightResult,
+  });
+
   if (containsOffTopicProductDrift({ draft: normalized, sourceContext: args.sourceContext })) {
+    return false;
+  }
+
+  if (
+    violatesReplyConstraintPolicy({
+      draft: normalized,
+      sourceContext: args.sourceContext,
+      policy,
+    })
+  ) {
     return false;
   }
 

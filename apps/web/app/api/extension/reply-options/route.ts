@@ -13,7 +13,10 @@ import {
   mergeStoredOpportunityNotes,
   serializeStoredOpportunity,
 } from "../../../../lib/extension/opportunityBatch.ts";
-import { buildExtensionReplyOptions } from "../../../../lib/extension/replyOptions.ts";
+import {
+  buildExtensionReplyOptions,
+  prepareExtensionReplyOptionsPolicy,
+} from "../../../../lib/extension/replyOptions.ts";
 import { getReplyInsightsForUser } from "../../../../lib/extension/replyOpportunities.ts";
 import { recordProductEvent } from "../../../../lib/productEvents.ts";
 import {
@@ -105,6 +108,10 @@ export async function POST(request: NextRequest) {
       userId: auth.user.id,
       xHandle: userContext.xHandle,
     });
+    const { preflightResult, policy } = await prepareExtensionReplyOptionsPolicy({
+      post: parsed.data.post,
+      strategy: userContext.context.growthStrategySnapshot,
+    });
     const response = buildExtensionReplyOptions({
       post: parsed.data.post,
       opportunity: persistedOpportunity,
@@ -118,6 +125,8 @@ export async function POST(request: NextRequest) {
       tone: record.tone,
       goal: record.goal,
       replyInsights,
+      preflightResult,
+      policy,
     });
 
     if (!assertExtensionReplyOptionsResponseShape(response)) {
