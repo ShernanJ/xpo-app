@@ -22,6 +22,47 @@ interface ContentPatchRequest extends Record<string, unknown> {
 
 const VALID_CONTENT_STATUSES = new Set(["DRAFT", "PUBLISHED", "ARCHIVED"]);
 
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const session = await getServerSession();
+  if (!session?.user?.id) {
+    return NextResponse.json(
+      { ok: false, errors: [{ field: "auth", message: "Unauthorized" }] },
+      { status: 401 },
+    );
+  }
+
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
+  }
+
+  const { id } = await params;
+  const item = await findContentItemForWorkspace({
+    id,
+    userId: session.user.id,
+    xHandle: workspaceHandle.xHandle,
+  });
+  if (!item) {
+    return NextResponse.json(
+      { ok: false, errors: [{ field: "id", message: "Content item not found." }] },
+      { status: 404 },
+    );
+  }
+
+  return NextResponse.json({
+    ok: true,
+    data: {
+      item: serializeContentItem(item),
+    },
+  });
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },

@@ -891,7 +891,7 @@ function resolveVersionCharacterLimit(args: {
     return args.primaryArtifact.maxCharacterLimit;
   }
 
-  return selectedLimit;
+  return Math.min(selectedLimit, args.primaryArtifact.maxCharacterLimit);
 }
 
 export function buildInitialDraftVersionPayload(args: {

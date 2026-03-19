@@ -78,11 +78,16 @@ export async function GET(
     if (!ownedThread.ok) {
       return ownedThread.response;
     }
-    const thread = ownedThread.thread;
-
     const messages = await prisma.chatMessage.findMany({
       where: { threadId: threadId },
       orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        role: true,
+        content: true,
+        data: true,
+        createdAt: true,
+      },
     });
 
     const feedbackByMessageId = new Map<string, "up" | "down">();
@@ -123,7 +128,6 @@ export async function GET(
     return NextResponse.json({
       ok: true,
       data: {
-        thread,
         messages: responseMessages,
         activeTurn: buildActiveTurnPayload(activeTurn),
       },

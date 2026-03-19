@@ -30,7 +30,7 @@ import { buildChatWorkspaceUrl } from "@/lib/workspaceHandle";
 import type {
   ContentHubAuthorIdentity,
   ContentHubViewMode,
-  ContentItemRecord,
+  ContentItemSummaryRecord,
   ContentStatus,
   FolderRecord,
 } from "./contentHubTypes";
@@ -47,7 +47,7 @@ import {
   sortFoldersByName,
 } from "./contentHubViewState";
 
-interface ContentHubDialogProps {
+export interface ContentHubDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   fetchWorkspace: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -67,7 +67,7 @@ interface ContentHubInlineDialogProps {
 }
 
 interface ContentHubListItemButtonProps {
-  item: ContentItemRecord;
+  item: ContentItemSummaryRecord;
   isSelected: boolean;
   onSelect: (itemId: string) => void;
 }
@@ -228,6 +228,8 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
     folders,
     filteredItems,
     selectedItem,
+    selectedItemSummary,
+    selectedItemId,
     selectItem,
     viewMode,
     setViewMode,
@@ -247,6 +249,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
     setDraggingItemId,
     mobilePane,
     showBrowsePane,
+    isSelectedItemLoading,
   } = useContentHubState({
     open,
     fetchWorkspace,
@@ -265,10 +268,12 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
     () => groupContentItemsByGroup(filteredItems, sortedFolders),
     [filteredItems, sortedFolders],
   );
-  const isPreviewPaneVisibleOnMobile = mobilePane === "preview" && Boolean(selectedItem);
+  const activeItem = selectedItem ?? selectedItemSummary;
+  const isPreviewPaneVisibleOnMobile =
+    mobilePane === "preview" && Boolean(selectedItemSummary);
   const mobileDialogPane =
     isPreviewPaneVisibleOnMobile ? "right" : "left";
-  const selectedItemAction = selectedItem ? actionById[selectedItem.id] ?? null : null;
+  const selectedItemAction = activeItem ? actionById[activeItem.id] ?? null : null;
 
   useEffect(() => {
     if (!open) {
@@ -317,12 +322,12 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
   }
 
   async function handleMoveItem(nextStatus: ContentStatus) {
-    if (!selectedItem || selectedItem.status === nextStatus) {
+    if (!activeItem || activeItem.status === nextStatus) {
       return;
     }
 
     await updateItem(
-      selectedItem.id,
+      activeItem.id,
       { status: nextStatus },
       `move-${nextStatus.toLowerCase()}`,
     );
@@ -375,7 +380,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
       return;
     }
 
-    if (selectedItem?.folderId === folderId) {
+    if (activeItem?.folderId === folderId) {
       setEditingGroupName(renamedGroup.name);
     }
 
@@ -397,7 +402,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
   }
 
   function renderSectionedList(
-    groups: Array<{ id?: string | null; label: string; items: ContentItemRecord[] }>,
+    groups: Array<{ id?: string | null; label: string; items: ContentItemSummaryRecord[] }>,
   ) {
     return (
       <div className="space-y-3">
@@ -409,7 +414,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                 <ContentHubListItemButton
                   key={item.id}
                   item={item}
-                  isSelected={selectedItem?.id === item.id}
+                  isSelected={selectedItemId === item.id}
                   onSelect={selectItem}
                 />
               ))}
@@ -617,7 +622,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                                   type="button"
                                   onClick={() => selectItem(item.id)}
                                   className={`block w-full rounded-[1.25rem] text-left transition ${
-                                    selectedItem?.id === item.id
+                                    selectedItemId === item.id
                                       ? "ring-1 ring-white/20"
                                       : ""
                                   }`}
@@ -643,7 +648,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
         }
         rightPane={
           <div className="relative flex h-full min-h-0 flex-col">
-            {selectedItem ? (
+            {activeItem ? (
               <>
                 <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
                   <div className="space-y-4 pb-20">
@@ -651,11 +656,11 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                       <div className="min-w-0 flex-[999_1_18rem]">
                         <div className="flex items-start gap-2">
                           <h3 className="min-w-0 flex-1 text-lg font-semibold text-white">
-                            {selectedItem.title}
+                            {activeItem.title}
                           </h3>
                         </div>
                         <p className="mt-2 text-sm leading-6 text-zinc-500">
-                          Created {formatContentTimestamp(selectedItem.createdAt)}
+                          Created {formatContentTimestamp(activeItem.createdAt)}
                         </p>
                       </div>
 
@@ -667,7 +672,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                             </span>
                             <select
                               aria-label="Status:"
-                              value={selectedItem.status}
+                              value={activeItem.status}
                               disabled={Boolean(selectedItemAction)}
                               onChange={(event) => {
                                 void handleMoveItem(event.target.value as ContentStatus);
@@ -691,16 +696,16 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                                 <span className="sr-only">Group:</span>
                                 <select
                                   aria-label="Group:"
-                                  value={selectedItem.folderId ?? ""}
+                                  value={activeItem.folderId ?? ""}
                                   disabled={Boolean(selectedItemAction)}
                                   onChange={(event) => {
                                     if (event.target.value === ADD_NEW_GROUP_VALUE) {
-                                      openCreateGroupDialog(selectedItem.id);
+                                      openCreateGroupDialog(activeItem.id);
                                       return;
                                     }
 
                                     void updateItem(
-                                      selectedItem.id,
+                                      activeItem.id,
                                       { folderId: event.target.value || null },
                                       "group",
                                     );
@@ -733,21 +738,44 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                       </div>
                     </div>
 
-                    <MinimalXPostPreview
-                      item={selectedItem}
-                      identity={identity}
-                      isVerifiedAccount={isVerifiedAccount}
-                      variant="full"
-                    />
+                    {selectedItem ? (
+                      <MinimalXPostPreview
+                        item={selectedItem}
+                        identity={identity}
+                        isVerifiedAccount={isVerifiedAccount}
+                        variant="full"
+                      />
+                    ) : (
+                      <div className="rounded-[1.5rem] border border-white/10 bg-black/40 p-4">
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-medium text-white">
+                              Loading full preview...
+                            </p>
+                            {isSelectedItemLoading ? (
+                              <span className="text-xs text-zinc-500">Fetching details</span>
+                            ) : null}
+                          </div>
+                          <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-300">
+                            {activeItem.preview.primaryText || "Preparing preview content..."}
+                          </p>
+                          <div className="grid gap-2">
+                            <div className="h-3 rounded-full bg-white/6" />
+                            <div className="h-3 w-5/6 rounded-full bg-white/6" />
+                            <div className="h-3 w-2/3 rounded-full bg-white/6" />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {selectedItem.threadId ? (
+                {activeItem.threadId ? (
                   <a
                     href={buildChatWorkspaceUrl({
-                      threadId: selectedItem.threadId,
+                      threadId: activeItem.threadId,
                       xHandle: initialHandle,
-                      messageId: selectedItem.messageId,
+                      messageId: activeItem.messageId,
                     })}
                     onClick={() => onOpenChange(false)}
                     aria-label="Open in Chat"
@@ -757,9 +785,9 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                     <ExternalLink className="h-4 w-4" />
                     <span className="sr-only">Open in Chat</span>
                   </a>
-                ) : selectedItem.publishedTweetId && initialHandle ? (
+                ) : activeItem.publishedTweetId && initialHandle ? (
                   <a
-                    href={buildPublishedTweetHref(initialHandle, selectedItem.publishedTweetId)}
+                    href={buildPublishedTweetHref(initialHandle, activeItem.publishedTweetId)}
                     target="_blank"
                     rel="noreferrer"
                     aria-label="View Live Post"

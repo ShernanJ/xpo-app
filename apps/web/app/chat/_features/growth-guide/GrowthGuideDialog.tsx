@@ -26,7 +26,7 @@ interface PersonalizedPlaybookTemplate extends PlaybookTemplate {
   text: string;
 }
 
-interface GrowthGuideDialogProps {
+export interface GrowthGuideDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   playbookStage: PlaybookStageKey;

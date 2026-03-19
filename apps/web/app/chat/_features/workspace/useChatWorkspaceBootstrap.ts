@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useRef } from "react";
 
-import { resolveWorkspaceLoadState } from "./chatWorkspaceLoadState";
+import {
+  resolveWorkspaceBootstrapLoadState,
+  type WorkspaceBootstrapResponseLike,
+} from "./chatWorkspaceLoadState";
 
 interface ValidationError {
   message: string;
@@ -13,15 +16,6 @@ interface WorkspaceLoadFailureLike {
   code?: "MISSING_ONBOARDING_RUN" | "ONBOARDING_SOURCE_INVALID";
   errors: ValidationError[];
 }
-
-interface WorkspaceLoadSuccessLike<TData> {
-  ok: true;
-  data: TData;
-}
-
-type WorkspaceLoadResponseLike<TData> =
-  | WorkspaceLoadSuccessLike<TData>
-  | WorkspaceLoadFailureLike;
 
 interface OnboardingRunSuccess {
   ok: true;
@@ -45,6 +39,8 @@ interface WorkspaceLoadResult<TContextData, TContractData> {
   contextData?: TContextData;
   contractData?: TContractData;
 }
+
+type MissingOnboardingSetupResult = "succeeded" | "already_attempted" | "failed";
 
 interface UseChatWorkspaceBootstrapOptions<TContextData, TContractData, TStrategyInputs, TToneInputs> {
   accountName: string | null;
@@ -123,7 +119,7 @@ export function useChatWorkspaceBootstrap<
   const runMissingOnboardingSetup = useCallback(async (
     requestId: number,
     signal: AbortSignal,
-  ): Promise<boolean> => {
+  ): Promise<MissingOnboardingSetupResult> => {
     const isLatestRequest = () =>
       isMountedRef.current &&
       workspaceLoadRequestIdRef.current === requestId &&
@@ -134,16 +130,11 @@ export function useChatWorkspaceBootstrap<
       if (isLatestRequest()) {
         setErrorMessage("This account is not ready yet. Select a valid X handle first.");
       }
-      return false;
+      return "failed";
     }
 
     if (missingOnboardingSetupAttemptedRef.current.has(normalizedHandle)) {
-      if (isLatestRequest()) {
-        setErrorMessage(
-          "Setup for this account is still incomplete. Try refreshing chat in a few seconds.",
-        );
-      }
-      return false;
+      return "already_attempted";
     }
     missingOnboardingSetupAttemptedRef.current.add(normalizedHandle);
 
@@ -168,7 +159,7 @@ export function useChatWorkspaceBootstrap<
       });
 
       if (!isLatestRequest()) {
-        return false;
+        return "failed";
       }
 
       const data = (await response.json().catch(() => null)) as OnboardingRunResponse | null;
@@ -184,13 +175,13 @@ export function useChatWorkspaceBootstrap<
             ? (data.errors[0]?.message ?? "Could not finish setup for this account.")
             : "Could not finish setup for this account.";
         setErrorMessage(errorText);
-        return false;
+        return "failed";
       }
 
-      return true;
+      return "succeeded";
     } catch (error) {
       if (!isLatestRequest()) {
-        return false;
+        return "failed";
       }
 
       if (!(error instanceof DOMException && error.name === "AbortError")) {
@@ -198,7 +189,7 @@ export function useChatWorkspaceBootstrap<
           "Could not finish setting up this account automatically. Run onboarding once, then reopen chat.",
         );
       }
-      return false;
+      return "failed";
     } finally {
       if (isLatestRequest()) {
         setIsWorkspaceInitializing(false);
@@ -251,34 +242,23 @@ export function useChatWorkspaceBootstrap<
         };
         const runWorkspaceFetch = async (
           controller: AbortController,
+          allowMissingOnboardingRecovery = true,
         ): Promise<WorkspaceLoadResult<TContextData, TContractData>> => {
-          const [contextResponse, contractResponse] = await Promise.all([
-            fetchWorkspace("/api/creator/context", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              signal: controller.signal,
-              body: JSON.stringify(requestBody),
-            }),
-            fetchWorkspace("/api/creator/generation-contract", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              signal: controller.signal,
-              body: JSON.stringify(requestBody),
-            }),
-          ]);
+          const bootstrapResponse = await fetchWorkspace("/api/creator/workspace/bootstrap", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            signal: controller.signal,
+            body: JSON.stringify(requestBody),
+          });
 
           if (!isLatestRequest(controller.signal)) {
             return { ok: false };
           }
 
-          const contextData = (await contextResponse.json()) as WorkspaceLoadResponseLike<
-            TContextData
-          >;
-          const contractData = (await contractResponse.json()) as WorkspaceLoadResponseLike<
+          const bootstrapData = (await bootstrapResponse.json()) as WorkspaceBootstrapResponseLike<
+            TContextData,
             TContractData
           >;
 
@@ -286,22 +266,31 @@ export function useChatWorkspaceBootstrap<
             return { ok: false };
           }
 
-          const workspaceLoadState = resolveWorkspaceLoadState({
-            contextResponseOk: contextResponse.ok,
-            contextStatus: contextResponse.status,
-            contextData,
-            contractResponseOk: contractResponse.ok,
-            contractStatus: contractResponse.status,
-            contractData,
+          const workspaceLoadState = resolveWorkspaceBootstrapLoadState({
+            responseOk: bootstrapResponse.ok,
+            status: bootstrapResponse.status,
+            data: bootstrapData,
           });
 
           if (workspaceLoadState.status === "retry_after_onboarding") {
-            const didSetup = await runMissingOnboardingSetup(requestId, controller.signal);
-            if (!didSetup || !isLatestRequest(controller.signal)) {
+            if (!allowMissingOnboardingRecovery) {
+              if (isLatestRequest(controller.signal)) {
+                setErrorMessage(
+                  "Setup for this account is still incomplete. Try refreshing chat in a few seconds.",
+                );
+              }
               return { ok: false };
             }
 
-            return runWorkspaceFetch(assignActiveController());
+            const setupResult = await runMissingOnboardingSetup(requestId, controller.signal);
+            if (!isLatestRequest(controller.signal)) {
+              return { ok: false };
+            }
+            if (setupResult === "failed") {
+              return { ok: false };
+            }
+
+            return runWorkspaceFetch(assignActiveController(), false);
           }
 
           if (workspaceLoadState.status === "error") {

@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import type {
   ContentHubMutationResponse,
   ContentHubViewMode,
+  ContentItemDetailResponse,
   ContentItemRecord,
   ContentItemsResponse,
+  ContentItemSummaryRecord,
   ContentStatus,
   DeletedFolderRecord,
   FolderCreateResponse,
@@ -16,6 +18,9 @@ import type {
   FoldersResponse,
 } from "./contentHubTypes";
 import { filterContentItems, sortFoldersByName } from "./contentHubViewState";
+
+const INITIAL_CONTENT_PAGE_SIZE = 24;
+const CONTENT_SUMMARY_PREFETCH_LIMIT = 100;
 
 interface ValidationError {
   message?: string;
@@ -59,7 +64,7 @@ function findFolderById(folders: FolderRecord[], folderId: string | null) {
   return folders.find((folder) => folder.id === folderId) ?? null;
 }
 
-function replaceFolderInItems(items: ContentItemRecord[], folder: FolderRecord) {
+function replaceFolderInSummaryItems(items: ContentItemSummaryRecord[], folder: FolderRecord) {
   return items.map((item) =>
     item.folderId === folder.id
       ? {
@@ -70,7 +75,26 @@ function replaceFolderInItems(items: ContentItemRecord[], folder: FolderRecord) 
   );
 }
 
-function clearFolderFromItems(items: ContentItemRecord[], folderId: string) {
+function replaceFolderInDetails(
+  itemsById: Record<string, ContentItemRecord>,
+  folder: FolderRecord,
+) {
+  const next: Record<string, ContentItemRecord> = {};
+
+  for (const [itemId, item] of Object.entries(itemsById)) {
+    next[itemId] =
+      item.folderId === folder.id
+        ? {
+            ...item,
+            folder,
+          }
+        : item;
+  }
+
+  return next;
+}
+
+function clearFolderFromSummaryItems(items: ContentItemSummaryRecord[], folderId: string) {
   return items.map((item) =>
     item.folderId === folderId
       ? {
@@ -80,6 +104,26 @@ function clearFolderFromItems(items: ContentItemRecord[], folderId: string) {
         }
       : item,
   );
+}
+
+function clearFolderFromDetails(
+  itemsById: Record<string, ContentItemRecord>,
+  folderId: string,
+) {
+  const next: Record<string, ContentItemRecord> = {};
+
+  for (const [itemId, item] of Object.entries(itemsById)) {
+    next[itemId] =
+      item.folderId === folderId
+        ? {
+            ...item,
+            folderId: null,
+            folder: null,
+          }
+        : item;
+  }
+
+  return next;
 }
 
 function adjustFolderCount(
@@ -117,7 +161,88 @@ function reconcileFolderCounts(
   );
 }
 
-function applyOptimisticItemUpdate(
+function hasFullContentItemShape(
+  item: ContentItemSummaryRecord | ContentItemRecord,
+): item is ContentItemRecord {
+  return "sourcePrompt" in item;
+}
+
+function resolveContentPreview(
+  item: Partial<Pick<ContentItemSummaryRecord, "preview" | "artifact">>,
+) {
+  if (item.preview) {
+    return item.preview;
+  }
+
+  const threadPostCount = item.artifact?.posts?.length ?? 0;
+  const primaryText =
+    item.artifact?.posts?.[0]?.content?.trim() ??
+    item.artifact?.content?.trim() ??
+    "";
+
+  return {
+    primaryText,
+    threadPostCount,
+    isThread: threadPostCount > 1,
+  };
+}
+
+function normalizeContentItemDetail(item: ContentItemRecord): ContentItemRecord {
+  return {
+    ...item,
+    preview: resolveContentPreview(item),
+  };
+}
+
+function toContentItemSummary(
+  item: ContentItemSummaryRecord | ContentItemRecord,
+): ContentItemSummaryRecord {
+  return {
+    id: item.id,
+    title: item.title,
+    threadId: item.threadId,
+    messageId: item.messageId,
+    status: item.status,
+    folderId: item.folderId,
+    folder: item.folder,
+    publishedTweetId: item.publishedTweetId,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    postedAt: item.postedAt,
+    preview: resolveContentPreview(item),
+    ...(item.artifact !== undefined ? { artifact: item.artifact } : {}),
+  };
+}
+
+function applyOptimisticSummaryUpdate(
+  item: ContentItemSummaryRecord,
+  payload: {
+    status?: ContentStatus;
+    folderId?: string | null;
+  },
+  folders: FolderRecord[],
+): ContentItemSummaryRecord {
+  const nextStatus = payload.status ?? item.status;
+  const nextFolderId = payload.folderId !== undefined ? payload.folderId : item.folderId;
+  const nextFolder =
+    payload.folderId !== undefined ? findFolderById(folders, nextFolderId ?? null) : item.folder;
+
+  return {
+    ...item,
+    status: nextStatus,
+    folderId: nextFolderId ?? null,
+    folder: nextFolder,
+    publishedTweetId: payload.status === "DRAFT" ? null : item.publishedTweetId,
+    postedAt:
+      payload.status === "DRAFT"
+        ? null
+        : payload.status === "PUBLISHED"
+          ? item.postedAt ?? new Date().toISOString()
+          : item.postedAt,
+  };
+}
+
+function applyOptimisticDetailUpdate(
   item: ContentItemRecord,
   payload: {
     status?: ContentStatus;
@@ -155,25 +280,128 @@ function applyOptimisticItemUpdate(
 
 export function useContentHubState(options: UseContentHubStateOptions) {
   const { open, fetchWorkspace } = options;
-  const [items, setItems] = useState<ContentItemRecord[]>([]);
+  const [items, setItems] = useState<ContentItemSummaryRecord[]>([]);
+  const [detailsById, setDetailsById] = useState<Record<string, ContentItemRecord>>({});
   const [folders, setFolders] = useState<FolderRecord[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ContentHubViewMode>("date");
   const [searchQuery, setSearchQuery] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isDetailLoadingById, setIsDetailLoadingById] = useState<Record<string, boolean>>({});
   const [actionById, setActionById] = useState<Record<string, string>>({});
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [folderActionById, setFolderActionById] = useState<Record<string, string>>({});
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<"browse" | "preview">("browse");
   const [isPending, startTransition] = useTransition();
+  const activeLoadRequestIdRef = useRef(0);
 
   const clearMessages = useCallback(() => {
     setErrorMessage(null);
   }, []);
 
+  const loadItemDetail = useCallback(
+    async (itemId: string) => {
+      if (!itemId || detailsById[itemId] || isDetailLoadingById[itemId]) {
+        return;
+      }
+
+      setIsDetailLoadingById((current) => ({ ...current, [itemId]: true }));
+
+      try {
+        const response = await fetchWorkspace(
+          `/api/creator/v2/content/${encodeURIComponent(itemId)}`,
+          {
+            method: "GET",
+          },
+        );
+        const payload = await readJsonOrNull<ContentItemDetailResponse | FailureResponse>(
+          response,
+        );
+        if (!response.ok || !payload?.ok) {
+          throw new Error(readErrorMessage(payload, "Failed to load content item."));
+        }
+
+        setDetailsById((current) => ({
+          ...current,
+          [itemId]: normalizeContentItemDetail(payload.data.item),
+        }));
+        setItems((current) =>
+          current.map((item) =>
+            item.id === itemId
+              ? toContentItemSummary(normalizeContentItemDetail(payload.data.item))
+              : item,
+          ),
+        );
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error ? error.message : "Failed to load content item.",
+        );
+      } finally {
+        setIsDetailLoadingById((current) => {
+          const next = { ...current };
+          delete next[itemId];
+          return next;
+        });
+      }
+    },
+    [detailsById, fetchWorkspace, isDetailLoadingById],
+  );
+
+  const prefetchRemainingSummaryPages = useCallback(
+    async (args: { initialCursor: string | null; requestId: number; initialCount: number }) => {
+      let cursor = args.initialCursor;
+      let loadedCount = args.initialCount;
+
+      while (
+        cursor &&
+        loadedCount < CONTENT_SUMMARY_PREFETCH_LIMIT &&
+        activeLoadRequestIdRef.current === args.requestId
+      ) {
+        const remaining = CONTENT_SUMMARY_PREFETCH_LIMIT - loadedCount;
+        const take = Math.min(INITIAL_CONTENT_PAGE_SIZE, remaining);
+        const response = await fetchWorkspace(
+          `/api/creator/v2/content?cursor=${encodeURIComponent(cursor)}&take=${take}`,
+          {
+            method: "GET",
+          },
+        );
+        const payload = await readJsonOrNull<ContentItemsResponse | FailureResponse>(response);
+        if (!response.ok || !payload?.ok) {
+          return;
+        }
+
+        const loadedDetails: Record<string, ContentItemRecord> = {};
+        const nextSummaries = payload.data.items.map((item) => {
+          if (hasFullContentItemShape(item)) {
+            loadedDetails[item.id] = normalizeContentItemDetail(item);
+          }
+
+          return toContentItemSummary(item);
+        });
+
+        setItems((current) => {
+          const existingIds = new Set(current.map((item) => item.id));
+          return [...current, ...nextSummaries.filter((item) => !existingIds.has(item.id))];
+        });
+        if (Object.keys(loadedDetails).length > 0) {
+          setDetailsById((current) => ({
+            ...current,
+            ...loadedDetails,
+          }));
+        }
+
+        loadedCount += nextSummaries.length;
+        cursor = payload.data.hasMore ? payload.data.nextCursor ?? null : null;
+      }
+    },
+    [fetchWorkspace],
+  );
+
   const loadContentHub = useCallback(async () => {
+    const requestId = activeLoadRequestIdRef.current + 1;
+    activeLoadRequestIdRef.current = requestId;
     setIsLoading(true);
     setErrorMessage(null);
 
@@ -186,14 +414,12 @@ export function useContentHubState(options: UseContentHubStateOptions) {
           method: "GET",
         }),
       ]);
-      const itemsPayload = await readJsonOrNull<
-        | ContentItemsResponse
-        | FailureResponse
-      >(itemsResponse);
-      const foldersPayload = await readJsonOrNull<
-        | FoldersResponse
-        | FailureResponse
-      >(foldersResponse);
+      const itemsPayload = await readJsonOrNull<ContentItemsResponse | FailureResponse>(
+        itemsResponse,
+      );
+      const foldersPayload = await readJsonOrNull<FoldersResponse | FailureResponse>(
+        foldersResponse,
+      );
 
       if (!itemsResponse.ok || !itemsPayload?.ok) {
         throw new Error(readErrorMessage(itemsPayload, "Failed to load content items."));
@@ -202,18 +428,48 @@ export function useContentHubState(options: UseContentHubStateOptions) {
         throw new Error(readErrorMessage(foldersPayload, "Failed to load groups."));
       }
 
-      setItems(itemsPayload.data.items);
+      if (activeLoadRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      const loadedDetails: Record<string, ContentItemRecord> = {};
+      const summaries = itemsPayload.data.items.map((item) => {
+        if (hasFullContentItemShape(item)) {
+          loadedDetails[item.id] = normalizeContentItemDetail(item);
+        }
+
+        return toContentItemSummary(item);
+      });
+
+      setItems(summaries);
+      setDetailsById(loadedDetails);
       setFolders(sortFoldersByName(foldersPayload.data.folders));
+
+      const nextCursor = itemsPayload.data.hasMore ? itemsPayload.data.nextCursor ?? null : null;
+      if (nextCursor) {
+        void prefetchRemainingSummaryPages({
+          initialCursor: nextCursor,
+          requestId,
+          initialCount: summaries.length,
+        });
+      }
     } catch (error) {
+      if (activeLoadRequestIdRef.current !== requestId) {
+        return;
+      }
+
       setItems([]);
+      setDetailsById({});
       setFolders([]);
       setErrorMessage(
         error instanceof Error ? error.message : "Failed to load posts and threads.",
       );
     } finally {
-      setIsLoading(false);
+      if (activeLoadRequestIdRef.current === requestId) {
+        setIsLoading(false);
+      }
     }
-  }, [fetchWorkspace]);
+  }, [fetchWorkspace, prefetchRemainingSummaryPages]);
 
   useEffect(() => {
     if (!open) {
@@ -251,9 +507,26 @@ export function useContentHubState(options: UseContentHubStateOptions) {
     }
   }, [filteredItems, open, selectedItemId]);
 
-  const selectedItem = useMemo(
+  useEffect(() => {
+    if (!open || !selectedItemId) {
+      return;
+    }
+
+    if (detailsById[selectedItemId]) {
+      return;
+    }
+
+    void loadItemDetail(selectedItemId);
+  }, [detailsById, loadItemDetail, open, selectedItemId]);
+
+  const selectedItemSummary = useMemo(
     () => filteredItems.find((item) => item.id === selectedItemId) ?? null,
     [filteredItems, selectedItemId],
+  );
+
+  const selectedItem = useMemo(
+    () => (selectedItemId ? detailsById[selectedItemId] ?? null : null),
+    [detailsById, selectedItemId],
   );
 
   const updateItem = useCallback(
@@ -266,15 +539,26 @@ export function useContentHubState(options: UseContentHubStateOptions) {
       actionLabel: string,
     ) => {
       const previousItems = items;
+      const previousDetails = detailsById;
       const previousItem = items.find((item) => item.id === itemId) ?? null;
 
       setActionById((current) => ({ ...current, [itemId]: actionLabel }));
       clearMessages();
       setItems((current) =>
         current.map((item) =>
-          item.id === itemId ? applyOptimisticItemUpdate(item, payload, folders) : item,
+          item.id === itemId ? applyOptimisticSummaryUpdate(item, payload, folders) : item,
         ),
       );
+      setDetailsById((current) => {
+        if (!current[itemId]) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [itemId]: applyOptimisticDetailUpdate(current[itemId], payload, folders),
+        };
+      });
 
       try {
         const response = await fetchWorkspace(
@@ -287,18 +571,25 @@ export function useContentHubState(options: UseContentHubStateOptions) {
             body: JSON.stringify(payload),
           },
         );
-        const result = await readJsonOrNull<
-          | ContentHubMutationResponse
-          | FailureResponse
-        >(response);
+        const result = await readJsonOrNull<ContentHubMutationResponse | FailureResponse>(
+          response,
+        );
 
         if (!response.ok || !result?.ok) {
           throw new Error(readErrorMessage(result, "Failed to update content item."));
         }
 
         setItems((current) =>
-          current.map((item) => (item.id === itemId ? result.data.item : item)),
+          current.map((item) =>
+            item.id === itemId
+              ? toContentItemSummary(normalizeContentItemDetail(result.data.item))
+              : item,
+          ),
         );
+        setDetailsById((current) => ({
+          ...current,
+          [itemId]: normalizeContentItemDetail(result.data.item),
+        }));
 
         if (previousItem && payload.folderId !== undefined) {
           setFolders((current) =>
@@ -309,6 +600,7 @@ export function useContentHubState(options: UseContentHubStateOptions) {
         return true;
       } catch (error) {
         setItems(previousItems);
+        setDetailsById(previousDetails);
         setErrorMessage(
           error instanceof Error ? error.message : "Failed to update content item.",
         );
@@ -321,7 +613,7 @@ export function useContentHubState(options: UseContentHubStateOptions) {
         });
       }
     },
-    [clearMessages, fetchWorkspace, folders, items],
+    [clearMessages, detailsById, fetchWorkspace, folders, items],
   );
 
   const createFolder = useCallback(
@@ -386,10 +678,9 @@ export function useContentHubState(options: UseContentHubStateOptions) {
             }),
           },
         );
-        const result = await readJsonOrNull<
-          | FolderMutationResponse
-          | FailureResponse
-        >(response);
+        const result = await readJsonOrNull<FolderMutationResponse | FailureResponse>(
+          response,
+        );
         if (!response.ok || !result?.ok) {
           throw new Error(readErrorMessage(result, "Failed to rename group."));
         }
@@ -401,7 +692,8 @@ export function useContentHubState(options: UseContentHubStateOptions) {
             ),
           ),
         );
-        setItems((current) => replaceFolderInItems(current, result.data.folder));
+        setItems((current) => replaceFolderInSummaryItems(current, result.data.folder));
+        setDetailsById((current) => replaceFolderInDetails(current, result.data.folder));
         return result.data.folder;
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Failed to rename group.");
@@ -438,7 +730,8 @@ export function useContentHubState(options: UseContentHubStateOptions) {
         }
 
         setFolders((current) => current.filter((folder) => folder.id !== folderId));
-        setItems((current) => clearFolderFromItems(current, folderId));
+        setItems((current) => clearFolderFromSummaryItems(current, folderId));
+        setDetailsById((current) => clearFolderFromDetails(current, folderId));
 
         return result.data.folder;
       } catch (error) {
@@ -469,7 +762,9 @@ export function useContentHubState(options: UseContentHubStateOptions) {
     folders,
     filteredItems,
     selectedItem,
+    selectedItemSummary,
     selectedItemId,
+    isSelectedItemLoading: Boolean(selectedItemId && !selectedItem && isDetailLoadingById[selectedItemId]),
     setSelectedItemId,
     selectItem,
     viewMode,

@@ -11,6 +11,7 @@ import type {
 
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 
+import type { ContentHubDialogProps } from "../content-hub/ContentHubDialog";
 import type { DraftCounterMeta } from "../draft-editor/chatDraftPreviewState";
 import type {
   DraftQueueCandidate,
@@ -31,7 +32,6 @@ import type {
   SourceMaterialType,
 } from "../source-materials/sourceMaterialsState";
 import type { ChatOverlaysProps } from "./ChatOverlays";
-import { ContentHubDialog } from "../content-hub/ContentHubDialog";
 
 type GrowthGuideDialogProps = NonNullable<ChatOverlaysProps["growthGuideDialogProps"]>;
 type ProfileAnalysisDialogProps = NonNullable<
@@ -40,7 +40,7 @@ type ProfileAnalysisDialogProps = NonNullable<
 type AddAccountDialogProps = ChatOverlaysProps["addAccountDialogProps"];
 
 export interface UseChatOverlayPropsOptions {
-  contentHubDialogProps: ComponentProps<typeof ContentHubDialog>;
+  contentHubDialogProps: ContentHubDialogProps;
   draftQueueOpen: boolean;
   isDraftQueueLoading: boolean;
   draftQueueError: string | null;

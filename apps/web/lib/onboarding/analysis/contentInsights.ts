@@ -46,7 +46,15 @@ export interface ContentAdjustments {
   unknowns: string[];
 }
 
-type DraftCandidateRecord = DraftCandidate;
+type DraftCandidateRecord = Pick<
+  DraftCandidate,
+  | "reviewStatus"
+  | "postedAt"
+  | "observedAt"
+  | "sourcePlaybook"
+  | "outputShape"
+  | "observedMetrics"
+>;
 
 function normalizeHandle(value: string | null | undefined): string | null {
   const normalized = value?.trim().replace(/^@+/, "").toLowerCase() || "";
@@ -143,6 +151,14 @@ export async function getContentInsightsForUser(args: {
     },
     orderBy: {
       updatedAt: "desc",
+    },
+    select: {
+      reviewStatus: true,
+      postedAt: true,
+      observedAt: true,
+      sourcePlaybook: true,
+      outputShape: true,
+      observedMetrics: true,
     },
   });
 

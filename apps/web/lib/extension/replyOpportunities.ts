@@ -279,7 +279,23 @@ export async function upsertReplyOpportunityLifecycle(
   });
 }
 
-type ReplyOpportunityRecord = ReplyOpportunity;
+type ReplyOpportunityRecord = Pick<
+  ReplyOpportunity,
+  | "state"
+  | "openedAt"
+  | "generatedAt"
+  | "selectedAt"
+  | "copiedAt"
+  | "postedAt"
+  | "dismissedAt"
+  | "observedAt"
+  | "strategyPillar"
+  | "selectedAngleLabel"
+  | "generatedAngleLabel"
+  | "goal"
+  | "observedMetrics"
+  | "notes"
+>;
 
 function asNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -713,6 +729,22 @@ export async function getReplyInsightsForUser(args: {
     },
     orderBy: {
       updatedAt: "desc",
+    },
+    select: {
+      state: true,
+      openedAt: true,
+      generatedAt: true,
+      selectedAt: true,
+      copiedAt: true,
+      postedAt: true,
+      dismissedAt: true,
+      observedAt: true,
+      strategyPillar: true,
+      selectedAngleLabel: true,
+      generatedAngleLabel: true,
+      goal: true,
+      observedMetrics: true,
+      notes: true,
     },
   });
 

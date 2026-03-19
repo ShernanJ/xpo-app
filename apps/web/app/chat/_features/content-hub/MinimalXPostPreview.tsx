@@ -9,11 +9,12 @@ import { ChatMediaAttachments } from "../shared/ChatMediaAttachments";
 import type {
   ContentHubAuthorIdentity,
   ContentItemRecord,
+  ContentItemSummaryRecord,
 } from "./contentHubTypes";
 import { NO_GROUP_LABEL, formatContentTimestamp } from "./contentHubViewState";
 
 interface MinimalXPostPreviewProps {
-  item: ContentItemRecord;
+  item: ContentItemSummaryRecord | ContentItemRecord;
   identity: ContentHubAuthorIdentity;
   isVerifiedAccount: boolean;
   variant?: "compact" | "full";
@@ -44,9 +45,18 @@ function renderAvatar(identity: ContentHubAuthorIdentity) {
 export function MinimalXPostPreview(props: MinimalXPostPreviewProps) {
   const { item, identity, isVerifiedAccount, variant = "full" } = props;
   const posts = item.artifact?.posts ?? [];
-  const isThread = posts.length > 1;
+  const preview = item.preview ?? {
+    primaryText:
+      item.artifact?.posts?.[0]?.content?.trim() ??
+      item.artifact?.content?.trim() ??
+      "",
+    threadPostCount: posts.length,
+    isThread: posts.length > 1,
+  };
+  const previewThreadPostCount = preview.threadPostCount;
+  const isThread = preview.isThread || posts.length > 1;
   const previewPosts = variant === "compact" ? posts.slice(0, 1) : posts;
-  const fallbackContent = item.artifact?.content?.trim() ?? "";
+  const fallbackContent = item.artifact?.content?.trim() ?? preview.primaryText;
   const groupLabel = item.folder?.name ?? NO_GROUP_LABEL;
   const [copiedPostId, setCopiedPostId] = useState<string | null>(null);
   const copyResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -81,9 +91,11 @@ export function MinimalXPostPreview(props: MinimalXPostPreviewProps) {
   }
 
   if (variant === "compact") {
-    const compactContent = previewPosts[0]?.content ?? fallbackContent;
+    const compactContent = previewPosts[0]?.content ?? preview.primaryText ?? fallbackContent;
     const threadLabel =
-      posts.length === 2 ? "2-post thread" : `${posts.length}-post thread`;
+      previewThreadPostCount === 2
+        ? "2-post thread"
+        : `${previewThreadPostCount}-post thread`;
 
     return (
       <article

@@ -68,6 +68,27 @@ export interface SerializedDeletedFolder {
   itemCount: number;
 }
 
+export interface SerializedContentPreview {
+  primaryText: string;
+  threadPostCount: number;
+  isThread: boolean;
+}
+
+export interface SerializedContentItemSummary {
+  id: string;
+  title: string;
+  threadId: string | null;
+  messageId: string | null;
+  status: string;
+  folderId: string | null;
+  folder: SerializedFolder | null;
+  publishedTweetId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  postedAt: string | null;
+  preview: SerializedContentPreview;
+}
+
 export interface SerializedContentItem {
   id: string;
   title: string;
@@ -96,6 +117,7 @@ export interface SerializedContentItem {
   postedAt: string | null;
   observedAt: string | null;
   observedMetrics: Record<string, unknown> | null;
+  preview: SerializedContentPreview;
 }
 
 export interface SerializedDraftReviewCandidate {
@@ -174,19 +196,71 @@ function toFolderRecord(folder: {
   };
 }
 
-export function serializeFolder(folder: FolderRecord): SerializedFolder {
+export function serializeFolder(
+  folder: Pick<FolderRecord, "id" | "name" | "color" | "createdAt"> &
+    Partial<Pick<FolderRecord, "itemCount">>,
+): SerializedFolder {
   return {
     id: folder.id,
     name: folder.name,
     color: folder.color,
     createdAt: folder.createdAt.toISOString(),
-    itemCount: folder.itemCount,
+    itemCount: folder.itemCount ?? 0,
+  };
+}
+
+function buildContentPreview(artifact: DraftArtifactDetails | null): SerializedContentPreview {
+  const threadPostCount = artifact?.posts?.length ?? 0;
+  const primaryText =
+    artifact?.posts?.[0]?.content?.trim() ??
+    artifact?.content?.trim() ??
+    "";
+
+  return {
+    primaryText,
+    threadPostCount,
+    isThread: threadPostCount > 1,
+  };
+}
+
+export function serializeContentItemSummary(
+  candidate: Pick<
+    DraftCandidateWithFolder,
+    | "id"
+    | "title"
+    | "threadId"
+    | "messageId"
+    | "status"
+    | "folderId"
+    | "publishedTweetId"
+    | "createdAt"
+    | "updatedAt"
+    | "postedAt"
+    | "artifact"
+    | "folder"
+  >,
+): SerializedContentItemSummary {
+  return {
+    id: candidate.id,
+    title: candidate.title,
+    threadId: candidate.threadId,
+    messageId: candidate.messageId,
+    status: candidate.status,
+    folderId: candidate.folderId,
+    folder: candidate.folder ? serializeFolder(candidate.folder) : null,
+    publishedTweetId: candidate.publishedTweetId,
+    createdAt: candidate.createdAt.toISOString(),
+    updatedAt: candidate.updatedAt.toISOString(),
+    postedAt: candidate.postedAt?.toISOString() ?? null,
+    preview: buildContentPreview(asDraftArtifact(candidate.artifact)),
   };
 }
 
 export function serializeContentItem(
   candidate: DraftCandidateWithFolder,
 ): SerializedContentItem {
+  const preview = buildContentPreview(asDraftArtifact(candidate.artifact));
+
   return {
     id: candidate.id,
     title: candidate.title,
@@ -215,6 +289,7 @@ export function serializeContentItem(
     postedAt: candidate.postedAt?.toISOString() ?? null,
     observedAt: candidate.observedAt?.toISOString() ?? null,
     observedMetrics: asJsonRecord(candidate.observedMetrics),
+    preview,
   };
 }
 
@@ -528,6 +603,79 @@ export async function listContentItemsForWorkspace(args: {
   });
 
   return items as DraftCandidateWithFolder[];
+}
+
+export async function listContentItemSummariesForWorkspace(args: {
+  userId: string;
+  xHandle?: string | null;
+  status?: string | null;
+  take?: number;
+  cursor?: string | null;
+  sortBy?: "createdAt" | "updatedAt";
+}) {
+  const pageSize = Math.min(Math.max(args.take ?? 24, 1), 100);
+  const items = await prisma.draftCandidate.findMany({
+    where: buildContentWhere({
+      userId: args.userId,
+      xHandle: args.xHandle,
+      status: args.status,
+      requireIndexedMessage: true,
+    }),
+    orderBy: [{ [args.sortBy ?? "updatedAt"]: "desc" }, { id: "desc" }],
+    take: pageSize + 1,
+    ...(args.cursor
+      ? {
+          cursor: { id: args.cursor },
+          skip: 1,
+        }
+      : {}),
+    select: {
+      id: true,
+      title: true,
+      threadId: true,
+      messageId: true,
+      status: true,
+      folderId: true,
+      publishedTweetId: true,
+      createdAt: true,
+      updatedAt: true,
+      postedAt: true,
+      artifact: true,
+      folder: {
+        select: {
+          id: true,
+          name: true,
+          color: true,
+          createdAt: true,
+        },
+      },
+    },
+  });
+
+  const hasMore = items.length > pageSize;
+  const page = items.slice(0, pageSize) as Array<
+    Pick<
+      DraftCandidateWithFolder,
+      | "id"
+      | "title"
+      | "threadId"
+      | "messageId"
+      | "status"
+      | "folderId"
+      | "publishedTweetId"
+      | "createdAt"
+      | "updatedAt"
+      | "postedAt"
+      | "artifact"
+      | "folder"
+    >
+  >;
+
+  return {
+    items: page,
+    hasMore,
+    nextCursor: hasMore ? page[page.length - 1]?.id ?? null : null,
+  };
 }
 
 export async function findContentItemForWorkspace(args: {

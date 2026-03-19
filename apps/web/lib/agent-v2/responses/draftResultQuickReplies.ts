@@ -1,3 +1,4 @@
+import { SHORT_FORM_X_LIMIT } from "../../onboarding/shared/draftArtifacts.ts";
 import type { VoiceStyleCard } from "../core/styleProfile.ts";
 import type {
   CreatorChatQuickReply,
@@ -14,6 +15,7 @@ interface BuildDraftResultQuickRepliesArgs {
   outputShape: "short_form_post" | "long_form_post" | "thread_seed";
   styleCard: VoiceStyleCard | null;
   seedTopic?: string | null;
+  singlePostMaxCharacterLimit?: number | null;
 }
 
 function resolveTopicLabel(seedTopic: string | null | undefined): string | null {
@@ -47,6 +49,10 @@ export function buildDraftResultQuickReplies(
 ): CreatorChatQuickReply[] {
   const topicLabel = resolveTopicLabel(args.seedTopic);
   const topicPhrase = topicLabel ? ` on ${topicLabel}` : "";
+  const collapsePrompt =
+    (args.singlePostMaxCharacterLimit ?? SHORT_FORM_X_LIMIT) > SHORT_FORM_X_LIMIT
+      ? `Collapse this thread${topicPhrase} into exactly one standalone X post with the same core takeaway. Keep it to one post under the account's single-post character limit, not a thread.`
+      : `Collapse this thread${topicPhrase} into exactly one standalone X post under 280 characters with the same core takeaway. Do not keep it as a thread.`;
 
   switch (args.outputShape) {
     case "long_form_post":
@@ -78,9 +84,8 @@ export function buildDraftResultQuickReplies(
         }),
         buildQuickReply({
           label: "Collapse to one post",
-          value: `Collapse this thread${topicPhrase} into one sharp standalone X post with the same core takeaway.`,
+          value: collapsePrompt,
           styleCard: args.styleCard,
-          formatPreference: "shortform",
         }),
         buildQuickReply({
           label: "Stronger ending CTA",

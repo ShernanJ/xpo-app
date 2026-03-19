@@ -2,6 +2,7 @@
 
 import type {
   ContentItemRecord,
+  ContentItemSummaryRecord,
   ContentStatus,
   FolderRecord,
 } from "./contentHubTypes";
@@ -37,35 +38,38 @@ export function normalizeContentSearchValue(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-export function getPrimaryArtifactText(item: Pick<ContentItemRecord, "artifact">): string {
-  const firstThreadPost = item.artifact?.posts?.[0]?.content?.trim();
-  if (firstThreadPost) {
-    return firstThreadPost;
-  }
-
-  return item.artifact?.content?.trim() ?? "";
+export function getPrimaryPreviewText(
+  item: Pick<ContentItemSummaryRecord, "preview">,
+): string {
+  return item.preview.primaryText.trim();
 }
 
-export function getFullArtifactText(item: Pick<ContentItemRecord, "artifact">): string {
-  if (!item.artifact) {
-    return "";
+export function getFullArtifactText(
+  item: Pick<ContentItemSummaryRecord, "preview"> & Partial<Pick<ContentItemRecord, "artifact">>,
+): string {
+  if (item.artifact) {
+    const threadPosts =
+      item.artifact.posts?.map((post) => post.content.trim()).filter(Boolean) ?? [];
+    if (threadPosts.length > 0) {
+      return threadPosts.join("\n\n");
+    }
+
+    return item.artifact.content.trim();
   }
 
-  const threadPosts = item.artifact.posts?.map((post) => post.content.trim()).filter(Boolean) ?? [];
-  if (threadPosts.length > 0) {
-    return threadPosts.join("\n\n");
-  }
-
-  return item.artifact.content.trim();
+  return getPrimaryPreviewText(item);
 }
 
-export function getSearchableContentText(item: ContentItemRecord): string {
+export function getSearchableContentText(item: ContentItemSummaryRecord): string {
   return normalizeContentSearchValue(
-    [item.title, getFullArtifactText(item)].filter(Boolean).join(" "),
+    [item.title, item.preview.primaryText].filter(Boolean).join(" "),
   );
 }
 
-export function filterContentItems(items: ContentItemRecord[], searchQuery: string) {
+export function filterContentItems(
+  items: ContentItemSummaryRecord[],
+  searchQuery: string,
+) {
   const normalizedQuery = normalizeContentSearchValue(searchQuery);
   if (!normalizedQuery) {
     return items;
@@ -100,10 +104,10 @@ export function resolveDateBucketLabel(
 }
 
 export function groupContentItemsByDate(
-  items: ContentItemRecord[],
+  items: ContentItemSummaryRecord[],
   now = new Date(),
 ) {
-  const groups = new Map<ContentDateBucketLabel, ContentItemRecord[]>();
+  const groups = new Map<ContentDateBucketLabel, ContentItemSummaryRecord[]>();
 
   for (const label of DATE_BUCKET_ORDER) {
     groups.set(label, []);
@@ -119,7 +123,7 @@ export function groupContentItemsByDate(
   });
 }
 
-export function groupContentItemsByStatus(items: ContentItemRecord[]) {
+export function groupContentItemsByStatus(items: ContentItemSummaryRecord[]) {
   return CONTENT_STATUS_ORDER.map((status) => ({
     status,
     label: getContentStatusLabel(status),
@@ -134,12 +138,15 @@ export function sortFoldersByName(folders: FolderRecord[]) {
 }
 
 export function groupContentItemsByGroup(
-  items: ContentItemRecord[],
+  items: ContentItemSummaryRecord[],
   folders: FolderRecord[],
 ) {
-  const groupsById = new Map<string, ContentItemRecord[]>();
-  const fallbackGroups = new Map<string, { id: string; label: string; items: ContentItemRecord[] }>();
-  const ungroupedItems: ContentItemRecord[] = [];
+  const groupsById = new Map<string, ContentItemSummaryRecord[]>();
+  const fallbackGroups = new Map<
+    string,
+    { id: string; label: string; items: ContentItemSummaryRecord[] }
+  >();
+  const ungroupedItems: ContentItemSummaryRecord[] = [];
 
   for (const folder of sortFoldersByName(folders)) {
     groupsById.set(folder.id, []);

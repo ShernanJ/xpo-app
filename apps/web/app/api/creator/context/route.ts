@@ -1,17 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
-import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/strategy/contextEnrichment";
-import { StyleCardSchema } from "@/lib/agent-v2/core/styleProfile";
-import { hydrateOnboardingProfileForAnalysis } from "@/lib/onboarding/profile/profileHydration";
-import {
-  applyCreatorStrategyOverrides,
-  extractCreatorStrategyOverrides,
-} from "@/lib/onboarding/strategy/strategyOverrides";
-import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store/onboardingRunStore";
 import { getServerSession } from "@/lib/auth/serverSession";
+import { loadCreatorWorkspaceSnapshot } from "@/lib/creator/workspaceSnapshot";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
-import { prisma } from "@/lib/db";
 import {
   enforceSessionMutationRateLimit,
   parseJsonBody,
@@ -74,77 +65,27 @@ export async function POST(request: Request) {
     return workspaceHandle.response;
   }
 
-  const storedRun = await readLatestOnboardingRunByHandle(session.user.id, workspaceHandle.xHandle);
-  if (!storedRun) {
-    return NextResponse.json(
-      {
-        ok: false,
-        code: "MISSING_ONBOARDING_RUN",
-        errors: [{ field: "auth", message: "No onboarding run found for this handle." }],
-      },
-      { status: 404 },
-    );
-  }
-
-  const allowMockFallback =
-    process.env.ONBOARDING_ALLOW_MOCK_FALLBACK?.trim() === "1" ||
-    process.env.NODE_ENV !== "production";
-  if (!allowMockFallback && storedRun.result.source === "mock") {
-    return NextResponse.json(
-      {
-        ok: false,
-        code: "ONBOARDING_SOURCE_INVALID",
-        errors: [
-          {
-            field: "auth",
-            message:
-              "This account was set up with fallback data. Re-run onboarding after configuring scrape credentials.",
-          },
-        ],
-      },
-      { status: 409 },
-    );
-  }
-
-  const onboarding = await hydrateOnboardingProfileForAnalysis(
-    applyCreatorStrategyOverrides({
-      onboarding: storedRun.result,
-      overrides: extractCreatorStrategyOverrides(body),
-    }),
-  );
-  const persistedVoiceProfile = await prisma.voiceProfile.findFirst({
-    where: {
-      userId: session.user.id,
-      xHandle: workspaceHandle.xHandle,
-    },
-  });
-  const parsedStyleCard = persistedVoiceProfile?.styleCard
-    ? StyleCardSchema.safeParse(persistedVoiceProfile.styleCard)
-    : null;
-  const profileAuditState = parsedStyleCard?.success
-    ? parsedStyleCard.data.profileAuditState ?? null
-    : null;
-  const context = buildCreatorAgentContext({
-    runId: storedRun.runId,
-    onboarding,
-  });
-  context.profileAuditState = profileAuditState;
-  const growthOs = await buildGrowthOperatingSystemPayload({
+  const snapshot = await loadCreatorWorkspaceSnapshot({
     userId: session.user.id,
     xHandle: workspaceHandle.xHandle,
-    onboarding,
-    context,
-    profileAuditState,
+    input: body,
   });
+  if (!snapshot.ok) {
+    const status = snapshot.code === "MISSING_ONBOARDING_RUN" ? 404 : 409;
+    return NextResponse.json(
+      {
+        ok: false,
+        code: snapshot.code,
+        errors: [{ field: "auth", message: snapshot.message }],
+      },
+      { status },
+    );
+  }
 
   return NextResponse.json(
     {
       ok: true,
-      data: {
-        ...context,
-        ...growthOs,
-        unknowns: growthOs.unknowns,
-      },
+      data: snapshot.contextData,
     },
     { status: 200 },
   );

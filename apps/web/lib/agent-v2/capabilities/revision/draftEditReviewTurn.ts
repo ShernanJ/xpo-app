@@ -33,6 +33,7 @@ import type {
   DraftGroundingMode,
   ThreadFramingStyle,
 } from "../../../onboarding/draftArtifacts.ts";
+import { splitSerializedThreadPosts } from "../../../onboarding/draftArtifacts.ts";
 import type {
   AgentRuntimeWorkflow,
   RuntimeValidationResult,
@@ -180,6 +181,9 @@ export async function handleDraftEditReviewTurn(args: {
       args.draftInstruction,
       effectiveActiveDraft,
       args.focusedThreadPostIndex ?? undefined,
+      splitSerializedThreadPosts(effectiveActiveDraft).length > 1
+        ? (args.threadPostMaxCharacterLimit ?? args.maxCharacterLimit)
+        : args.maxCharacterLimit,
     );
 
     if (revision.scope === "thread_span" && !revision.targetSpan) {

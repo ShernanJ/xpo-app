@@ -32,7 +32,7 @@ import {
   type FeedbackSource,
 } from "./feedbackState";
 
-interface FeedbackDialogProps {
+export interface FeedbackDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;

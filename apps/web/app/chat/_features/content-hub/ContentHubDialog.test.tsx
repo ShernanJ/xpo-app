@@ -10,22 +10,22 @@ vi.mock("next/image", () => ({
   default: (props: ImgHTMLAttributes<HTMLImageElement>) => <img {...props} />,
 }));
 
-function createJsonResponse(body: unknown, status = 200) {
+function createJsonResponse(body: unknown, status = 200): Promise<Response> {
   return Promise.resolve({
     ok: status >= 200 && status < 300,
     status,
     json: async () => body,
-  });
+  } as unknown as Response);
 }
 
-function createBrokenJsonResponse(status = 500) {
+function createBrokenJsonResponse(status = 500): Promise<Response> {
   return Promise.resolve({
     ok: status >= 200 && status < 300,
     status,
     json: async () => {
       throw new SyntaxError("Unexpected end of JSON input");
     },
-  });
+  } as unknown as Response);
 }
 
 function buildRelativeIso(dayOffset: number) {
@@ -107,6 +107,38 @@ function buildItem(args: {
   };
 }
 
+function buildSummaryItem(args: {
+  id: string;
+  title: string;
+  status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  createdAt: string;
+  previewText: string;
+  threadId?: string | null;
+  messageId?: string | null;
+  publishedTweetId?: string | null;
+  folderId?: string | null;
+  folder?: ReturnType<typeof buildFolder> | null;
+}) {
+  return {
+    id: args.id,
+    title: args.title,
+    threadId: args.threadId ?? "thread_1",
+    messageId: args.messageId ?? `message_${args.id}`,
+    status: args.status,
+    folderId: args.folderId ?? null,
+    folder: args.folder ?? null,
+    publishedTweetId: args.publishedTweetId ?? null,
+    createdAt: args.createdAt,
+    updatedAt: args.createdAt,
+    postedAt: args.status === "PUBLISHED" ? args.createdAt : null,
+    preview: {
+      primaryText: args.previewText,
+      threadPostCount: 1,
+      isThread: false,
+    },
+  };
+}
+
 async function openBrowseMode(user: ReturnType<typeof userEvent.setup>, label: string) {
   await user.click(screen.getAllByRole("button", { name: label })[0]);
 }
@@ -178,6 +210,92 @@ test("groups items by date and filters with the header search", async () => {
     expect(screen.queryByText("Today")).not.toBeInTheDocument();
   });
   expect(screen.getAllByText("Yesterday note").length).toBeGreaterThan(0);
+});
+
+test("loads summary rows first, then fetches full detail for the selected item", async () => {
+  const detailResponseDeferred = Promise.withResolvers<Response>();
+  const fetchWorkspace = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const method = init?.method ?? "GET";
+
+    if (method === "GET" && url === "/api/creator/v2/content") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          items: [
+            buildSummaryItem({
+              id: "summary_only",
+              title: "Summary-only draft",
+              status: "DRAFT",
+              createdAt: buildRelativeIso(0),
+              previewText: "Summary preview body",
+            }),
+          ],
+          nextCursor: null,
+          hasMore: false,
+        },
+      });
+    }
+
+    if (method === "GET" && url === "/api/creator/v2/folders") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          folders: [],
+        },
+      });
+    }
+
+    if (method === "GET" && url === "/api/creator/v2/content/summary_only") {
+      return detailResponseDeferred.promise;
+    }
+
+    throw new Error(`Unhandled fetch ${method} ${url}`);
+  });
+
+  render(
+    <ContentHubDialog
+      open
+      onOpenChange={vi.fn()}
+      fetchWorkspace={fetchWorkspace}
+      initialHandle="standev"
+      identity={{
+        displayName: "Stanley",
+        username: "standev",
+        avatarUrl: null,
+      }}
+      isVerifiedAccount
+    />,
+  );
+
+  expect(await screen.findByText("Summary-only draft")).toBeVisible();
+  expect(await screen.findByText("Loading full preview...")).toBeVisible();
+  expect(screen.getByText("Summary preview body")).toBeVisible();
+
+  await waitFor(() => {
+    expect(fetchWorkspace).toHaveBeenCalledWith("/api/creator/v2/content/summary_only", {
+      method: "GET",
+    });
+  });
+
+  detailResponseDeferred.resolve({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      ok: true,
+      data: {
+        item: buildItem({
+          id: "summary_only",
+          title: "Summary-only draft",
+          status: "DRAFT",
+          createdAt: buildRelativeIso(0),
+          content: "Loaded full draft body",
+        }),
+      },
+    }),
+  } as unknown as Response);
+
+  expect(await screen.findByText("Loaded full draft body")).toBeVisible();
 });
 
 test("shows a friendly error when the content response body is empty", async () => {

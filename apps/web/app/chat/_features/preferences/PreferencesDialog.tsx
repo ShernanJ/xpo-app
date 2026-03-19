@@ -26,7 +26,7 @@ type PreferenceCasing = "auto" | "normal" | "lowercase" | "uppercase";
 type PreferenceBulletStyle = "auto" | "-" | ">";
 type PreferenceWritingMode = "voice" | "balanced" | "growth";
 
-interface PreferencesDialogProps {
+export interface PreferencesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: () => void;

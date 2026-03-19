@@ -228,18 +228,13 @@ function buildThreadSpanMismatchAttempt(args: {
 function resolveThreadSpanRevisionPlan(args: {
   activeDraft: string;
   revision: DraftRevisionDirective;
-  formatPreference: DraftFormatPreference;
 }): ThreadSpanRevisionPlan | null {
-  if (
-    args.formatPreference !== "thread" ||
-    args.revision.scope !== "thread_span" ||
-    !args.revision.targetSpan
-  ) {
+  if (args.revision.scope !== "thread_span" || !args.revision.targetSpan) {
     return null;
   }
 
   const allPosts = splitSerializedThreadPosts(args.activeDraft);
-  if (allPosts.length === 0) {
+  if (allPosts.length <= 1) {
     return null;
   }
 
@@ -333,6 +328,41 @@ function isWholeDraftThreadConversion(revision: DraftRevisionDirective): boolean
   return revision.targetFormat === "thread" && revision.scope === "whole_draft";
 }
 
+function resolveRevisionFormatPreference(args: {
+  activeDraft: string;
+  revision: DraftRevisionDirective;
+  turnFormatPreference: DraftFormatPreference;
+}): DraftFormatPreference {
+  if (args.revision.scope === "whole_draft" && args.revision.targetFormat) {
+    return args.revision.targetFormat;
+  }
+
+  if (splitSerializedThreadPosts(args.activeDraft).length > 1) {
+    return "thread";
+  }
+
+  return args.turnFormatPreference;
+}
+
+function resolveRevisionMaxCharacterLimit(args: {
+  activeDraft: string;
+  revision: DraftRevisionDirective;
+  maxCharacterLimit: number;
+  threadPostMaxCharacterLimit?: number;
+  resolvedFormatPreference: DraftFormatPreference;
+}): number {
+  if (
+    splitSerializedThreadPosts(args.activeDraft).length > 1 &&
+    args.resolvedFormatPreference !== "thread" &&
+    typeof args.threadPostMaxCharacterLimit === "number" &&
+    args.threadPostMaxCharacterLimit > 0
+  ) {
+    return args.threadPostMaxCharacterLimit;
+  }
+
+  return args.maxCharacterLimit;
+}
+
 export interface RevisingCapabilityContext {
   memory: V2ConversationMemory;
   activeDraft: string;
@@ -392,6 +422,18 @@ export async function executeRevisingCapability(
   },
 ): Promise<CapabilityExecutionResult<RevisingCapabilityOutput>> {
   const { context, services } = args;
+  const resolvedFormatPreference = resolveRevisionFormatPreference({
+    activeDraft: context.activeDraft,
+    revision: context.revision,
+    turnFormatPreference: context.turnFormatPreference,
+  });
+  const resolvedMaxCharacterLimit = resolveRevisionMaxCharacterLimit({
+    activeDraft: context.activeDraft,
+    revision: context.revision,
+    maxCharacterLimit: context.maxCharacterLimit,
+    threadPostMaxCharacterLimit: context.threadPostMaxCharacterLimit,
+    resolvedFormatPreference,
+  });
 
   const buildDeliveryFallbackResponse = (): RawOrchestratorResponse => ({
     mode: "coach",
@@ -426,7 +468,6 @@ export async function executeRevisingCapability(
     const threadSpanPlan = resolveThreadSpanRevisionPlan({
       activeDraft: context.activeDraft,
       revision: context.revision,
-      formatPreference: context.turnFormatPreference,
     });
     const reviserOutput = await services.generateRevisionDraft({
       activeDraft: threadSpanPlan?.targetDraft ?? context.activeDraft,
@@ -438,10 +479,10 @@ export async function executeRevisingCapability(
       options: {
         conversationState: "editing",
         antiPatterns: context.antiPatterns,
-        maxCharacterLimit: context.maxCharacterLimit,
+        maxCharacterLimit: resolvedMaxCharacterLimit,
         goal: context.goal,
         draftPreference: context.turnDraftPreference,
-        formatPreference: context.turnFormatPreference,
+        formatPreference: resolvedFormatPreference,
         threadPostMaxCharacterLimit: context.threadPostMaxCharacterLimit,
         threadFramingStyle: context.turnThreadFramingStyle,
         sourceUserMessage: context.userMessage,
@@ -509,9 +550,9 @@ export async function executeRevisingCapability(
       activeConstraints,
       context.styleCard,
       {
-        maxCharacterLimit: context.maxCharacterLimit,
+        maxCharacterLimit: resolvedMaxCharacterLimit,
         draftPreference: context.turnDraftPreference,
-        formatPreference: context.turnFormatPreference,
+        formatPreference: resolvedFormatPreference,
         threadPostMaxCharacterLimit: context.threadPostMaxCharacterLimit,
         threadFramingStyle: context.turnThreadFramingStyle,
         previousDraft: context.activeDraft,
@@ -566,7 +607,7 @@ export async function executeRevisingCapability(
         capability: "revising",
         draft: finalizedCriticOutput.finalDraft,
         groundingPacket: context.groundingPacket,
-        formatPreference: context.turnFormatPreference,
+        formatPreference: resolvedFormatPreference,
         sourceUserMessage: context.userMessage,
         groupId: attempt.validationGroupId,
       }),
@@ -703,7 +744,7 @@ export async function executeRevisingCapability(
   const firstAttemptChanged = hasMaterialRevisionChange({
     originalDraft: context.activeDraft,
     revisedDraft: resolveAttemptDraft(firstAttempt),
-    formatPreference: context.turnFormatPreference,
+    formatPreference: resolvedFormatPreference,
   });
   const retryConstraints = Array.from(
     new Set([
@@ -844,7 +885,7 @@ export async function executeRevisingCapability(
   const revisionHasMaterialChange = hasMaterialRevisionChange({
     originalDraft: context.activeDraft,
     revisedDraft: finalizedRevisionCandidate,
-    formatPreference: context.turnFormatPreference,
+    formatPreference: resolvedFormatPreference,
   });
 
   if (revisionWasRejectedByCritic || !revisionHasMaterialChange) {
@@ -872,7 +913,7 @@ export async function executeRevisingCapability(
     styleCard: context.styleCard,
     userMessage: context.userMessage,
     draftPreference: context.turnDraftPreference,
-    formatPreference: context.turnFormatPreference,
+    formatPreference: resolvedFormatPreference,
   });
   const rollingSummary = context.refreshRollingSummary
     ? buildRollingSummary({
@@ -881,7 +922,7 @@ export async function executeRevisingCapability(
         approvedPlan: context.memory.pendingPlan,
         activeConstraints: finalAttempt.activeConstraints,
         latestDraftStatus: "Draft revised",
-        formatPreference: context.memory.formatPreference || context.turnFormatPreference,
+        formatPreference: resolvedFormatPreference,
       })
     : context.memory.rollingSummary;
 
@@ -897,7 +938,7 @@ export async function executeRevisingCapability(
         : []),
       ]),
   );
-  const outputShape = resolveDraftOutputShape(context.turnFormatPreference);
+  const outputShape = resolveDraftOutputShape(resolvedFormatPreference);
 
   return {
     workflow: args.workflow,
@@ -926,6 +967,10 @@ export async function executeRevisingCapability(
             outputShape,
             styleCard: context.styleCard,
             seedTopic: context.memory.topicSummary,
+            singlePostMaxCharacterLimit:
+              resolvedFormatPreference === "thread"
+                ? context.threadPostMaxCharacterLimit ?? resolvedMaxCharacterLimit
+                : resolvedMaxCharacterLimit,
           }),
           voiceTarget: revisionVoiceTarget,
           noveltyNotes: [],
@@ -942,7 +987,7 @@ export async function executeRevisingCapability(
         clarificationState: null,
         rollingSummary,
         assistantTurnCount: context.nextAssistantTurnCount,
-        formatPreference: context.turnFormatPreference,
+        formatPreference: resolvedFormatPreference,
         latestRefinementInstruction: context.latestRefinementInstruction,
         unresolvedQuestion: null,
       },

@@ -520,12 +520,14 @@ test("draft result quick replies stay format-aware and explicit", () => {
     outputShape: "thread_seed",
     styleCard: null,
     seedTopic: "creator analytics positioning",
+    singlePostMaxCharacterLimit: 25_000,
   });
 
   assert.equal(quickReplies.length, 3);
   assert.equal(/thread|post|ending/i.test(quickReplies.map((chip) => chip.label).join(" ")), true);
   assert.equal(/collapse this thread/i.test(quickReplies[1].value.toLowerCase()), true);
-  assert.equal(quickReplies[1].formatPreference, "shortform");
+  assert.equal(/single-post character limit/i.test(quickReplies[1].value), true);
+  assert.equal("formatPreference" in quickReplies[1], false);
 });
 
 test("profile analysis quick replies prioritize weak profile surfaces", () => {
@@ -1424,6 +1426,36 @@ test("draft revision normalizer treats shortform conversion as a full rewrite", 
   assert.match(directive.instruction, /exactly one standalone x post under 280 weighted characters/i);
   assert.match(directive.instruction, /preserve the core idea and strongest proof/i);
   assert.match(directive.instruction, /do not use thread separators, post labels, or multi-post structure/i);
+});
+
+test("draft revision normalizer turns thread collapse requests into longform single-post rewrites for verified limits", () => {
+  const directive = normalizeDraftRevisionInstruction(
+    "Collapse this thread into one standalone X post",
+    "Hook\n\n---\n\nProof\n\n---\n\nCTA",
+    undefined,
+    25_000,
+  );
+
+  assert.equal(directive.changeKind, "full_rewrite");
+  assert.equal(directive.targetFormat, "longform");
+  assert.equal(directive.scope, "whole_draft");
+  assert.match(directive.instruction, /exactly one standalone x post under 25,000 weighted characters/i);
+  assert.match(directive.instruction, /collapse the thread into one coherent longform version/i);
+});
+
+test("draft revision normalizer keeps thread collapse requests shortform for unverified limits", () => {
+  const directive = normalizeDraftRevisionInstruction(
+    "Collapse this thread into one standalone X post",
+    "Hook\n\n---\n\nProof\n\n---\n\nCTA",
+    undefined,
+    280,
+  );
+
+  assert.equal(directive.changeKind, "full_rewrite");
+  assert.equal(directive.targetFormat, "shortform");
+  assert.equal(directive.scope, "whole_draft");
+  assert.match(directive.instruction, /exactly one standalone x post under 280 weighted characters/i);
+  assert.match(directive.instruction, /compress it aggressively into a clean shortform version/i);
 });
 
 test("thread revision normalizer targets the ending span for stronger ending CTA requests", () => {

@@ -17,6 +17,18 @@ type WorkspaceLoadResponseLike<TData> =
   | WorkspaceLoadSuccessLike<TData>
   | WorkspaceLoadFailureLike;
 
+export interface WorkspaceBootstrapSuccessLike<TContextData, TContractData> {
+  ok: true;
+  data: {
+    context: TContextData;
+    contract: TContractData;
+  };
+}
+
+export type WorkspaceBootstrapResponseLike<TContextData, TContractData> =
+  | WorkspaceBootstrapSuccessLike<TContextData, TContractData>
+  | WorkspaceLoadFailureLike;
+
 export interface WorkspaceLoadSuccess<TContextData, TContractData> {
   status: "success";
   contextData: TContextData;
@@ -128,5 +140,36 @@ export function resolveWorkspaceLoadState<TContextData, TContractData>(args: {
     status: "success",
     contextData: args.contextData.data,
     contractData: args.contractData.data,
+  };
+}
+
+export function resolveWorkspaceBootstrapLoadState<TContextData, TContractData>(args: {
+  responseOk: boolean;
+  status: number;
+  data: WorkspaceBootstrapResponseLike<TContextData, TContractData>;
+}): WorkspaceLoadResolution<TContextData, TContractData> {
+  const shouldRetryOnboarding =
+    isMissingOnboardingFailure(args.responseOk, args.data, args.status) ||
+    isInvalidOnboardingSourceFailure(args.responseOk, args.data, args.status);
+
+  if (shouldRetryOnboarding) {
+    return {
+      status: "retry_after_onboarding",
+    };
+  }
+
+  if (!args.responseOk || !args.data.ok) {
+    return {
+      status: "error",
+      errorMessage: args.data.ok
+        ? "Failed to load the chat workspace."
+        : args.data.errors[0]?.message ?? "Failed to load the chat workspace.",
+    };
+  }
+
+  return {
+    status: "success",
+    contextData: args.data.data.context,
+    contractData: args.data.data.contract,
   };
 }

@@ -183,6 +183,61 @@ test("shortform conversion rewrite returns a revised standalone post", async () 
   assert.equal(result.output.memoryPatch.formatPreference, "shortform");
 });
 
+test("thread collapse revisions become a longform single-post draft when the account limit allows it", async () => {
+  let reviserCall = null;
+
+  const result = await executeRevisingCapability(
+    createArgs({
+      context: {
+        activeDraft: [
+          "That hiring filter changed how we scaled.",
+          "It cut most weak proposals before interviews even started.",
+          "That saved burn and kept the team focused.",
+        ].join("\n\n---\n\n"),
+        maxCharacterLimit: 150000,
+        turnFormatPreference: "thread",
+        threadPostMaxCharacterLimit: 25000,
+        revision: {
+          instruction:
+            "rewrite the current draft as exactly one standalone x post under 25,000 weighted characters. preserve the core idea and strongest proof, collapse the thread into one coherent longform version, and do not use thread separators, post labels, or multi-post structure. revise the full thread, and you may rebuild the thread structure if the request clearly calls for it.",
+          changeKind: "full_rewrite",
+          targetText: null,
+          targetFormat: "longform",
+          scope: "whole_draft",
+          targetSpan: null,
+          threadIntent: "whole_thread",
+          preserveThreadStructure: false,
+        },
+        userMessage: "Collapse to one post",
+        latestRefinementInstruction: "Collapse to one post",
+      },
+      services: {
+        generateRevisionDraft: async (args) => {
+          reviserCall = args;
+          return {
+            revisedDraft:
+              "That hiring filter changed how we scaled: we killed weak proposals before interviews, saved burn, and kept the team focused on hires that could move revenue instead of just adding headcount.",
+            supportAsset: null,
+            issuesFixed: ["collapsed the thread into one post"],
+          };
+        },
+        critiqueDrafts: async ({ draft }) => ({
+          approved: true,
+          finalAngle: "same angle",
+          finalDraft: draft,
+          issues: [],
+        }),
+      },
+    }),
+  );
+
+  assert.equal(reviserCall?.options?.maxCharacterLimit, 25000);
+  assert.equal(reviserCall?.options?.formatPreference, "longform");
+  assert.equal(result.output.kind, "revision_ready");
+  assert.equal(result.output.responseSeed.outputShape, "long_form_post");
+  assert.equal(result.output.memoryPatch.formatPreference, "longform");
+});
+
 test("whole-draft thread conversions escalate once when the revise loop keeps returning a malformed post", async () => {
   let escalationCount = 0;
 

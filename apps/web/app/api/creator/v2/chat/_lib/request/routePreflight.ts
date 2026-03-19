@@ -12,10 +12,6 @@ import {
   type VoiceStyleCard,
 } from "@/lib/agent-v2/core/styleProfile";
 import {
-  hydrateOnboardingProfileForAnalysis,
-  hydrateOnboardingProfileForAnalysisWithPinnedRefresh,
-} from "@/lib/onboarding/profile/profileHydration";
-import {
   applyGrowthStrategyToCreatorProfileHints,
   buildCreatorProfileHintsFromOnboarding,
 } from "@/lib/agent-v2/grounding/creatorProfileHints";
@@ -35,6 +31,7 @@ import {
 } from "@/lib/workspaceHandle.server";
 import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import { buildGrowthOperatingSystemPayload } from "@/lib/onboarding/strategy/contextEnrichment";
+import { loadCreatorWorkspaceSnapshot } from "@/lib/creator/workspaceSnapshot";
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store/onboardingRunStore";
 import type { ConversationalDiagnosticContext } from "@/lib/agent-v2/runtime/diagnostics";
 import type {
@@ -242,26 +239,30 @@ export async function resolveRouteProfileContext(args: {
   preferenceConstraints: string[];
   forcePinnedRefreshForAnalysis?: boolean;
 }): Promise<RouteProfileContext> {
-  const storedOnboardingResult = (args.storedRun?.result || null) as OnboardingResult | null;
-  const onboardingResult = storedOnboardingResult
-    ? await (args.forcePinnedRefreshForAnalysis
-        ? hydrateOnboardingProfileForAnalysisWithPinnedRefresh(storedOnboardingResult)
-        : hydrateOnboardingProfileForAnalysis(storedOnboardingResult))
+  const snapshot = args.storedRun
+    ? await loadCreatorWorkspaceSnapshot({
+        userId: args.userId,
+        xHandle: args.activeHandle,
+        refreshPinnedProfile: args.forcePinnedRefreshForAnalysis,
+        storedRun: args.storedRun,
+        allowMockFallback: true,
+      })
     : null;
+  const onboardingResult = snapshot?.ok ? snapshot.onboarding : null;
   const isVerifiedAccount = onboardingResult?.profile?.isVerified === true;
-
-  let creatorAgentContext: ReturnType<typeof buildCreatorAgentContext> | null = null;
-  let growthOsPayload: Awaited<ReturnType<typeof buildGrowthOperatingSystemPayload>> | null = null;
-  let diagnosticContext: ConversationalDiagnosticContext | null = null;
-  const persistedVoiceProfilePromise = prisma.voiceProfile.findFirst({
-    where: {
-      userId: args.userId,
-      xHandle: args.activeHandle,
-    },
-  });
+  let creatorAgentContext = snapshot?.ok ? snapshot.creatorAgentContext : null;
+  let growthOsPayload = snapshot?.ok ? snapshot.growthOsPayload : null;
+  let diagnosticContext: ConversationalDiagnosticContext | null =
+    snapshot?.ok && creatorAgentContext && growthOsPayload
+      ? buildConversationalDiagnosticContext({
+          agentContext: creatorAgentContext,
+          growthOs: growthOsPayload,
+        })
+      : null;
+  const styleCard = snapshot?.ok ? snapshot.styleCard : null;
 
   const creatorProfileHintsPromise =
-    args.storedRun?.id && args.storedRun?.result
+    args.storedRun?.id && onboardingResult
       ? (async () => {
           try {
             const onboarding = onboardingResult as Parameters<
@@ -271,29 +272,24 @@ export async function resolveRouteProfileContext(args: {
               runId: args.storedRun!.id,
               onboarding,
             });
-            const persistedVoiceProfile = await persistedVoiceProfilePromise;
-            const parsedStyleCard = persistedVoiceProfile?.styleCard
-              ? StyleCardSchema.safeParse(persistedVoiceProfile.styleCard)
-              : null;
-            const profileAuditState = parsedStyleCard?.success
-              ? parsedStyleCard.data.profileAuditState ?? null
-              : null;
-            creatorAgentContext = buildCreatorAgentContext({
-              runId: args.storedRun!.id,
-              onboarding,
-            });
-            creatorAgentContext.profileAuditState = profileAuditState;
-            growthOsPayload = await buildGrowthOperatingSystemPayload({
-              userId: args.userId,
-              xHandle: args.activeHandle,
-              onboarding,
-              context: creatorAgentContext,
-              profileAuditState,
-            });
-            diagnosticContext = buildConversationalDiagnosticContext({
-              agentContext: creatorAgentContext,
-              growthOs: growthOsPayload,
-            });
+            if (!creatorAgentContext || !growthOsPayload) {
+              creatorAgentContext = buildCreatorAgentContext({
+                runId: args.storedRun!.id,
+                onboarding,
+              });
+              creatorAgentContext.profileAuditState = styleCard?.profileAuditState ?? null;
+              growthOsPayload = await buildGrowthOperatingSystemPayload({
+                userId: args.userId,
+                xHandle: args.activeHandle,
+                onboarding,
+                context: creatorAgentContext,
+                profileAuditState: styleCard?.profileAuditState ?? null,
+              });
+              diagnosticContext = buildConversationalDiagnosticContext({
+                agentContext: creatorAgentContext,
+                growthOs: growthOsPayload,
+              });
+            }
 
             return applyGrowthStrategyToCreatorProfileHints({
               hints: baseHints,
@@ -315,22 +311,9 @@ export async function resolveRouteProfileContext(args: {
           }
         })()
       : Promise.resolve(null);
+  const creatorProfileHints = await creatorProfileHintsPromise;
 
-  const [creatorProfileHints, persistedVoiceProfile] = await Promise.all([
-    creatorProfileHintsPromise,
-    persistedVoiceProfilePromise,
-  ]);
-
-  const parsedPersistedStyleCard = persistedVoiceProfile?.styleCard
-    ? StyleCardSchema.safeParse(persistedVoiceProfile.styleCard)
-    : null;
-  const styleCard: VoiceStyleCard | null =
-    parsedPersistedStyleCard?.success ? parsedPersistedStyleCard.data : null;
-  const storedUserPreferences = normalizeUserPreferences(
-    parsedPersistedStyleCard?.success
-      ? parsedPersistedStyleCard.data.userPreferences
-      : null,
-  );
+  const storedUserPreferences = normalizeUserPreferences(styleCard?.userPreferences ?? null);
   const effectiveUserPreferences = mergeUserPreferences(
     storedUserPreferences,
     args.transientPreferenceSettings,

@@ -2687,6 +2687,29 @@ test("initial draft version payload does not carry a shortform max limit into a 
   assert.equal(payload.draftVersions?.[0]?.maxCharacterLimit, 1680);
 });
 
+test("initial draft version payload does not carry a thread max limit into a longform conversion", () => {
+  const selectedDraftContext = parseSelectedDraftContext({
+    messageId: "msg_8",
+    versionId: "ver_8",
+    content: "hook\n\n---\n\nproof\n\n---\n\ncta",
+    source: "assistant_generated",
+    maxCharacterLimit: 150_000,
+    revisionChainId: "revision-chain-msg_8",
+  });
+
+  const payload = buildInitialDraftVersionPayload({
+    draft: "One longform post version of the thread.",
+    outputShape: "long_form_post",
+    supportAsset: null,
+    selectedDraftContext,
+  });
+
+  assert.equal(payload.draftArtifacts.length, 1);
+  assert.equal(payload.draftArtifacts[0]?.maxCharacterLimit, 25_000);
+  assert.equal(payload.draftVersions?.[0]?.maxCharacterLimit, 25_000);
+  assert.equal(payload.previousVersionSnapshot?.maxCharacterLimit, 150_000);
+});
+
 test("thread payloads build structured thread artifacts with posts", () => {
   const payload = buildInitialDraftVersionPayload({
     draft: "hook\n\n---\n\nproof\n\n---\n\ncta",

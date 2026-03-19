@@ -2,14 +2,14 @@ import { NextResponse } from "next/server";
 
 import { getServerSession } from "@/lib/auth/serverSession";
 import { loadCreatorWorkspaceSnapshot } from "@/lib/creator/workspaceSnapshot";
-import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 import {
   enforceSessionMutationRateLimit,
   parseJsonBody,
   requireAllowedOrigin,
 } from "@/lib/security/requestValidation";
+import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
-interface CreatorGenerationContractRequest extends Record<string, unknown> {
+interface CreatorWorkspaceBootstrapRequest extends Record<string, unknown> {
   runId?: unknown;
 }
 
@@ -32,23 +32,24 @@ export async function POST(request: Request) {
 
   const rateLimitError = await enforceSessionMutationRateLimit(request, {
     userId: session.user.id,
-    scope: "creator:generation_contract",
+    scope: "creator:workspace_bootstrap",
     user: {
       limit: 20,
       windowMs: 5 * 60 * 1000,
-      message: "Too many generation contract requests. Please wait before trying again.",
+      message: "Too many workspace bootstrap requests. Please wait before trying again.",
     },
     ip: {
       limit: 50,
       windowMs: 5 * 60 * 1000,
-      message: "Too many generation contract requests from this network. Please wait before trying again.",
+      message:
+        "Too many workspace bootstrap requests from this network. Please wait before trying again.",
     },
   });
   if (rateLimitError) {
     return rateLimitError;
   }
 
-  const bodyResult = await parseJsonBody<CreatorGenerationContractRequest>(request, {
+  const bodyResult = await parseJsonBody<CreatorWorkspaceBootstrapRequest>(request, {
     maxBytes: 16 * 1024,
     field: "runId",
   });
@@ -85,7 +86,10 @@ export async function POST(request: Request) {
   return NextResponse.json(
     {
       ok: true,
-      data: snapshot.contractData,
+      data: {
+        context: snapshot.contextData,
+        contract: snapshot.contractData,
+      },
     },
     { status: 200 },
   );

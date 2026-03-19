@@ -56,3 +56,29 @@ test("thread revision normalizer treats entire post wording as a whole-thread ed
   assert.equal(directive.threadIntent, "whole_thread");
   assert.equal(directive.preserveThreadStructure, true);
 });
+
+test("thread collapse requests become longform single-post conversions when the single-post limit is verified-sized", () => {
+  const directive = normalizeDraftRevisionInstruction(
+    "Collapse this thread into one standalone X post",
+    "Weak opener\n\n---\n\nProof\n\n---\n\nPayoff",
+    undefined,
+    25_000,
+  );
+
+  assert.equal(directive.scope, "whole_draft");
+  assert.equal(directive.targetFormat, "longform");
+  assert.match(directive.instruction, /one coherent longform version/i);
+});
+
+test("thread collapse requests stay shortform when the single-post limit is unverified-sized", () => {
+  const directive = normalizeDraftRevisionInstruction(
+    "Collapse this thread into one standalone X post",
+    "Weak opener\n\n---\n\nProof\n\n---\n\nPayoff",
+    undefined,
+    280,
+  );
+
+  assert.equal(directive.scope, "whole_draft");
+  assert.equal(directive.targetFormat, "shortform");
+  assert.match(directive.instruction, /under 280 weighted characters/i);
+});

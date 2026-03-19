@@ -25,7 +25,29 @@ export interface DeletedFolderRecord {
   itemCount: number;
 }
 
-export interface ContentItemRecord {
+export interface ContentItemPreview {
+  primaryText: string;
+  threadPostCount: number;
+  isThread: boolean;
+}
+
+export interface ContentItemSummaryRecord {
+  id: string;
+  title: string;
+  threadId: string | null;
+  messageId: string | null;
+  status: ContentStatus;
+  folderId: string | null;
+  folder: FolderRecord | null;
+  publishedTweetId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  postedAt: string | null;
+  preview: ContentItemPreview;
+  artifact?: DraftArtifactDetails | null;
+}
+
+export interface ContentItemRecord extends ContentItemSummaryRecord {
   id: string;
   title: string;
   sourcePrompt: string;
@@ -47,7 +69,16 @@ export interface ContentItemRecord {
 export interface ContentItemsResponse {
   ok: true;
   data: {
-    items: ContentItemRecord[];
+    items: Array<ContentItemSummaryRecord | ContentItemRecord>;
+    nextCursor?: string | null;
+    hasMore?: boolean;
+  };
+}
+
+export interface ContentItemDetailResponse {
+  ok: true;
+  data: {
+    item: ContentItemRecord;
   };
 }
 

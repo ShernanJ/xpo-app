@@ -34,6 +34,11 @@ function buildItem(): ContentItemRecord {
       itemCount: 4,
     },
     publishedTweetId: null,
+    preview: {
+      primaryText: "Opening hook for a longer thread.",
+      threadPostCount: 3,
+      isThread: true,
+    },
     artifact: {
       id: "artifact_1",
       title: "Thread preview",

@@ -5,7 +5,7 @@ import type { ComponentProps } from "react";
 import { PricingDialog } from "./PricingDialog";
 import { SettingsDialog } from "./SettingsDialog";
 
-interface BillingDialogsProps {
+export interface BillingDialogsProps {
   monetizationEnabled: boolean;
   supportEmail: string;
   onOpenPricingPage: () => void;

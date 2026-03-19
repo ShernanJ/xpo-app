@@ -4,6 +4,66 @@ import { Prisma } from "../../generated/prisma/client";
 import { prisma } from "../../db";
 import { checkNewTweetsAgainstDrafts } from "../../content/autoPublishMatcher";
 
+const LATEST_ONBOARDING_RUN_CACHE_TTL_MS = 15_000;
+
+type LatestOnboardingRunCacheEntry = {
+  expiresAt: number;
+  value: StoredOnboardingRun | null;
+};
+
+const latestOnboardingRunByHandleCache = new Map<string, LatestOnboardingRunCacheEntry>();
+
+function normalizeOnboardingAccountHandle(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().replace(/^@+/, "").toLowerCase();
+  return normalized || null;
+}
+
+function buildLatestOnboardingRunCacheKey(userId: string, handle: string): string {
+  return `${userId}:${normalizeOnboardingAccountHandle(handle) ?? ""}`;
+}
+
+function readCachedLatestOnboardingRun(
+  userId: string,
+  handle: string,
+): StoredOnboardingRun | null | undefined {
+  const cacheKey = buildLatestOnboardingRunCacheKey(userId, handle);
+  const cached = latestOnboardingRunByHandleCache.get(cacheKey);
+  if (!cached) {
+    return undefined;
+  }
+
+  if (cached.expiresAt <= Date.now()) {
+    latestOnboardingRunByHandleCache.delete(cacheKey);
+    return undefined;
+  }
+
+  return cached.value;
+}
+
+function writeCachedLatestOnboardingRun(
+  userId: string,
+  handle: string,
+  value: StoredOnboardingRun | null,
+) {
+  latestOnboardingRunByHandleCache.set(buildLatestOnboardingRunCacheKey(userId, handle), {
+    expiresAt: Date.now() + LATEST_ONBOARDING_RUN_CACHE_TTL_MS,
+    value,
+  });
+}
+
+function invalidateLatestOnboardingRunCache(userId: string, handle: string | null | undefined) {
+  const normalizedHandle = normalizeOnboardingAccountHandle(handle);
+  if (!normalizedHandle) {
+    return;
+  }
+
+  latestOnboardingRunByHandleCache.delete(buildLatestOnboardingRunCacheKey(userId, normalizedHandle));
+}
+
 export interface StoredOnboardingRun {
   runId: string;
   persistedAt: string;
@@ -121,6 +181,8 @@ export async function persistOnboardingRun(params: {
     },
   });
 
+  invalidateLatestOnboardingRunCache(params.userId, params.input.account);
+
   return {
     runId,
     persistedAt,
@@ -204,19 +266,39 @@ export async function readLatestOnboardingRunByHandle(
   handle: string,
 ): Promise<StoredOnboardingRun | null> {
   try {
+    const cached = readCachedLatestOnboardingRun(userId, handle);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const normalizedHandle = normalizeOnboardingAccountHandle(handle);
+    if (!normalizedHandle) {
+      return null;
+    }
+
     const runs = await prisma.onboardingRun.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        createdAt: true,
+        userId: true,
+        input: true,
+        result: true,
+      },
     });
 
     const match = runs.find((r) => {
       const input = r.input as { account?: string } | null;
-      return input?.account?.toLowerCase() === handle.toLowerCase();
+      return normalizeOnboardingAccountHandle(input?.account) === normalizedHandle;
     });
 
-    if (!match) return null;
+    if (!match) {
+      writeCachedLatestOnboardingRun(userId, normalizedHandle, null);
+      return null;
+    }
 
-    return {
+    const nextValue = {
       runId: match.id,
       persistedAt: match.createdAt.toISOString(),
       userId: match.userId,
@@ -224,6 +306,8 @@ export async function readLatestOnboardingRunByHandle(
       result: match.result as unknown as OnboardingResult,
       metadata: { userAgent: null },
     };
+    writeCachedLatestOnboardingRun(userId, normalizedHandle, nextValue);
+    return nextValue;
   } catch (error) {
     console.error(`Failed to read latest run for user ${userId} handle ${handle}`, error);
     return null;

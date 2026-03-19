@@ -29,6 +29,7 @@ import { resolveVoiceTarget } from "../core/voiceTarget";
 import {
   getXCharacterLimitForFormat,
   getXCharacterLimitForAccount,
+  splitSerializedThreadPosts,
   type ThreadFramingStyle,
 } from "../../onboarding/shared/draftArtifacts.ts";
 import { buildClarificationTree } from "../capabilities/planning/clarificationTree";
@@ -408,8 +409,10 @@ export async function executeDraftPipeline(args: {
   });
   const isMultiDraftTurn =
     turnFormatPreference === "shortform" && isMultiDraftRequest(userMessage);
+  const activeDraftIsThread =
+    typeof activeDraft === "string" && splitSerializedThreadPosts(activeDraft).length > 1;
   const threadPostMaxCharacterLimit =
-    turnFormatPreference === "thread"
+    turnFormatPreference === "thread" || activeDraftIsThread
       ? getXCharacterLimitForAccount(isVerifiedAccount)
       : undefined;
   const maxCharacterLimit = getXCharacterLimitForFormat(

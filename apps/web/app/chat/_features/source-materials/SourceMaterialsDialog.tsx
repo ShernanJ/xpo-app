@@ -12,7 +12,7 @@ import {
   type SourceMaterialType,
 } from "./sourceMaterialsState";
 
-interface SourceMaterialsDialogProps {
+export interface SourceMaterialsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSeedSourceMaterials: () => void;

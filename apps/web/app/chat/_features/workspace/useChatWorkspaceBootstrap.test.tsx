@@ -11,6 +11,11 @@ interface ToneInputs {
   tone: string;
 }
 
+interface BootstrapHookProps {
+  activeStrategyInputs: StrategyInputs | null;
+  activeToneInputs: ToneInputs | null;
+}
+
 function createSuccessfulResponse(payload: unknown): Response {
   return {
     ok: true,
@@ -20,6 +25,16 @@ function createSuccessfulResponse(payload: unknown): Response {
       data: payload,
     }),
   } as Response;
+}
+
+function createSuccessfulBootstrapResponse(args: {
+  context: unknown;
+  contract: unknown;
+}): Response {
+  return createSuccessfulResponse({
+    context: args.context,
+    contract: args.contract,
+  });
 }
 
 function createFailureResponse(args: {
@@ -43,8 +58,13 @@ function createFailureResponse(args: {
 test("keeps loadWorkspace stable while reading the latest strategy and tone inputs", async () => {
   const fetchWorkspace = vi.fn(
     async (_input: RequestInfo | URL, init?: RequestInit) =>
-      createSuccessfulResponse({
-        requestBody: JSON.parse(String(init?.body ?? "{}")),
+      createSuccessfulBootstrapResponse({
+        context: {
+          requestBody: JSON.parse(String(init?.body ?? "{}")),
+        },
+        contract: {
+          requestBody: JSON.parse(String(init?.body ?? "{}")),
+        },
       }),
   );
   const setIsLoading = vi.fn();
@@ -56,14 +76,18 @@ test("keeps loadWorkspace stable while reading the latest strategy and tone inpu
   const onPlanRequired = vi.fn();
   const normalizeAccountHandle = (value: string) => value.trim().toLowerCase();
 
-  const { result, rerender } = renderHook(
-    ({
-      activeStrategyInputs,
-      activeToneInputs,
-    }: {
-      activeStrategyInputs: StrategyInputs | null;
-      activeToneInputs: ToneInputs | null;
-    }) =>
+  const { result, rerender } = renderHook<
+    ReturnType<
+      typeof useChatWorkspaceBootstrap<
+        { requestBody: Record<string, unknown> },
+        { requestBody: Record<string, unknown> },
+        StrategyInputs,
+        ToneInputs
+      >
+    >,
+    BootstrapHookProps
+  >(
+    ({ activeStrategyInputs, activeToneInputs }: BootstrapHookProps) =>
       useChatWorkspaceBootstrap<
         { requestBody: Record<string, unknown> },
         { requestBody: Record<string, unknown> },
@@ -88,7 +112,7 @@ test("keeps loadWorkspace stable while reading the latest strategy and tone inpu
       initialProps: {
         activeStrategyInputs: null,
         activeToneInputs: null,
-      },
+      } satisfies BootstrapHookProps,
     },
   );
 
@@ -99,7 +123,7 @@ test("keeps loadWorkspace stable while reading the latest strategy and tone inpu
   rerender({
     activeStrategyInputs,
     activeToneInputs,
-  });
+  } satisfies BootstrapHookProps);
 
   expect(result.current.loadWorkspace).toBe(initialLoadWorkspace);
 
@@ -107,20 +131,10 @@ test("keeps loadWorkspace stable while reading the latest strategy and tone inpu
     await result.current.loadWorkspace();
   });
 
-  expect(fetchWorkspace).toHaveBeenCalledTimes(2);
+  expect(fetchWorkspace).toHaveBeenCalledTimes(1);
   expect(fetchWorkspace).toHaveBeenNthCalledWith(
     1,
-    "/api/creator/context",
-    expect.objectContaining({
-      body: JSON.stringify({
-        ...activeStrategyInputs,
-        ...activeToneInputs,
-      }),
-    }),
-  );
-  expect(fetchWorkspace).toHaveBeenNthCalledWith(
-    2,
-    "/api/creator/generation-contract",
+    "/api/creator/workspace/bootstrap",
     expect.objectContaining({
       body: JSON.stringify({
         ...activeStrategyInputs,
@@ -143,7 +157,12 @@ test("keeps loadWorkspace stable while reading the latest strategy and tone inpu
 });
 
 test("keeps loadWorkspace stable when bootstrap callbacks change identity", () => {
-  const fetchWorkspace = vi.fn(async () => createSuccessfulResponse({ ok: true }));
+  const fetchWorkspace = vi.fn(async () =>
+    createSuccessfulBootstrapResponse({
+      context: { ok: true },
+      contract: { ok: true },
+    }),
+  );
   const setIsLoading = vi.fn();
   const setIsWorkspaceInitializing = vi.fn();
   const setErrorMessage = vi.fn();
@@ -206,14 +225,11 @@ test("retries workspace bootstrap once after onboarding setup succeeds", async (
       }),
     )
     .mockImplementationOnce(async () =>
-      createFailureResponse({
-        status: 404,
-        code: "MISSING_ONBOARDING_RUN",
-        message: "No onboarding run found.",
+      createSuccessfulBootstrapResponse({
+        context: { id: "context-1" },
+        contract: { id: "contract-1" },
       }),
-    )
-    .mockImplementationOnce(async () => createSuccessfulResponse({ id: "context-1" }))
-    .mockImplementationOnce(async () => createSuccessfulResponse({ id: "contract-1" }));
+    );
   const onboardingFetch = vi.fn(async () =>
     ({
       ok: true,
@@ -256,7 +272,7 @@ test("retries workspace bootstrap once after onboarding setup succeeds", async (
     await result.current.loadWorkspace();
   });
 
-  expect(fetchWorkspace).toHaveBeenCalledTimes(4);
+  expect(fetchWorkspace).toHaveBeenCalledTimes(2);
   expect(onboardingFetch).toHaveBeenCalledTimes(1);
   expect(setContext).toHaveBeenCalledWith({ id: "context-1" });
   expect(setContract).toHaveBeenCalledWith({ id: "contract-1" });
@@ -350,8 +366,12 @@ test("clears workspace initializing when a newer load overtakes onboarding setup
         message: "No onboarding run found.",
       }),
     )
-    .mockImplementationOnce(async () => createSuccessfulResponse({ id: "context-2" }))
-    .mockImplementationOnce(async () => createSuccessfulResponse({ id: "contract-2" }));
+    .mockImplementationOnce(async () =>
+      createSuccessfulBootstrapResponse({
+        context: { id: "context-2" },
+        contract: { id: "contract-2" },
+      }),
+    );
   const onboardingFetch = vi.fn(async () => onboardingFetchDeferred.promise);
   const setIsLoading = vi.fn();
   const setIsWorkspaceInitializing = vi.fn((value: boolean) => {

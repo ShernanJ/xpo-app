@@ -1,5 +1,6 @@
 import {
   buildThreadConversionPrompt,
+  SHORT_FORM_X_LIMIT,
   splitSerializedThreadPosts,
 } from "../../../onboarding/shared/draftArtifacts.ts";
 
@@ -127,6 +128,34 @@ function looksLikeShortformConversionRequest(normalized: string): boolean {
   ].some((cue) => normalized.includes(cue));
 }
 
+function looksLikeSinglePostCollapseRequest(normalized: string): boolean {
+  return [
+    /\bcollapse\b[\s\S]*\bone\b[\s\S]*\b(?:x\s+post|tweet|post)\b/,
+    /\bcollapse\b[\s\S]*\bstandalone\b[\s\S]*\b(?:x\s+post|tweet|post)\b/,
+    /\bturn\b[\s\S]*\binto\b[\s\S]*\bone\b[\s\S]*\b(?:x\s+post|tweet|post)\b/,
+    /\brewrite\b[\s\S]*\bas\b[\s\S]*\bone\b[\s\S]*\b(?:x\s+post|tweet|post)\b/,
+    /\bmake\b[\s\S]*\bone\b[\s\S]*\b(?:x\s+post|tweet|post)\b/,
+    /\bexactly one standalone\b[\s\S]*\b(?:x\s+post|tweet|post)\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function resolveSinglePostTargetFormat(
+  maxCharacterLimit: number,
+): Exclude<DraftRevisionTargetFormat, "thread" | null> {
+  return maxCharacterLimit > SHORT_FORM_X_LIMIT ? "longform" : "shortform";
+}
+
+function buildSinglePostConversionInstruction(args: {
+  maxCharacterLimit: number;
+  targetFormat: Exclude<DraftRevisionTargetFormat, "thread" | null>;
+}): string {
+  if (args.targetFormat === "longform") {
+    return `rewrite the current draft as exactly one standalone x post under ${args.maxCharacterLimit.toLocaleString()} weighted characters. preserve the core idea and strongest proof, collapse the thread into one coherent longform version, and do not use thread separators, post labels, or multi-post structure.`;
+  }
+
+  return `rewrite the current draft as exactly one standalone x post under ${args.maxCharacterLimit.toLocaleString()} weighted characters. preserve the core idea and strongest proof, but compress it aggressively into a clean shortform version. do not use thread separators, post labels, or multi-post structure.`;
+}
+
 function decorateThreadSpanInstruction(
   instruction: string,
   targetSpan: DraftRevisionTargetSpan,
@@ -226,6 +255,7 @@ function detectExplicitThreadPostIndex(
 function normalizeBaseDraftRevisionInstruction(
   userMessage: string,
   activeDraft: string,
+  singlePostMaxCharacterLimit: number = SHORT_FORM_X_LIMIT,
 ): DraftRevisionDirective {
   const trimmed = userMessage.trim();
   const normalized = trimmed.toLowerCase();
@@ -432,6 +462,19 @@ function normalizeBaseDraftRevisionInstruction(
     });
   }
 
+  if (looksLikeSinglePostCollapseRequest(normalized)) {
+    const targetFormat = resolveSinglePostTargetFormat(singlePostMaxCharacterLimit);
+    return buildDirective({
+      instruction: buildSinglePostConversionInstruction({
+        maxCharacterLimit: singlePostMaxCharacterLimit,
+        targetFormat,
+      }),
+      changeKind: "full_rewrite",
+      targetText: null,
+      targetFormat,
+    });
+  }
+
   if (looksLikeShortformConversionRequest(normalized)) {
     return buildDirective({
       instruction:
@@ -581,8 +624,13 @@ export function normalizeDraftRevisionInstruction(
   userMessage: string,
   activeDraft: string,
   focusedThreadPostIndex?: number,
+  singlePostMaxCharacterLimit: number = SHORT_FORM_X_LIMIT,
 ): DraftRevisionDirective {
-  const baseDirective = normalizeBaseDraftRevisionInstruction(userMessage, activeDraft);
+  const baseDirective = normalizeBaseDraftRevisionInstruction(
+    userMessage,
+    activeDraft,
+    singlePostMaxCharacterLimit,
+  );
   const threadPosts = splitSerializedThreadPosts(activeDraft);
 
   if (threadPosts.length <= 1) {

@@ -76,7 +76,7 @@ interface AnalysisReplyConversionHighlight {
   value: string;
 }
 
-interface ProfileAnalysisDialogProps {
+export interface ProfileAnalysisDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   context: CreatorAgentContext;

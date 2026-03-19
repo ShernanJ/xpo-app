@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getServerSession } from "@/lib/auth/serverSession";
 import {
-  listContentItemsForWorkspace,
-  serializeContentItem,
+  listContentItemSummariesForWorkspace,
+  serializeContentItemSummary,
 } from "@/lib/content/contentHub";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 const VALID_CONTENT_STATUSES = new Set(["DRAFT", "PUBLISHED", "ARCHIVED", "ALL"]);
+const DEFAULT_CONTENT_PAGE_SIZE = 24;
+const MAX_CONTENT_PAGE_SIZE = 100;
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession();
@@ -28,6 +30,12 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status")?.trim().toUpperCase() || "ALL";
+  const cursor = searchParams.get("cursor")?.trim() || null;
+  const requestedTake = Number.parseInt(searchParams.get("take")?.trim() || "", 10);
+  const take =
+    Number.isFinite(requestedTake) && requestedTake > 0
+      ? Math.min(requestedTake, MAX_CONTENT_PAGE_SIZE)
+      : DEFAULT_CONTENT_PAGE_SIZE;
   if (!VALID_CONTENT_STATUSES.has(status)) {
     return NextResponse.json(
       { ok: false, errors: [{ field: "status", message: "Invalid content status filter." }] },
@@ -35,17 +43,21 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const items = await listContentItemsForWorkspace({
+  const page = await listContentItemSummariesForWorkspace({
     userId: session.user.id,
     xHandle: workspaceHandle.xHandle,
     status: status === "ALL" ? null : status,
+    cursor,
+    take,
     sortBy: "createdAt",
   });
 
   return NextResponse.json({
     ok: true,
     data: {
-      items: items.map(serializeContentItem),
+      items: page.items.map(serializeContentItemSummary),
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
     },
   });
 }

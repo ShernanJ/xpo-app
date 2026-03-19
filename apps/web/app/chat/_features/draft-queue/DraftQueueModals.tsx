@@ -5,7 +5,7 @@ import type { ComponentProps } from "react";
 import { ObservedMetricsModal } from "../../_dialogs/ObservedMetricsModal";
 import { DraftQueueDialog } from "./DraftQueueDialog";
 
-interface DraftQueueModalsProps {
+export interface DraftQueueModalsProps {
   draftQueueDialogProps: ComponentProps<typeof DraftQueueDialog>;
   observedMetricsOpen: boolean;
   observedMetricsCandidateTitle: string | null;
