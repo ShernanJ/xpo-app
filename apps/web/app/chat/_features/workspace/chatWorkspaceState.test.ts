@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildChatWorkspaceReset,
   resolveCreatedThreadWorkspaceUpdate,
+  resolveChatDocumentTitle,
   resolveWorkspaceHandle,
 } from "./chatWorkspaceState.ts";
 
@@ -31,6 +32,12 @@ test("resolveWorkspaceHandle prefers the URL handle over the session handle", ()
     }),
     null,
   );
+});
+
+test("resolveChatDocumentTitle returns the handle-aware tab title", () => {
+  assert.equal(resolveChatDocumentTitle(" @StanFromUrl "), "Xpo | @stanfromurl");
+  assert.equal(resolveChatDocumentTitle("   "), "Xpo");
+  assert.equal(resolveChatDocumentTitle(null), "Xpo");
 });
 
 test("buildChatWorkspaceReset returns the current thread reset payload", () => {

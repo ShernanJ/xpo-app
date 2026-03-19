@@ -116,6 +116,7 @@ import { useAnalysisState } from "./_features/analysis/useAnalysisState";
 import { resolveDraftEditorIdentity } from "./_features/draft-editor/draftEditorViewState";
 import { ChatOverlaysController } from "./_features/workspace-chrome/ChatOverlaysController";
 import { parseImagePostConfirmationDecision } from "@/lib/chat/imageTurnText";
+import { resolveChatDocumentTitle } from "./_features/workspace/chatWorkspaceState";
 
 const monetizationEnabled = isMonetizationEnabled();
 
@@ -151,6 +152,10 @@ function ChatPageContent() {
     sessionUserId: session?.user?.id,
     status,
   });
+
+  useEffect(() => {
+    document.title = resolveChatDocumentTitle(accountName);
+  }, [accountName]);
 
   const {
     hoveredThreadId,

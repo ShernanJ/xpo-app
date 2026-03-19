@@ -5,7 +5,9 @@ import { redirect } from "next/navigation";
 const CHAT_BACKGROUND = "#050505";
 
 export const metadata: Metadata = {
-  title: "Workspace",
+  title: {
+    absolute: "Xpo",
+  },
   robots: {
     index: false,
     follow: false,

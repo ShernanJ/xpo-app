@@ -89,6 +89,11 @@ export function resolveWorkspaceHandle(args: {
   );
 }
 
+export function resolveChatDocumentTitle(xHandle?: string | null): string {
+  const normalizedHandle = normalizeWorkspaceHandle(xHandle);
+  return normalizedHandle ? `Xpo | @${normalizedHandle}` : "Xpo";
+}
+
 export function buildChatWorkspaceReset(scope: "thread"): ChatThreadStateReset;
 export function buildChatWorkspaceReset<TToneInputs, TStrategyInputs>(
   scope: "workspace",
