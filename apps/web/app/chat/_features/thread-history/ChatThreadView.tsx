@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { ArrowUpRight } from "lucide-react";
+import UniqueLoading from "@/components/ui/grid-loading";
 
 import { useChatThreadViewCanvas } from "../chat-page/ChatCanvasContext";
 
@@ -38,11 +39,12 @@ export function ChatThreadView(props: ChatThreadViewProps) {
       <div className={`${chatCanvasClassName} ${threadCanvasTransitionClassName}`}>
         {(isLoading || isWorkspaceInitializing) && !hasContext && !hasContract ? (
           <div className="flex min-h-[34vh] flex-col items-center justify-center gap-4 text-center">
-            <div className="relative h-11 w-11">
-              <span className="absolute inset-0 rounded-full border border-white/10" />
-              <span className="absolute inset-1 animate-spin rounded-full border border-white/20 border-t-white" />
-              <span className="absolute inset-3 animate-pulse rounded-full bg-white/20" />
-            </div>
+            <UniqueLoading
+              variant="squares"
+              size="lg"
+              text="Setting things up"
+              className="[&>div>div]:rounded-[2px] [&>div>div]:bg-zinc-200"
+            />
             <div className="space-y-1">
               <p className="text-sm font-medium tracking-[0.08em] text-zinc-200">
                 Setting things up...

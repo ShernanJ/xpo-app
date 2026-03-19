@@ -331,6 +331,94 @@ test("does not keep retrying onboarding setup after a plan-required failure", as
   vi.unstubAllGlobals();
 });
 
+test("clears workspace initializing when a newer load overtakes onboarding setup", async () => {
+  let currentWorkspaceInitializing = false;
+  const onboardingFetchDeferred = Promise.withResolvers<Response>();
+  const fetchWorkspace = vi
+    .fn<UseChatWorkspaceBootstrapFetch>()
+    .mockImplementationOnce(async () =>
+      createFailureResponse({
+        status: 404,
+        code: "MISSING_ONBOARDING_RUN",
+        message: "No onboarding run found.",
+      }),
+    )
+    .mockImplementationOnce(async () =>
+      createFailureResponse({
+        status: 404,
+        code: "MISSING_ONBOARDING_RUN",
+        message: "No onboarding run found.",
+      }),
+    )
+    .mockImplementationOnce(async () => createSuccessfulResponse({ id: "context-2" }))
+    .mockImplementationOnce(async () => createSuccessfulResponse({ id: "contract-2" }));
+  const onboardingFetch = vi.fn(async () => onboardingFetchDeferred.promise);
+  const setIsLoading = vi.fn();
+  const setIsWorkspaceInitializing = vi.fn((value: boolean) => {
+    currentWorkspaceInitializing = value;
+  });
+  const setErrorMessage = vi.fn();
+  const setContext = vi.fn();
+  const setContract = vi.fn();
+  const applyBillingSnapshot = vi.fn();
+  const onPlanRequired = vi.fn();
+
+  vi.stubGlobal("fetch", onboardingFetch);
+
+  const { result } = renderHook(() =>
+    useChatWorkspaceBootstrap<{ id: string }, { id: string }, StrategyInputs, ToneInputs>({
+      accountName: "stanley",
+      requiresXAccountGate: false,
+      activeStrategyInputs: null,
+      activeToneInputs: null,
+      fetchWorkspace,
+      setIsLoading,
+      setIsWorkspaceInitializing,
+      setErrorMessage,
+      setContext,
+      setContract,
+      applyBillingSnapshot,
+      onPlanRequired,
+      normalizeAccountHandle: (value) => value.trim().toLowerCase(),
+    }),
+  );
+
+  let firstLoadPromise!: Promise<unknown>;
+  await act(async () => {
+    firstLoadPromise = result.current.loadWorkspace();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(onboardingFetch).toHaveBeenCalledTimes(1);
+  expect(currentWorkspaceInitializing).toBe(true);
+
+  await act(async () => {
+    await result.current.loadWorkspace();
+  });
+
+  expect(setContext).toHaveBeenCalledWith({ id: "context-2" });
+  expect(setContract).toHaveBeenCalledWith({ id: "contract-2" });
+  expect(currentWorkspaceInitializing).toBe(false);
+
+  onboardingFetchDeferred.resolve({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      ok: true,
+      runId: "run-1",
+    }),
+  } as Response);
+
+  await act(async () => {
+    await firstLoadPromise;
+  });
+
+  expect(currentWorkspaceInitializing).toBe(false);
+
+  vi.unstubAllGlobals();
+});
+
 type UseChatWorkspaceBootstrapFetch = (
   input: RequestInfo | URL,
   init?: RequestInit,

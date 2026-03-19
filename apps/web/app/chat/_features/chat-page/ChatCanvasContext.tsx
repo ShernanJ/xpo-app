@@ -425,6 +425,8 @@ export function useChatComposerDockCanvas() {
   const { state, actions, meta } = useChatCanvasContext();
 
   return {
+    isLoading: state.isLoading,
+    isWorkspaceInitializing: state.isWorkspaceInitializing,
     isNewChatHero: state.isNewChatHero,
     isLeavingHero: state.isLeavingHero,
     showScrollToLatest: state.showScrollToLatest,

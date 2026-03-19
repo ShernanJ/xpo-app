@@ -7,6 +7,8 @@ import { ChatComposerSurface } from "./ChatComposerSurface";
 
 export function ChatComposerDock() {
   const {
+    isLoading,
+    isWorkspaceInitializing,
     isNewChatHero,
     isLeavingHero,
     showScrollToLatest,
@@ -22,6 +24,10 @@ export function ChatComposerDock() {
       ? "pointer-events-none -translate-y-[14.5rem] opacity-0 sm:-translate-y-[17rem]"
       : "pointer-events-auto translate-y-0 opacity-100"
   }`;
+
+  if (isLoading || isWorkspaceInitializing) {
+    return null;
+  }
 
   return (
     <div className={dockComposerWrapperClassName}>

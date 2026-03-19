@@ -237,3 +237,22 @@ test("shows the stop action while a reply is sending", async () => {
 
   expect(canvasProps.onInterruptReply).toHaveBeenCalledTimes(1);
 });
+
+test("hides the dock composer while the workspace is loading", () => {
+  render(
+    <ChatWorkspaceCanvas
+      workspaceChromeProps={buildWorkspaceChromeProps()}
+      canvasProps={buildCanvasProps({
+        isLoading: true,
+        hasContext: false,
+        hasContract: false,
+        isHeroVisible: false,
+        isNewChatHero: false,
+      })}
+      threadContent={null}
+    />,
+  );
+
+  expect(screen.getByText("Setting things up...")).toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "Chat composer" })).not.toBeInTheDocument();
+});

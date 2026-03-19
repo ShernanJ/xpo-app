@@ -232,11 +232,15 @@ export function useChatWorkspaceBootstrap<
       if (requiresXAccountGate) {
         if (isLatestRequest()) {
           setErrorMessage(null);
+          setIsWorkspaceInitializing(false);
           setIsLoading(false);
         }
         return { ok: false };
       }
 
+      if (isLatestRequest()) {
+        setIsWorkspaceInitializing(false);
+      }
       setIsLoading(true);
       setErrorMessage(null);
 
@@ -343,6 +347,7 @@ export function useChatWorkspaceBootstrap<
         if (workspaceLoadRequestIdRef.current === requestId) {
           activeWorkspaceLoadControllerRef.current = null;
           if (isMountedRef.current) {
+            setIsWorkspaceInitializing(false);
             setIsLoading(false);
           }
         }
