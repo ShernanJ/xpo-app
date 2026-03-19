@@ -45,7 +45,7 @@ export function ChatThreadView(props: ChatThreadViewProps) {
           {isBootstrapping ? (
             <motion.div
               key="workspace-loading"
-              className="flex min-h-[34vh] flex-col items-center justify-center gap-4 text-center"
+              className="flex min-h-[34vh] flex-1 flex-col items-center justify-center py-10 text-center"
               initial={prefersReducedMotion ? false : { opacity: 0, y: 20, filter: "blur(10px)" }}
               animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
               exit={
@@ -55,24 +55,19 @@ export function ChatThreadView(props: ChatThreadViewProps) {
               }
               transition={{ duration: prefersReducedMotion ? 0 : 0.36, ease: sharedEase }}
             >
-              <UniqueLoading
-                variant="squares"
-                size="lg"
-                text="Setting things up"
-                className="[&>div>div]:rounded-[2px] [&>div>div]:bg-zinc-200"
-              />
-              <motion.div
-                className="space-y-1"
-                initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -10, filter: "blur(8px)" }}
-                transition={{ duration: prefersReducedMotion ? 0 : 0.28, delay: prefersReducedMotion ? 0 : 0.06, ease: sharedEase }}
-              >
-                <p className="text-sm font-medium tracking-[0.08em] text-zinc-200">
-                  Setting things up...
-                </p>
-                <p className="text-xs text-zinc-500">We&apos;re preparing your workspace.</p>
-              </motion.div>
+              <div className="flex w-full max-w-xl flex-col items-center justify-center">
+                <div className="relative flex h-20 w-20 items-center justify-center sm:h-24 sm:w-24">
+                  <UniqueLoading
+                    variant="squares"
+                    size="lg"
+                    text="Setting things up"
+                    className="[&>div>div]:rounded-[2px] [&>div>div]:bg-zinc-200"
+                  />
+                </div>
+              </div>
+              <p className="text-sm font-medium tracking-[0.08em] text-zinc-200">
+                  Loading...
+              </p>
             </motion.div>
           ) : (
             <motion.div
