@@ -67,6 +67,38 @@ interface ThreadSpanRevisionPlan {
   nextPost: string | null;
 }
 
+function resolveThreadSpanReplacementPosts(args: {
+  revisedDraft: string;
+  threadSpanPlan: ThreadSpanRevisionPlan;
+}):
+  | { ok: true; replacementPosts: string[] }
+  | { ok: false; actualPostCount: number } {
+  const revisedPosts = splitSerializedThreadPosts(args.revisedDraft);
+  const expectedPostCount = args.threadSpanPlan.targetPosts.length;
+
+  if (revisedPosts.length === expectedPostCount) {
+    return {
+      ok: true,
+      replacementPosts: revisedPosts,
+    };
+  }
+
+  if (revisedPosts.length === args.threadSpanPlan.allPosts.length) {
+    return {
+      ok: true,
+      replacementPosts: revisedPosts.slice(
+        args.threadSpanPlan.targetSpan.startIndex,
+        args.threadSpanPlan.targetSpan.endIndex + 1,
+      ),
+    };
+  }
+
+  return {
+    ok: false,
+    actualPostCount: revisedPosts.length,
+  };
+}
+
 function buildDeliveryFixSummaries(issueMessages: string[]): string[] {
   return Array.from(
     new Set(
@@ -441,25 +473,27 @@ export async function executeRevisingCapability(
     let draftForCritic = reviserOutput.revisedDraft;
 
     if (threadSpanPlan) {
-      const revisedSpanPosts = splitSerializedThreadPosts(reviserOutput.revisedDraft);
-      const expectedPostCount = threadSpanPlan.targetPosts.length;
+      const spanResolution = resolveThreadSpanReplacementPosts({
+        revisedDraft: reviserOutput.revisedDraft,
+        threadSpanPlan,
+      });
 
-      if (revisedSpanPosts.length !== expectedPostCount) {
+      if (!spanResolution.ok) {
         return buildThreadSpanMismatchAttempt({
           activeConstraints,
           reviserOutput,
           originalDraft: context.activeDraft,
           validationGroupId: attempt.validationGroupId,
           issue:
-            `Thread-local revision returned ${revisedSpanPosts.length} posts for a ${expectedPostCount}-post target span.`,
-          retryConstraint: buildThreadSpanRetryConstraint(expectedPostCount),
+            `Thread-local revision returned ${spanResolution.actualPostCount} posts for a ${threadSpanPlan.targetPosts.length}-post target span.`,
+          retryConstraint: buildThreadSpanRetryConstraint(threadSpanPlan.targetPosts.length),
         });
       }
 
       const reassembledPosts = replaceThreadPostSpan({
         posts: threadSpanPlan.allPosts,
         targetSpan: threadSpanPlan.targetSpan,
-        replacementPosts: revisedSpanPosts,
+        replacementPosts: spanResolution.replacementPosts,
       });
       draftForCritic = joinSerializedThreadPosts(reassembledPosts);
     }

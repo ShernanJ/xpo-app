@@ -381,6 +381,85 @@ test("thread-local ending revisions reassemble a full thread around the revised 
   );
 });
 
+test("thread-local opening revisions salvage a full-thread return by extracting the targeted opener span", async () => {
+  const originalThread = [
+    "That moment forced a hard question: what if every new hire had to prove they could keep our $1M ARR-per-employee target intact?",
+    "Ten engineers run the platform serving 60,000 creators.",
+    "The filter is simple: every hire must map to a revenue-impact hypothesis.",
+    "That discipline kept the team lean while output kept compounding.",
+    "Comment \"HIRING\" and I'll send the playbook.",
+  ].join("\n\n---\n\n");
+
+  const result = await executeRevisingCapability(
+    createArgs({
+      context: {
+        activeDraft: originalThread,
+        maxCharacterLimit: 25000,
+        turnFormatPreference: "thread",
+        threadPostMaxCharacterLimit: 25000,
+        groundingPacket: {
+          ...createGroundingPacket(),
+          factualAuthority: [
+            "That moment forced a hard question: what if every new hire had to prove they could keep our $1M ARR-per-employee target intact?",
+            "Ten engineers run the platform serving 60,000 creators.",
+            "The filter is simple: every hire must map to a revenue-impact hypothesis.",
+            "That discipline kept the team lean while output kept compounding.",
+            "Comment \"HIRING\" and I'll send the playbook.",
+          ],
+          allowedNumbers: ["$1M", "60,000"],
+        },
+        revision: {
+          instruction: "rewrite only the opening line or hook, and preserve the rest unless a small flow fix is needed.",
+          changeKind: "hook_only_edit",
+          targetText: null,
+          targetFormat: null,
+          scope: "thread_span",
+          targetSpan: {
+            startIndex: 0,
+            endIndex: 0,
+          },
+          threadIntent: "opening",
+          preserveThreadStructure: true,
+        },
+        userMessage: "Needs a stronger hook",
+        latestRefinementInstruction: "Needs a stronger hook",
+      },
+      services: {
+        generateRevisionDraft: async () => ({
+          revisedDraft: [
+            "Most hiring systems break because they optimize for comfort instead of revenue.",
+            "Ten engineers run the platform serving 60,000 creators.",
+            "The filter is simple: every hire must map to a revenue-impact hypothesis.",
+            "That discipline kept the team lean while output kept compounding.",
+            "Comment \"HIRING\" and I'll send the playbook.",
+          ].join("\n\n---\n\n"),
+          supportAsset: null,
+          issuesFixed: ["rewrote the opener"],
+        }),
+        critiqueDrafts: async ({ draft }) => ({
+          approved: true,
+          finalAngle: "same angle",
+          finalDraft: draft,
+          issues: [],
+        }),
+      },
+    }),
+  );
+
+  assert.equal(result.output.kind, "revision_ready");
+  assert.equal(result.output.responseSeed.outputShape, "thread_seed");
+  assert.equal(
+    result.output.responseSeed.data.draft,
+    [
+      "Most hiring systems break because they optimize for comfort instead of revenue.",
+      "Ten engineers run the platform serving 60,000 creators.",
+      "The filter is simple: every hire must map to a revenue-impact hypothesis.",
+      "That discipline kept the team lean while output kept compounding.",
+      "Comment \"HIRING\" and I'll send the playbook.",
+    ].join("\n\n---\n\n"),
+  );
+});
+
 test("thread-local span shape mismatches fall back instead of shipping a malformed thread edit", async () => {
   let critiqueCallCount = 0;
   const result = await executeRevisingCapability(
