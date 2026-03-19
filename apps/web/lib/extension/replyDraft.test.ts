@@ -1143,3 +1143,72 @@ test("looksAcceptableReplyDraft rejects ai-coded business drift on image-led jok
   assert.equal(rejectedCaptionRewrite, false);
   assert.equal(acceptable, true);
 });
+
+test("looksAcceptableReplyDraft rejects self-nomination replies on recruiting calls", () => {
+  const sourceContext = {
+    primaryPost: {
+      id: "tweet_21",
+      url: "https://x.com/hiring/status/21",
+      text:
+        "me (and some of my friends) are hiring soon if you love meeting people, finding undiscovered talent before anyone else, and working insanely hard..... @ reply or DM me",
+      authorHandle: "hiring",
+      postType: "original" as const,
+    },
+    media: {
+      images: [{ altText: 'Photo with the word "hiring" above a group of people.' }],
+      hasVideo: false,
+      hasGif: false,
+      hasLink: false,
+    },
+  };
+  const visualContext = {
+    primarySubject: "group photo with hiring sign",
+    setting: "real-world event or room",
+    lightingAndMood: "energetic",
+    readableText: "hiring",
+    keyDetails: ["group of people", "hiring sign"],
+    brandSignals: [],
+    absurdityMarkers: [],
+    artifactTargetHint: "",
+    imageCount: 1,
+    sceneType: "photo" as const,
+    imageArtifactType: "photo" as const,
+    imageRole: "context" as const,
+    imageReplyAnchor: "hiring",
+    shouldReferenceImageText: true,
+    replyRelevance: "medium",
+    images: [
+      {
+        imageUrl: null,
+        source: "alt_text" as const,
+        sceneType: "photo" as const,
+        imageArtifactType: "photo" as const,
+        imageRole: "context" as const,
+        primarySubject: "group photo with hiring sign",
+        setting: "real-world event or room",
+        lightingAndMood: "energetic",
+        readableText: "hiring",
+        keyDetails: ["group of people", "hiring sign"],
+        brandSignals: [],
+        absurdityMarkers: [],
+        artifactTargetHint: "",
+        jokeAnchor: "hiring",
+        replyRelevance: "medium",
+      },
+    ],
+    summaryLines: ["Image readable text: hiring"],
+  };
+  const rejected = looksAcceptableReplyDraft({
+    draft: "count me in - love hunting hidden talent and grinding hard. dm me.",
+    sourceContext,
+    visualContext,
+  });
+  const acceptable = looksAcceptableReplyDraft({
+    draft: 'the "work insanely hard" line is a serious filter',
+    sourceContext,
+    visualContext,
+  });
+
+  assert.equal(rejected, false);
+  assert.equal(acceptable, true);
+});

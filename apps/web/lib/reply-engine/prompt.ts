@@ -607,6 +607,9 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     interpretation.post_frame === "mockup"
       ? "- The post is presenting a mockup/parody artifact. React to what it is mocking or implying, not to an imaginary feature backlog."
       : null,
+    interpretation.post_frame === "recruiting_call"
+      ? "- The post is a recruiting or open-call pitch. React to the hiring filter, pitch, or vibe in public-reply mode."
+      : null,
     policy.imageRole === "punchline"
       ? "- The image is carrying the punchline. Treat it as source material, not decoration."
       : policy.imageRole === "proof"
@@ -632,6 +635,9 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
       : "- If you add a next step, it must stay inside the post's actual frame.",
     !policy.allowLiteralProductBrainstorm
       ? "- Do not treat satire, parody, mockups, or cursed UI ideas like a sincere product spec."
+      : null,
+    !policy.allowSelfNomination
+      ? "- Do not write as an applicant, volunteer yourself, ask them to DM you, or claim you personally fit the role unless the user explicitly wants outreach copy."
       : null,
     policy.shouldReferenceImageText
       ? "- Readable in-image text is first-class source material here. Reuse it naturally if it sharpens the reply."

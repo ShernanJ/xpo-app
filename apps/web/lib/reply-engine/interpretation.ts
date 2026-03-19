@@ -97,6 +97,16 @@ const ANNOUNCEMENT_PATTERNS = [/\b(announcing|launched|shipping|released|just dr
 const VENT_PATTERNS = [/\b(brutal|tired|wrecked|annoying|exhausted|hate when)\b/i];
 const MOCKUP_PATTERNS = [/\b(idea|mockup|concept|fake ui|parody ui)\b/i];
 const CRITIQUE_PATTERNS = [/\b(bad idea|terrible|dystopian|cursed|insane|illegal|criminal|wrong)\b/i];
+const RECRUITING_CALL_PATTERNS = [
+  /\b(?:i'?m|i am|we'?re|we are|me(?:\s+\([^)]*\))?)\s+hiring\b/i,
+  /\bhiring soon\b/i,
+  /\blooking for\b/i,
+  /\bjoin us\b/i,
+  /\breply or dm me\b/i,
+  /\bdm me\b/i,
+  /\breach out\b/i,
+  /\bif you love\b[^.\n]{0,120}\b(?:reply|dm)\b/i,
+];
 
 function normalizeWhitespace(value: string | null | undefined): string {
   return (value || "").trim().replace(/\s+/g, " ");
@@ -152,6 +162,29 @@ function isJokeSetup(text: string) {
     JOKE_SIGNAL_PATTERNS.some((pattern) => pattern.test(text)) ||
     PLAYFUL_SELF_OWN_PATTERNS.some((pattern) => pattern.test(text)) ||
     ANALOGY_PATTERNS.test(text)
+  );
+}
+
+function isRecruitingCall(args: {
+  sourceText: string;
+  combinedText: string;
+  visualContext?: ReplyVisualContextSummary | null;
+}) {
+  if (RECRUITING_CALL_PATTERNS.some((pattern) => pattern.test(args.combinedText))) {
+    return true;
+  }
+
+  const visualCombined = normalizeWhitespace(
+    [
+      args.visualContext?.readableText || "",
+      args.visualContext?.imageReplyAnchor || "",
+      ...(args.visualContext?.keyDetails || []),
+    ].join(" "),
+  );
+
+  return (
+    /\bhiring\b/i.test(visualCombined) &&
+    /\b(dm me|reply|looking for|join us|work insanely hard|talent)\b/i.test(args.combinedText)
   );
 }
 
@@ -294,6 +327,7 @@ function derivePostFrame(args: {
   sourceShape: ReplyDraftSourceShape;
   humorMode: ReplyHumorMode;
   imageArtifactType: ReplyImageArtifactType;
+  visualContext?: ReplyVisualContextSummary | null;
 }): ReplyPostFrame {
   if (
     args.imageArtifactType === "parody_ui" ||
@@ -301,6 +335,15 @@ function derivePostFrame(args: {
     (MOCKUP_PATTERNS.some((pattern) => pattern.test(args.sourceText)) && args.humorMode !== "none")
   ) {
     return "mockup";
+  }
+  if (
+    isRecruitingCall({
+      sourceText: args.sourceText,
+      combinedText: args.combinedText,
+      visualContext: args.visualContext || null,
+    })
+  ) {
+    return "recruiting_call";
   }
   if (QUESTION_PATTERNS.some((pattern) => pattern.test(args.sourceText))) {
     return "question";
@@ -357,6 +400,9 @@ function deriveTarget(args: {
   }
   if (args.postFrame === "proposal") {
     return "the visible product idea";
+  }
+  if (args.postFrame === "recruiting_call") {
+    return "the hiring pitch / candidate filter";
   }
   if (args.postFrame === "critique") {
     return "the take being critiqued";
@@ -479,6 +525,7 @@ export function buildHeuristicSourceInterpretation(args: {
     sourceShape,
     humorMode,
     imageArtifactType,
+    visualContext: args.visualContext || null,
   });
   const literality = deriveLiterality({
     humorMode,
@@ -523,6 +570,9 @@ export function buildHeuristicSourceInterpretation(args: {
     disallowedReplyMoves.add("literal_product_brainstorm");
   } else if (!allowedReplyMoves.includes("propose")) {
     disallowedReplyMoves.add("adjacent_ideation");
+  }
+  if (postFrame === "recruiting_call") {
+    disallowedReplyMoves.add("self_nomination");
   }
 
   return {

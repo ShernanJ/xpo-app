@@ -168,3 +168,35 @@ test("classifyReplyDraftMode treats parody premium mockups as non-literal satire
     true,
   );
 });
+
+test("classifyReplyDraftMode treats hiring pitches as recruiting calls instead of self-application bait", async () => {
+  const visualContext = await analyzeReplySourceVisualContext({
+    primaryPost: {
+      id: "tweet_10",
+      url: "https://x.com/hiring/status/10",
+      text:
+        "me (and some of my friends) are hiring soon if you love meeting people, finding undiscovered talent before anyone else, and working insanely hard..... @ reply or DM me",
+      authorHandle: "hiring",
+      postType: "original",
+    },
+    quotedPost: null,
+    media: {
+      images: [{ altText: 'Photo with the word "hiring" written on a board above a group of people.' }],
+      hasVideo: false,
+      hasGif: false,
+      hasLink: false,
+    },
+    conversation: null,
+  });
+  const result = await classifyReplyDraftMode({
+    sourceText:
+      "me (and some of my friends) are hiring soon if you love meeting people, finding undiscovered talent before anyone else, and working insanely hard..... @ reply or DM me",
+    imageSummaryLines: visualContext?.summaryLines || [],
+    visualContext,
+  });
+
+  assert.equal(result.interpretation?.post_frame, "recruiting_call");
+  assert.equal(result.interpretation?.literality, "literal");
+  assert.equal(result.interpretation?.target, "the hiring pitch / candidate filter");
+  assert.equal(result.interpretation?.disallowed_reply_moves.includes("self_nomination"), true);
+});

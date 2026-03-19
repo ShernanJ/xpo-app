@@ -6,7 +6,7 @@ import {
   buildReplyIntentPlansFromOpportunity,
   buildReplyLearningNotes,
 } from "./replyIntent.ts";
-import { buildCasualReplyText } from "./casualReply.ts";
+import { buildCasualReplyText, buildRecruitingReplyText } from "./casualReply.ts";
 import {
   collectKeywords,
   normalizeComparable,
@@ -170,8 +170,38 @@ function buildCasualTemplate(args: {
   candidate: ExtensionOpportunityCandidate;
   concise: boolean;
   visualContext?: ReplyVisualContextSummary | null;
+  isRecruitingCall?: boolean;
 }) {
   const anchorText = args.visualContext?.imageReplyAnchor || args.visualContext?.readableText || null;
+  if (args.isRecruitingCall) {
+    switch (args.label) {
+      case "sharpen":
+        return buildRecruitingReplyText({
+          sourceText: args.candidate.text,
+          variant: "pile_on",
+          concise: args.concise,
+          anchorText,
+        });
+      case "disagree":
+        return buildRecruitingReplyText({
+          sourceText: args.candidate.text,
+          variant: "deadpan",
+          concise: args.concise,
+          anchorText,
+        });
+      case "example":
+      case "translate":
+      case "known_for":
+      case "nuance":
+      default:
+        return buildRecruitingReplyText({
+          sourceText: args.candidate.text,
+          variant: "relatable",
+          concise: args.concise,
+          anchorText,
+        });
+    }
+  }
   switch (args.label) {
     case "sharpen":
       return buildCasualReplyText({
@@ -324,14 +354,21 @@ export function buildExtensionReplyOptions(args: {
   const useLiteralReactionMode =
     policy.treatAsLowSignalCasual ||
     interpretation.literality !== "literal" ||
-    interpretation.post_frame === "mockup";
+    interpretation.post_frame === "mockup" ||
+    interpretation.post_frame === "recruiting_call";
 
   const fallback = useLiteralReactionMode
-    ? buildCasualReplyText({
-        sourceText: args.post.text,
-        variant: "relatable",
-        anchorText: args.visualContext?.imageReplyAnchor || args.visualContext?.readableText || null,
-      })
+    ? interpretation.post_frame === "recruiting_call"
+      ? buildRecruitingReplyText({
+          sourceText: args.post.text,
+          variant: "relatable",
+          anchorText: args.visualContext?.imageReplyAnchor || args.visualContext?.readableText || null,
+        })
+      : buildCasualReplyText({
+          sourceText: args.post.text,
+          variant: "relatable",
+          anchorText: args.visualContext?.imageReplyAnchor || args.visualContext?.readableText || null,
+        })
     : `the useful nuance is ${buildPillarLens(args.strategyPillar)}. that's the part that makes the point usable instead of just agreeable.`;
   const casualSeen = new Set<string>();
   const casualOptions = buildCasualLabels(args.opportunity.suggestedAngle)
@@ -342,6 +379,7 @@ export function buildExtensionReplyOptions(args: {
           candidate: args.post,
           concise,
           visualContext: args.visualContext || null,
+          isRecruitingCall: interpretation.post_frame === "recruiting_call",
         }),
         fallbackText: fallback,
         sourceText: args.post.text,
@@ -432,7 +470,11 @@ export function buildExtensionReplyOptions(args: {
     warnings: [
       ...warnings,
       ...(useLiteralReactionMode
-        ? ["Source reads as a casual/off-niche observation, so options stay literal on purpose."]
+        ? [
+            interpretation.post_frame === "recruiting_call"
+              ? "Source reads as a recruiting pitch, so options stay in public-reply reaction mode."
+              : "Source reads as a casual/off-niche observation, so options stay literal on purpose.",
+          ]
         : []),
       ...(interpretation.humor_mode === "satire" || interpretation.humor_mode === "parody"
         ? [`Source reads as ${interpretation.humor_mode}; options should react to ${interpretation.target}.`]
@@ -444,7 +486,11 @@ export function buildExtensionReplyOptions(args: {
     groundingNotes: [
       ...groundingNotes,
       ...(useLiteralReactionMode
-        ? ["Literal casual riff mode is active; no strategy or business overlay was applied."]
+        ? [
+            interpretation.post_frame === "recruiting_call"
+              ? "Public recruiting-reply mode is active; no self-application or business overlay was applied."
+              : "Literal casual riff mode is active; no strategy or business overlay was applied.",
+          ]
         : []),
       ...(!policy.allowAdjacentIdeation
         ? ["Adjacent feature ideation is blocked for this source interpretation."]

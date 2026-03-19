@@ -59,6 +59,7 @@ export type ReplyHumorMode =
 export type ReplyPostFrame =
   | "proposal"
   | "reaction"
+  | "recruiting_call"
   | "mockup"
   | "critique"
   | "observation"
@@ -77,6 +78,7 @@ export type ReplyAllowedMove =
 export type ReplyDisallowedMove =
   | "adjacent_ideation"
   | "literal_product_brainstorm"
+  | "self_nomination"
   | "unsupported_external_claim";
 
 export interface SourceInterpretation {

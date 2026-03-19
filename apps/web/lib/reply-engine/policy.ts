@@ -115,6 +115,7 @@ export interface ReplyConstraintPolicy {
   allowPropose: boolean;
   allowAdjacentIdeation: boolean;
   allowLiteralProductBrainstorm: boolean;
+  allowSelfNomination: boolean;
   disallowedReplyMoves: ReplyDisallowedMove[];
   preferShortRiff: boolean;
   treatAsLowSignalCasual: boolean;
@@ -249,6 +250,7 @@ export function resolveReplyConstraintPolicy(args: {
   const allowLiteralProductBrainstorm = !interpretation.disallowed_reply_moves.includes(
     "literal_product_brainstorm",
   );
+  const allowSelfNomination = !interpretation.disallowed_reply_moves.includes("self_nomination");
   const disallowedReplyMoves = interpretation.disallowed_reply_moves;
 
   switch (sourceShape) {
@@ -266,6 +268,7 @@ export function resolveReplyConstraintPolicy(args: {
         allowPropose,
         allowAdjacentIdeation,
         allowLiteralProductBrainstorm,
+        allowSelfNomination,
         disallowedReplyMoves,
         preferShortRiff: false,
         treatAsLowSignalCasual: !sourceHasBusinessSignal,
@@ -285,6 +288,7 @@ export function resolveReplyConstraintPolicy(args: {
         allowPropose,
         allowAdjacentIdeation,
         allowLiteralProductBrainstorm,
+        allowSelfNomination,
         disallowedReplyMoves,
         preferShortRiff: true,
         treatAsLowSignalCasual: lowOverlap || !sourceHasBusinessSignal,
@@ -304,6 +308,7 @@ export function resolveReplyConstraintPolicy(args: {
         allowPropose,
         allowAdjacentIdeation,
         allowLiteralProductBrainstorm,
+        allowSelfNomination,
         disallowedReplyMoves,
         preferShortRiff: true,
         treatAsLowSignalCasual: lowOverlap || !sourceHasBusinessSignal,
@@ -324,6 +329,7 @@ export function resolveReplyConstraintPolicy(args: {
         allowPropose,
         allowAdjacentIdeation,
         allowLiteralProductBrainstorm,
+        allowSelfNomination,
         disallowedReplyMoves,
         preferShortRiff: args.preflightResult?.recommended_reply_mode === "joke_riff",
         treatAsLowSignalCasual: false,
@@ -387,6 +393,21 @@ export function violatesReplyConstraintPolicy(args: {
       /\bthis should ship\b/i,
     ];
     if (literalBrainstormPatterns.some((pattern) => pattern.test(args.draft))) {
+      return true;
+    }
+  }
+
+  if (!args.policy.allowSelfNomination) {
+    const selfNominationPatterns = [
+      /\bdm me\b/i,
+      /\bhit me up\b/i,
+      /\bcount me in\b/i,
+      /\bi'?m down\b/i,
+      /\bif you need someone\b/i,
+      /\bi(?:'d| would)\s+love to\b/i,
+      /\blove\b[^.?!]{0,80}\b(meeting people|finding undiscovered talent|hunting hidden talent|digging up hidden talent|working insanely hard)\b/i,
+    ];
+    if (selfNominationPatterns.some((pattern) => pattern.test(args.draft))) {
       return true;
     }
   }

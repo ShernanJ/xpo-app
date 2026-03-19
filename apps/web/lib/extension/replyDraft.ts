@@ -23,7 +23,7 @@ import {
   pickReplyStrategyPillar,
   type ExtensionReplyIntentPlan,
 } from "./replyIntent.ts";
-import { buildCasualReplyText } from "./casualReply.ts";
+import { buildCasualReplyText, buildRecruitingReplyText } from "./casualReply.ts";
 import { collectKeywords, normalizeWhitespace, sanitizeReplyText } from "./replyQuality.ts";
 import type { ReplyInsights } from "./replyOpportunities.ts";
 import type {
@@ -135,6 +135,12 @@ function buildPrimaryFallbackReply(args: {
   focusPhrase: string | null;
   policy: ReplyConstraintPolicy;
 }) {
+  if (args.policy.interpretation.post_frame === "recruiting_call") {
+    return buildRecruitingReplyText({
+      sourceText: args.request.tweetText,
+      variant: "relatable",
+    });
+  }
   if (args.policy.sourceShape === "casual_observation") {
     return buildCasualReplyText({
       sourceText: args.request.tweetText,
@@ -175,6 +181,13 @@ function buildSecondaryFallbackReply(args: {
   focusPhrase: string | null;
   policy: ReplyConstraintPolicy;
 }) {
+  if (args.policy.interpretation.post_frame === "recruiting_call") {
+    return buildRecruitingReplyText({
+      sourceText: args.request.tweetText,
+      variant: args.request.tone === "playful" ? "pile_on" : "deadpan",
+      concise: args.request.tone === "dry",
+    });
+  }
   if (args.policy.sourceShape === "casual_observation") {
     return buildCasualReplyText({
       sourceText: args.request.tweetText,
@@ -456,7 +469,12 @@ export function buildExtensionReplyDraft(args: {
   const focusPhrase = pickFocusPhrase(args.request.tweetText);
   const groundingPacket = generation.groundingPacket;
   const safeFallback =
-    generation.policy.sourceShape === "casual_observation"
+    generation.policy.interpretation.post_frame === "recruiting_call"
+      ? buildRecruitingReplyText({
+          sourceText: args.request.tweetText,
+          variant: "relatable",
+        })
+      : generation.policy.sourceShape === "casual_observation"
       ? buildCasualReplyText({
           sourceText: args.request.tweetText,
           variant: "relatable",
@@ -465,7 +483,12 @@ export function buildExtensionReplyDraft(args: {
       ? `${focusPhrase || "this"} being the whole bit is kind of perfect honestly.`
       : `the missing layer is ${buildPillarLens(strategyPillar)}. that's usually what makes the point usable instead of just agreeable.`;
   const boldFallback =
-    generation.policy.sourceShape === "casual_observation"
+    generation.policy.interpretation.post_frame === "recruiting_call"
+      ? buildRecruitingReplyText({
+          sourceText: args.request.tweetText,
+          variant: "deadpan",
+        })
+      : generation.policy.sourceShape === "casual_observation"
       ? buildCasualReplyText({
           sourceText: args.request.tweetText,
           variant: "deadpan",

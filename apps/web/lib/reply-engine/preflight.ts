@@ -19,6 +19,7 @@ const SourceInterpretationSchema = z.object({
   post_frame: z.enum([
     "proposal",
     "reaction",
+    "recruiting_call",
     "mockup",
     "critique",
     "observation",
@@ -41,7 +42,12 @@ const SourceInterpretationSchema = z.object({
     .max(6),
   disallowed_reply_moves: z
     .array(
-      z.enum(["adjacent_ideation", "literal_product_brainstorm", "unsupported_external_claim"]),
+      z.enum([
+        "adjacent_ideation",
+        "literal_product_brainstorm",
+        "self_nomination",
+        "unsupported_external_claim",
+      ]),
     )
     .max(6),
   literality_confidence: z.number().min(0).max(100),
@@ -134,6 +140,7 @@ function buildClassifierPrompt(args: {
     "Classify the best reply mode for drafting a native X reply.",
     "Return only valid JSON matching the requested schema.",
     "If the post is sarcasm, a meme, shitposting, parody, or internet slang, prefer joke_riff.",
+    "If the post is a hiring/recruiting/open call, mark interpretation.post_frame as recruiting_call and do not treat it like the reply should apply for the role.",
     "If the image carries the joke, punchline, or visible proof, reflect that in image_role and image_reply_anchor.",
     "Decide whether the source is literal, non-literal, satirical, sarcastic, playful, or parody/mockup-driven before choosing the reply mode.",
     "",

@@ -25,6 +25,23 @@ function extractLiteralSnippet(text: string): string {
   return truncatePhrase(clause || normalized);
 }
 
+function extractRecruitingAnchor(text: string): string | null {
+  const normalized = normalizeWhitespace(text);
+  const quotedMatch = normalized.match(/["“]([^"”]{4,80})["”]/);
+  if (quotedMatch?.[1]) {
+    return truncatePhrase(quotedMatch[1], 42);
+  }
+
+  const strongMatch = normalized.match(
+    /\b(work insanely hard|reply or dm me|dm me|hiring soon|finding undiscovered talent|meeting people)\b/i,
+  );
+  if (strongMatch?.[1]) {
+    return truncatePhrase(strongMatch[1], 42);
+  }
+
+  return null;
+}
+
 export function buildCasualReplyText(args: {
   sourceText: string;
   variant: "relatable" | "pile_on" | "deadpan";
@@ -48,5 +65,42 @@ export function buildCasualReplyText(args: {
       return args.concise
         ? `honestly "${snippet}" is so real`
         : `honestly the "${snippet}" energy is so real.`;
+  }
+}
+
+export function buildRecruitingReplyText(args: {
+  sourceText: string;
+  variant: "relatable" | "pile_on" | "deadpan";
+  concise?: boolean;
+  anchorText?: string | null;
+}) {
+  const anchor = extractRecruitingAnchor(args.anchorText || args.sourceText);
+
+  switch (args.variant) {
+    case "pile_on":
+      return anchor
+        ? args.concise
+          ? `the "${anchor}" line is doing the filtering already`
+          : `the "${anchor}" line is doing most of the filtering already.`
+        : args.concise
+          ? "this is a very specific ambition filter"
+          : "this reads like a very specific ambition filter.";
+    case "deadpan":
+      return anchor
+        ? args.concise
+          ? `the "${anchor}" qualifier narrowed the funnel fast`
+          : `the "${anchor}" qualifier narrowed the funnel pretty fast.`
+        : args.concise
+          ? "the hiring pitch is screening people on its own"
+          : "the hiring pitch is screening people on its own already.";
+    case "relatable":
+    default:
+      return anchor
+        ? args.concise
+          ? `the "${anchor}" part is a serious filter`
+          : `the "${anchor}" part is a serious filter honestly.`
+        : args.concise
+          ? "this is basically ambitious-people filter copy"
+          : "this is basically ambitious-people filter copy.";
   }
 }

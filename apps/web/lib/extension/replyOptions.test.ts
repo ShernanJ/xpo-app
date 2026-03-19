@@ -706,3 +706,77 @@ test("verifyExtensionReplyOptionsResponse rewrites unsupported adjacent ideation
     true,
   );
 });
+
+test("buildExtensionReplyOptions keeps recruiting posts in public-reaction mode instead of self-nomination", async () => {
+  const post = {
+    postId: "post_9",
+    author: {
+      id: "author_9",
+      handle: "hiringguy",
+      name: "Hiring Guy",
+      verified: false,
+      followerCount: 4200,
+    },
+    text:
+      "me (and some of my friends) are hiring soon if you love meeting people, finding undiscovered talent before anyone else, and working insanely hard..... @ reply or DM me",
+    url: "https://x.com/hiringguy/status/9",
+    createdAtIso: "2026-03-19T15:00:00.000Z",
+    engagement: {
+      replyCount: 12,
+      repostCount: 4,
+      likeCount: 55,
+      quoteCount: 1,
+      viewCount: 3100,
+    },
+    postType: "original" as const,
+    conversation: {
+      conversationId: "conv_9",
+      inReplyToPostId: null,
+      inReplyToHandle: null,
+    },
+    media: {
+      hasMedia: true,
+      hasImage: true,
+      hasVideo: false,
+      hasGif: false,
+      hasLink: false,
+      hasPoll: false,
+      images: [{ altText: 'Photo with the word "hiring" above a group of people.' }],
+    },
+    surface: "home" as const,
+    captureSource: "graphql" as const,
+    capturedAtIso: "2026-03-19T15:01:00.000Z",
+  };
+  const prepared = await prepareExtensionReplyOptionsPolicy({ post, strategy });
+  const response = buildExtensionReplyOptions({
+    post,
+    opportunity: {
+      opportunityId: "opp_9",
+      verdict: "reply",
+      suggestedAngle: "nuance",
+      expectedValue: "medium",
+      riskFlags: [],
+      notes: [],
+    },
+    strategy,
+    strategyPillar: "product positioning",
+    styleCard: null,
+    stage: "0_to_1k",
+    tone: "playful",
+    goal: "followers",
+    sourceContext: prepared.sourceContext,
+    visualContext: prepared.visualContext,
+    preflightResult: prepared.preflightResult,
+    policy: prepared.policy,
+  });
+
+  assert.equal(prepared.preflightResult.interpretation?.post_frame, "recruiting_call");
+  assert.equal(
+    response.options.every((option) => !/\b(dm me|hit me up|count me in|i'?m down|if you need someone)\b/i.test(option.text)),
+    true,
+  );
+  assert.equal(
+    response.options.some((option) => /\b(filter|hiring|work insanely hard|qualifier|pitch)\b/i.test(option.text)),
+    true,
+  );
+});
