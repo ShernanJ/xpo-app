@@ -906,6 +906,7 @@ async function handleChatRouteRequest(args: {
       ...(copy?.explanation ? { explanation: copy.explanation } : {}),
     });
   };
+  const routePreflightStartedAt = Date.now();
 
   const threadState = await resolveRouteThreadState({
     request: args.request,
@@ -1189,6 +1190,7 @@ async function handleChatRouteRequest(args: {
         isVerifiedAccount,
         userPreferences: effectiveUserPreferences,
         styleCard,
+        creatorProfileHints,
         routingDiagnostics: normalizedTurn.diagnostics,
         clientTurnId,
         currentThreadTitle: storedThread.title,
@@ -1246,6 +1248,9 @@ async function handleChatRouteRequest(args: {
           clarification: null,
           draftGuard: null,
           planFailure: null,
+          timings: {
+            preflightMs: Date.now() - routePreflightStartedAt,
+          },
         },
         shouldIncludeRoutingTrace,
         storedThreadId: storedThread.id,
@@ -1350,6 +1355,7 @@ async function handleChatRouteRequest(args: {
       });
     }
 
+    const routePreflightMs = Date.now() - routePreflightStartedAt;
     const { rawResponse, routingTrace } = await manageConversationTurnRaw({
       userId: effectiveUserId,
       xHandle: storedThread.xHandle || null,
@@ -1374,7 +1380,13 @@ async function handleChatRouteRequest(args: {
       userContextString,
       profileReplyContext,
       diagnosticContext: effectiveDiagnosticContext,
+      preloadedRun: storedRun,
+      preloadedStyleCard: styleCard,
     });
+    routingTrace.timings = {
+      ...(routingTrace.timings || {}),
+      preflightMs: routePreflightMs,
+    };
 
     await emitProgress(
       3,
@@ -1399,6 +1411,7 @@ async function handleChatRouteRequest(args: {
       isVerifiedAccount,
       userPreferences: effectiveUserPreferences,
       styleCard,
+      creatorProfileHints,
       routingDiagnostics: normalizedTurn.diagnostics,
       clientTurnId,
       currentThreadTitle: storedThread.title,

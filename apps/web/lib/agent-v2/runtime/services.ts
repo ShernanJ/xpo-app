@@ -37,6 +37,12 @@ import {
 } from "../persistence/prismaGuards.ts";
 import type { CapabilityName, RuntimeWorkerExecution } from "./runtimeContracts.ts";
 
+export interface StoredOnboardingRun {
+  id?: string;
+  input: unknown;
+  result: unknown;
+}
+
 export interface ConversationServices {
   controlTurn: typeof controlTurn;
   generateCoachReply: typeof generateCoachReply;
@@ -57,7 +63,7 @@ export interface ConversationServices {
   generateStyleProfile: typeof generateStyleProfile;
   saveStyleProfile: typeof saveStyleProfile;
   checkDeterministicNovelty: typeof checkDeterministicNovelty;
-  getOnboardingRun: (runId?: string) => Promise<Record<string, unknown> | null>;
+  getOnboardingRun: (runId?: string) => Promise<StoredOnboardingRun | null>;
   loadHistoricalTexts: (args: {
     userId: string;
     xHandle?: string | null;
@@ -164,7 +170,7 @@ export function createDefaultConversationServices(): ConversationServices {
       }
 
       const record = await prisma.onboardingRun.findUnique({ where: { id: runId } });
-      return (record as unknown as Record<string, unknown> | null) || null;
+      return (record as unknown as StoredOnboardingRun | null) || null;
     },
     async getHistoricalPosts(args: { userId: string; xHandle?: string | null }) {
       const result = await loadHistoricalTexts({

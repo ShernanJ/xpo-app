@@ -40,6 +40,12 @@ export interface CreatorProfileHints {
   offBrandThemes?: string[];
   ambiguities?: string[];
   learningSignals?: string[];
+  voiceProfile?: {
+    primaryCasing: "lowercase" | "normal";
+    averageLengthBand: "short" | "medium" | "long" | null;
+    lowercaseSharePercent: number;
+    multiLinePostRate: number;
+  };
 }
 
 interface GroundingStyleCard {

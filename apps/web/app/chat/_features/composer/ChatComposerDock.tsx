@@ -35,8 +35,8 @@ export function ChatComposerDock() {
     <motion.div
       className={dockComposerWrapperClassName}
       aria-hidden={isLeavingHero}
-      initial={prefersReducedMotion ? false : { opacity: 0, y: 26, filter: "blur(14px)" }}
-      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 26 }}
+      animate={{ opacity: 1, y: 0 }}
       transition={{
         duration: prefersReducedMotion ? 0 : 0.42,
         delay: prefersReducedMotion ? 0 : isLeavingHero ? 0 : 0.18,

@@ -11,7 +11,10 @@ import type { VoiceStyleCard } from "../../lib/agent-v2/core/styleProfile";
 import type {
   OrchestratorResponse,
 } from "../../lib/agent-v2/runtime/conversationManager";
-import type { ConversationServices } from "../../lib/agent-v2/runtime/services";
+import type {
+  ConversationServices,
+  StoredOnboardingRun,
+} from "../../lib/agent-v2/runtime/services";
 import type {
   SourceMaterialAssetInput,
   SourceMaterialAssetRecord,
@@ -869,7 +872,7 @@ export function createReplayServiceOverrides(
       memoryRecord = buildReplayMemoryRecordUpdate(memoryRecord, args);
       return memoryRecord as unknown as UpdateMemoryReturn;
     },
-    async getOnboardingRun() {
+    async getOnboardingRun(): Promise<StoredOnboardingRun | null> {
       const onboardingProfile = fixture.onboarding?.profile || {};
       return {
         input: {
@@ -907,7 +910,7 @@ export function createReplayServiceOverrides(
             normalizeReplayRecentPost(post, index),
           ),
         },
-      } as Record<string, unknown>;
+      };
     },
     async getHistoricalPosts() {
       return fixture.historicalPosts || [];

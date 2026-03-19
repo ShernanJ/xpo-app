@@ -1,8 +1,8 @@
 import type { VoiceStyleCard } from "../core/styleProfile.ts";
 import type { VoiceTarget } from "../core/voiceTarget.ts";
 import {
-  inferLowercasePreference,
   inferPreferredListMarker,
+  resolveDraftCasingPreference,
 } from "../core/voiceSignals.ts";
 import type {
   ConversationState,
@@ -124,7 +124,11 @@ export function buildVoiceHydrationBlock(
     ].join("\n");
   }
 
-  const prefersLowercase = inferLowercasePreference(styleCard);
+  const resolvedCasing = voiceTarget?.casing
+    ? voiceTarget.casing
+    : resolveDraftCasingPreference({
+        styleCard,
+      }).casing;
   const preferredListMarker = inferPreferredListMarker(styleCard);
 
   const lines = [
@@ -134,8 +138,10 @@ export function buildVoiceHydrationBlock(
     `- Pacing: ${styleCard.pacing || "direct and conversational"}`,
     `- Familiar openers: ${normalizeList(styleCard.sentenceOpenings || [], "none recorded")}`,
     `- Vocabulary: ${normalizeList(styleCard.slangAndVocabulary || [], "keep it plainspoken")}`,
-    prefersLowercase
+    resolvedCasing === "lowercase"
       ? "- Casing: keep it all lowercase unless a proper noun or URL truly needs otherwise."
+      : resolvedCasing === "uppercase"
+        ? "- Casing: keep it uppercase when the creator has explicitly asked for it."
       : "- Casing: follow the creator's normal casing instead of defaulting to formal title-case phrasing.",
     preferredListMarker
       ? `- Lists: when writing list items, prefer "${preferredListMarker}" as the bullet marker.`

@@ -14,6 +14,7 @@ import {
   applyCreatorProfileHintsToPlan,
 } from "../../grounding/creatorHintPolicy.ts";
 import { applySourceMaterialBiasToPlan } from "../../grounding/sourceMaterialPlanPolicy.ts";
+import { ensureThreadPlanPosts } from "../../core/plannerNormalization.ts";
 import type {
   DraftFormatPreference,
   DraftPreference,
@@ -167,9 +168,13 @@ export async function executePlanningCapability(
       ),
     },
   );
-  const guardedPlan = context.shouldForceNoFabricationGuardrailForTurn
+  const guardrailedPlan = context.shouldForceNoFabricationGuardrailForTurn
     ? withNoFabricationPlanGuardrail(planWithPreference)
     : planWithPreference;
+  const guardedPlan =
+    guardrailedPlan.formatPreference === "thread"
+      ? ensureThreadPlanPosts(guardrailedPlan)
+      : guardrailedPlan;
 
   return {
     workflow: args.workflow,

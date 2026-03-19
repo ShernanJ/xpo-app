@@ -1,4 +1,8 @@
 import { applyFinalDraftPolicy } from "../../../../../../../lib/agent-v2/core/finalDraftPolicy.ts";
+import {
+  resolveDraftCasingPreference,
+  type DraftCasingResolution,
+} from "../../../../../../../lib/agent-v2/core/voiceSignals.ts";
 import type {
   DraftFormatPreference,
   ResponseShapePlan,
@@ -8,6 +12,7 @@ import type {
   V2ChatOutputShape,
 } from "../../../../../../../lib/agent-v2/contracts/chat.ts";
 import type {
+  CreatorProfileHints,
   GroundingPacketSourceMaterial,
 } from "../../../../../../../lib/agent-v2/grounding/groundingPacket.ts";
 import type { VoiceTarget } from "../../../../../../../lib/agent-v2/core/voiceTarget.ts";
@@ -1133,6 +1138,7 @@ export interface ChatRouteMappedDataSeed {
   routingDiagnostics: NormalizedChatTurnDiagnostics;
   requestTrace: {
     clientTurnId: string | null;
+    casingResolution?: DraftCasingResolution;
   };
   replyArtifacts: ChatReplyArtifacts | null;
   replyParse: ChatReplyParseEnvelope | null;
@@ -1429,6 +1435,7 @@ export function buildChatRouteMappedData(args: {
   isVerifiedAccount: boolean;
   userPreferences: UserPreferences | null;
   styleCard: VoiceStyleCard | null;
+  creatorProfileHints?: CreatorProfileHints | null;
   routingDiagnostics: NormalizedChatTurnDiagnostics;
   clientTurnId: string | null;
   mediaAttachments?: ChatMediaAttachmentRef[] | null;
@@ -1470,6 +1477,11 @@ export function buildChatRouteMappedData(args: {
       : args.result.outputShape === "long_form_post"
         ? "longform"
         : "shortform");
+  const casingResolution = resolveDraftCasingPreference({
+    userPreferences: args.userPreferences,
+    styleCard: args.styleCard,
+    creatorProfileHints: args.creatorProfileHints ?? null,
+  });
   const responseThreadFramingStyle =
     resolveThreadFramingStyle(resultData?.threadFramingStyle);
   const policyDraft =
@@ -1484,6 +1496,7 @@ export function buildChatRouteMappedData(args: {
           isVerifiedAccount: args.isVerifiedAccount,
           userPreferences: args.userPreferences,
           styleCard: args.styleCard,
+          creatorProfileHints: args.creatorProfileHints ?? null,
           threadFramingStyle: responseThreadFramingStyle,
         })
       : normalizedDraftPayload.draft;
@@ -1527,6 +1540,7 @@ export function buildChatRouteMappedData(args: {
             isVerifiedAccount: args.isVerifiedAccount,
             userPreferences: args.userPreferences,
             styleCard: args.styleCard,
+            creatorProfileHints: args.creatorProfileHints ?? null,
             threadFramingStyle: option.threadFramingStyle ?? responseThreadFramingStyle,
           }),
         })),
@@ -1615,6 +1629,7 @@ export function buildChatRouteMappedData(args: {
       routingDiagnostics: args.routingDiagnostics,
       requestTrace: {
         clientTurnId: args.clientTurnId,
+        ...(resolvedPolicyDraft ? { casingResolution } : {}),
       },
       replyArtifacts: null,
       replyParse: null,
@@ -1640,6 +1655,7 @@ export function prepareChatRouteTurn(args: {
   isVerifiedAccount: boolean;
   userPreferences: UserPreferences | null;
   styleCard: VoiceStyleCard | null;
+  creatorProfileHints?: CreatorProfileHints | null;
   routingDiagnostics: NormalizedChatTurnDiagnostics;
   clientTurnId: string | null;
   issuesFixed: string[];
@@ -1693,6 +1709,7 @@ export function prepareChatRouteTurn(args: {
     isVerifiedAccount: args.isVerifiedAccount,
     userPreferences: args.userPreferences,
     styleCard: args.styleCard,
+    creatorProfileHints: args.creatorProfileHints ?? null,
     routingDiagnostics: args.routingDiagnostics,
     clientTurnId: args.clientTurnId,
     mediaAttachments: args.mediaAttachments ?? null,

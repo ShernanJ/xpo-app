@@ -1,4 +1,5 @@
 import type { VoiceTarget } from "../core/voiceTarget";
+import type { VoiceStyleCard } from "../core/styleProfile.ts";
 import type {
   CreatorChatQuickReply,
   DraftFormatPreference,
@@ -38,6 +39,7 @@ import type {
 import type { ProfileReplyContext } from "../grounding/profileReplyContext.ts";
 import type { DraftBundleResult } from "../capabilities/drafting/draftBundles.ts";
 import type { ProfileAnalysisArtifact } from "../../chat/profileAnalysisArtifact.ts";
+import type { StoredOnboardingRun } from "./services.ts";
 
 export interface OrchestratorInput {
   userId: string;
@@ -62,6 +64,8 @@ export interface OrchestratorInput {
   userContextString?: string | null;
   profileReplyContext?: ProfileReplyContext | null;
   diagnosticContext?: ConversationalDiagnosticContext | null;
+  preloadedRun?: StoredOnboardingRun | null;
+  preloadedStyleCard?: VoiceStyleCard | null;
 }
 
 export interface OrchestratorData {
@@ -141,6 +145,16 @@ export interface RoutingTrace {
   planFailure:
     | {
         reason: string;
+      }
+    | null;
+  timings:
+    | {
+        preflightMs?: number;
+        runtimeContextLoadMs?: number;
+        draftingMs?: number;
+        validationMs?: number;
+        persistenceMs?: number;
+        totalMs?: number;
       }
     | null;
 }

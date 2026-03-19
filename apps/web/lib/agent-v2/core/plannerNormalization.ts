@@ -301,6 +301,97 @@ function normalizeThreadPosts(posts: NormalizedThreadPostPlan[]): NormalizedThre
   });
 }
 
+function buildFallbackThreadSeedPool(plan: StrategyPlan): string[] {
+  return normalizePlanList([
+    plan.angle,
+    plan.objective,
+    ...plan.mustInclude,
+  ], MAX_THREAD_PLAN_POSTS + 2);
+}
+
+function buildFallbackThreadPosts(plan: StrategyPlan): NormalizedThreadPostPlan[] {
+  const seeds = buildFallbackThreadSeedPool(plan);
+  const primarySeed = stripLeadingBeatVerb(seeds[0] || plan.angle || plan.objective || "the real tension");
+  const secondarySeed = stripLeadingBeatVerb(seeds[1] || plan.objective || plan.angle || primarySeed);
+  const proofSeed = stripLeadingBeatVerb(seeds[2] || plan.mustInclude[0] || secondarySeed || primarySeed);
+  const payoffSeed = stripLeadingBeatVerb(seeds[3] || plan.mustInclude[1] || plan.objective || plan.angle || proofSeed);
+  const closeSeed = stripLeadingBeatVerb(plan.objective || plan.angle || payoffSeed || proofSeed || primarySeed);
+  const shouldUseFiveBeatArc =
+    plan.mustInclude.length >= 2 ||
+    seeds.length >= 3;
+
+  const posts: NormalizedThreadPostPlan[] = shouldUseFiveBeatArc
+    ? [
+        {
+          role: "hook",
+          objective: `open on ${primarySeed || "the real tension"}`,
+          proofPoints: [],
+          transitionHint: "set up the context",
+        },
+        {
+          role: "setup",
+          objective: `set up ${secondarySeed || primarySeed || "the context"}`,
+          proofPoints: secondarySeed && secondarySeed !== primarySeed ? [secondarySeed] : [],
+          transitionHint: "show the proof",
+        },
+        {
+          role: "proof",
+          objective: `show ${proofSeed || secondarySeed || primarySeed || "the proof"}`,
+          proofPoints: normalizePlanList(
+            [proofSeed, seeds[1], seeds[2]].filter(Boolean) as string[],
+            MAX_THREAD_PROOF_POINTS,
+          ),
+          transitionHint: "land the payoff",
+        },
+        {
+          role: "payoff",
+          objective: `land ${payoffSeed || proofSeed || secondarySeed || primarySeed || "the takeaway"}`,
+          proofPoints: normalizePlanList(
+            [payoffSeed, seeds[3], seeds[4]].filter(Boolean) as string[],
+            MAX_THREAD_PROOF_POINTS,
+          ),
+          transitionHint: "close the thread cleanly",
+        },
+        {
+          role: "close",
+          objective: `close on ${closeSeed || payoffSeed || proofSeed || "the takeaway"}`,
+          proofPoints: [],
+          transitionHint: null,
+        },
+      ]
+    : [
+        {
+          role: "hook",
+          objective: `open on ${primarySeed || "the real tension"}`,
+          proofPoints: [],
+          transitionHint: "set up the context",
+        },
+        {
+          role: "setup",
+          objective: `set up ${secondarySeed || primarySeed || "the context"}`,
+          proofPoints: secondarySeed && secondarySeed !== primarySeed ? [secondarySeed] : [],
+          transitionHint: "land the payoff",
+        },
+        {
+          role: "payoff",
+          objective: `land ${payoffSeed || proofSeed || secondarySeed || primarySeed || "the takeaway"}`,
+          proofPoints: normalizePlanList(
+            [proofSeed, payoffSeed].filter(Boolean) as string[],
+            MAX_THREAD_PROOF_POINTS,
+          ),
+          transitionHint: "close the thread cleanly",
+        },
+        {
+          role: "close",
+          objective: `close on ${closeSeed || payoffSeed || proofSeed || "the takeaway"}`,
+          proofPoints: [],
+          transitionHint: null,
+        },
+      ];
+
+  return normalizeThreadPosts(posts);
+}
+
 export function normalizePlannerOutput<T extends NormalizedPlannerOutput>(plan: T): T {
   const mustInclude = normalizePlanList(plan.mustInclude);
   const mustIncludeKeys = new Set(mustInclude.map((entry) => entry.toLowerCase()));
@@ -326,4 +417,24 @@ export function normalizePlannerOutput<T extends NormalizedPlannerOutput>(plan: 
   }
 
   return normalizedPlan as T;
+}
+
+export function ensureThreadPlanPosts<T extends StrategyPlan>(
+  plan: T,
+): T | (T & { posts: NormalizedThreadPostPlan[] }) {
+  if (plan.formatPreference !== "thread") {
+    return plan;
+  }
+
+  if ("posts" in plan && Array.isArray(plan.posts) && plan.posts.length >= 3) {
+    return {
+      ...plan,
+      posts: normalizeThreadPosts(plan.posts as NormalizedThreadPostPlan[]),
+    } as T & { posts: NormalizedThreadPostPlan[] };
+  }
+
+  return {
+    ...plan,
+    posts: buildFallbackThreadPosts(plan),
+  } as T & { posts: NormalizedThreadPostPlan[] };
 }

@@ -12,6 +12,7 @@ import type { ConversationServices } from "./services.ts";
 import type { OrchestratorResponse, RoutingTracePatch } from "./types.ts";
 import {
   isBareDraftRequest,
+  isConcreteTopicfulThreadDraftRequest,
   isMultiDraftRequest,
   resolveDraftOutputShape,
 } from "../core/conversationHeuristics";
@@ -440,6 +441,7 @@ export async function executeDraftPipeline(args: {
     userMessage,
     draftPreference: turnDraftPreference,
     formatPreference: turnFormatPreference,
+    creatorProfileHints,
   });
   const hasStructuredTruthSourcesForTurn =
     groundingPacket.durableFacts.length > 0 ||
@@ -836,109 +838,117 @@ export async function executeDraftPipeline(args: {
     groundingPacket?: GroundingPacket;
   }): Promise<DraftingCapabilityRunResult> {
     const draftGroundingPacket = args.groundingPacket || groundingPacket;
+    let draftingMs = 0;
     const attemptDraft = async (
       extraConstraints: string[] = [],
     ) => {
-      const attemptConstraints = Array.from(
-        new Set([
-          ...args.activeConstraints,
-          ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
-          ...sourceMaterialDraftConstraints,
-          ...extraConstraints,
-        ]),
-      );
-      const voiceTarget = resolveVoiceTarget({
-        styleCard,
-        userMessage: args.sourceUserMessage || args.plan.objective,
-        draftPreference: args.draftPreference,
-        formatPreference: args.formatPreference,
-        lane: args.plan.targetLane,
-      });
-      const requestConditionedAnchors = await resolveDraftAnchorsForPlan({
-        plan: args.plan,
-        formatPreference: args.formatPreference,
-        activeConstraints: attemptConstraints,
-      });
-      const writerOutput = await services.generateDrafts(
-        args.plan,
-        styleCard,
-        requestConditionedAnchors.topicAnchors,
-        attemptConstraints,
-        effectiveContext,
-        args.activeDraft,
-        {
-          conversationState: memory.conversationState,
-          antiPatterns,
-          maxCharacterLimit,
-          goal,
+      const attemptStartedAt = Date.now();
+      try {
+        const attemptConstraints = Array.from(
+          new Set([
+            ...args.activeConstraints,
+            ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
+            ...sourceMaterialDraftConstraints,
+            ...extraConstraints,
+          ]),
+        );
+        const voiceTarget = resolveVoiceTarget({
+          styleCard,
+          userMessage: args.sourceUserMessage || args.plan.objective,
           draftPreference: args.draftPreference,
           formatPreference: args.formatPreference,
-          sourceUserMessage: args.sourceUserMessage || undefined,
-          voiceTarget,
-          referenceAnchorMode: requestConditionedAnchors.referenceAnchorMode,
-          threadPostMaxCharacterLimit,
-          threadFramingStyle: args.threadFramingStyle,
-          activePlan: args.pendingPlan || args.plan,
-          latestRefinementInstruction: memory.latestRefinementInstruction,
-          lastIdeationAngles: memory.lastIdeationAngles,
-          groundingPacket: draftGroundingPacket,
+          lane: args.plan.targetLane,
           creatorProfileHints,
-        },
-      );
-
-      if (!writerOutput) {
-        return {
-          writerOutput: null,
-          criticOutput: null,
-          draftToDeliver: null,
-          voiceTarget,
-          retrievalReasons: requestConditionedAnchors.retrievalReasons,
-          threadFramingStyle: args.threadFramingStyle ?? null,
-        };
-      }
-
-      const criticOutput = await services.critiqueDrafts(
-        writerOutput,
-        attemptConstraints,
-        styleCard,
-        {
-          maxCharacterLimit,
-          draftPreference: args.draftPreference,
+        });
+        const requestConditionedAnchors = await resolveDraftAnchorsForPlan({
+          plan: args.plan,
           formatPreference: args.formatPreference,
-          sourceUserMessage: args.sourceUserMessage || undefined,
-          voiceTarget,
-          threadPostMaxCharacterLimit,
-          threadFramingStyle: args.threadFramingStyle,
-          groundingPacket: draftGroundingPacket,
-        },
-      );
+          activeConstraints: attemptConstraints,
+        });
+        const writerOutput = await services.generateDrafts(
+          args.plan,
+          styleCard,
+          requestConditionedAnchors.topicAnchors,
+          attemptConstraints,
+          effectiveContext,
+          args.activeDraft,
+          {
+            conversationState: memory.conversationState,
+            antiPatterns,
+            maxCharacterLimit,
+            goal,
+            draftPreference: args.draftPreference,
+            formatPreference: args.formatPreference,
+            sourceUserMessage: args.sourceUserMessage || undefined,
+            voiceTarget,
+            referenceAnchorMode: requestConditionedAnchors.referenceAnchorMode,
+            threadPostMaxCharacterLimit,
+            threadFramingStyle: args.threadFramingStyle,
+            activePlan: args.pendingPlan || args.plan,
+            latestRefinementInstruction: memory.latestRefinementInstruction,
+            lastIdeationAngles: memory.lastIdeationAngles,
+            groundingPacket: draftGroundingPacket,
+            creatorProfileHints,
+          },
+        );
 
-      if (!criticOutput) {
+        if (!writerOutput) {
+          return {
+            writerOutput: null,
+            criticOutput: null,
+            draftToDeliver: null,
+            voiceTarget,
+            retrievalReasons: requestConditionedAnchors.retrievalReasons,
+            threadFramingStyle: args.threadFramingStyle ?? null,
+          };
+        }
+
+        const criticOutput = await services.critiqueDrafts(
+          writerOutput,
+          attemptConstraints,
+          styleCard,
+          {
+            maxCharacterLimit,
+            draftPreference: args.draftPreference,
+            formatPreference: args.formatPreference,
+            sourceUserMessage: args.sourceUserMessage || undefined,
+            voiceTarget,
+            threadPostMaxCharacterLimit,
+            threadFramingStyle: args.threadFramingStyle,
+            groundingPacket: draftGroundingPacket,
+          },
+        );
+
+        if (!criticOutput) {
+          return {
+            writerOutput,
+            criticOutput: null,
+            draftToDeliver: null,
+            voiceTarget,
+            retrievalReasons: requestConditionedAnchors.retrievalReasons,
+            threadFramingStyle: args.threadFramingStyle ?? null,
+          };
+        }
+
+        const draftToDeliver =
+          criticOutput.approved || !args.fallbackToWriterWhenCriticRejected
+            ? criticOutput.finalDraft
+            : writerOutput.draft;
+
         return {
           writerOutput,
-          criticOutput: null,
-          draftToDeliver: null,
+          criticOutput,
+          draftToDeliver,
           voiceTarget,
           retrievalReasons: requestConditionedAnchors.retrievalReasons,
           threadFramingStyle: args.threadFramingStyle ?? null,
         };
+      } finally {
+        draftingMs += Date.now() - attemptStartedAt;
       }
-
-      const draftToDeliver =
-        criticOutput.approved || !args.fallbackToWriterWhenCriticRejected
-          ? criticOutput.finalDraft
-          : writerOutput.draft;
-
-      return {
-        writerOutput,
-        criticOutput,
-        draftToDeliver,
-        voiceTarget,
-        retrievalReasons: requestConditionedAnchors.retrievalReasons,
-        threadFramingStyle: args.threadFramingStyle ?? null,
-      };
     };
-    return runGroundedDraftRetry({
+    const validationStartedAt = Date.now();
+    const result = await runGroundedDraftRetry({
       memory,
       plan: args.plan,
       activeConstraints: args.activeConstraints,
@@ -957,6 +967,15 @@ export async function executeDraftPipeline(args: {
       returnClarificationQuestion,
       returnDeliveryValidationFallback,
     });
+    const validationWindowMs = Date.now() - validationStartedAt;
+    routingTrace.timings = {
+      ...(routingTrace.timings || {}),
+      draftingMs: (routingTrace.timings?.draftingMs || 0) + draftingMs,
+      validationMs:
+        (routingTrace.timings?.validationMs || 0) +
+        Math.max(0, validationWindowMs - draftingMs),
+    };
+    return result;
   }
 
   if (
@@ -1104,6 +1123,10 @@ export async function executeDraftPipeline(args: {
     clarificationBranchKey: memory.clarificationState?.branchKey ?? null,
   });
   routingTrace.routerState = routerState;
+  const shouldAutoDraftConcreteThread =
+    turnPlan?.userGoal === "draft" &&
+    turnFormatPreference === "thread" &&
+    isConcreteTopicfulThreadDraftRequest(userMessage);
   const canAskPlanClarification = (): boolean =>
     routerState === "clarify_before_generation";
 
@@ -1253,7 +1276,11 @@ export async function executeDraftPipeline(args: {
       feedbackMemoryNotice,
       shouldAutoDraft:
         ((turnPlan?.userGoal === "draft" &&
-          (hasEnoughContextToAct || turnPlan.shouldAutoDraftFromPlan === true)) ||
+          (
+            hasEnoughContextToAct ||
+            turnPlan.shouldAutoDraftFromPlan === true ||
+            shouldAutoDraftConcreteThread
+          )) ||
           shouldFastStartFromGroundedContext),
       isMultiDraftTurn,
       groundingSources: groundingSourcesForTurn,

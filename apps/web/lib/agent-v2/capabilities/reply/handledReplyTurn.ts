@@ -198,6 +198,7 @@ export async function prepareHandledReplyTurn(
         clarification: null,
         draftGuard: null,
         planFailure: null,
+        timings: null,
       },
     },
   };

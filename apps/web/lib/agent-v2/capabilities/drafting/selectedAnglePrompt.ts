@@ -7,9 +7,9 @@ const QUESTION_SHAPED_ANGLE =
 
 const SELECTED_ANGLE_PROMPT_PREFIXES = [
   /^(?:turn the following angle into a draft:|use the selected angle as the primary direction:)\s*/i,
-  /^draft a (?:post|thread) that directly answers this question in the user's voice:\s*/i,
-  /^draft a (?:post|thread) in the user's voice that answers this question with a strong hook, at least one concrete detail, and a clean ending\. do not repeat the question or answer it in a single flat sentence:\s*/i,
-  /^draft a (?:post|thread) from this chosen direction in the user's voice:\s*/i,
+  /^draft a (?:post|thread) that directly answers this question in the user's voice(?:[^:]+)?:\s*/i,
+  /^draft a (?:post|thread) in the user's voice that answers this question with a strong hook, at least one concrete detail, and a clean ending(?:[^:]+)?:\s*/i,
+  /^draft a (?:post|thread) from this chosen direction in the user's voice(?:[^:]+)?:\s*/i,
 ];
 
 export function isQuestionShapedSelectedAngle(value: string): boolean {
@@ -36,7 +36,15 @@ export function buildSelectedAngleDraftPrompt(args: {
     : "";
 
   if (isQuestionShapedSelectedAngle(normalized)) {
+    if (args.formatHint === "thread") {
+      return `${groundingPrefix}draft a thread in the user's voice that answers this question with a strong hook, at least one concrete detail, and a clean ending. return 4-6 complete posts separated by a line containing only ---. make post 1 a sharp opener instead of a summary block, and do not collapse this into one standalone post: ${normalized}`;
+    }
+
     return `${groundingPrefix}draft a ${args.formatHint} in the user's voice that answers this question with a strong hook, at least one concrete detail, and a clean ending. do not repeat the question or answer it in a single flat sentence: ${normalized}`;
+  }
+
+  if (args.formatHint === "thread") {
+    return `${groundingPrefix}draft a thread from this chosen direction in the user's voice. return 4-6 complete posts separated by a line containing only ---. make post 1 a sharp opener instead of a summary block, and do not collapse this into one standalone post: ${normalized}`;
   }
 
   return `${groundingPrefix}draft a ${args.formatHint} from this chosen direction in the user's voice: ${normalized}`;

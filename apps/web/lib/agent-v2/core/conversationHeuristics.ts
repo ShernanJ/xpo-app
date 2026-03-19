@@ -101,6 +101,29 @@ export function hasStrongDraftCommand(message: string): boolean {
   );
 }
 
+export function isConcreteTopicfulThreadDraftRequest(message: string): boolean {
+  const normalized = normalizeDraftIntentMessage(message);
+  if (!normalized || isBareDraftRequest(message)) {
+    return false;
+  }
+
+  if (inferExplicitDraftFormatPreference(message) !== "thread") {
+    return false;
+  }
+
+  if (/\b(?:about|on)\s+(?:anything|something|whatever)\b/.test(normalized)) {
+    return false;
+  }
+
+  return (
+    /\b(?:about|on)\s+[a-z0-9]/.test(normalized) ||
+    /\b(?:turn|convert|rewrite|make)\s+(?:(?:this|that|it)\s+)?(?:into|as)\s+(?:an?\s+)?(?:(?:x|tweet)\s+)?thread\b/.test(
+      normalized,
+    ) ||
+    /\b(?:using|from)\s+(?:this|that|it|what you know about me)\b/.test(normalized)
+  );
+}
+
 export function isMultiDraftRequest(message: string): boolean {
   const normalized = normalizeDraftIntentMessage(message);
   if (!normalized) {

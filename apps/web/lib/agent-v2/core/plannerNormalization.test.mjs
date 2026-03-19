@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { normalizePlannerOutput } from "./plannerNormalization.ts";
+import {
+  ensureThreadPlanPosts,
+  normalizePlannerOutput,
+} from "./plannerNormalization.ts";
 
 test("normalizePlannerOutput dedupes plan lists and removes overlaps", () => {
   const result = normalizePlannerOutput({
@@ -154,4 +157,30 @@ test("normalizePlannerOutput repairs duplicate thread beats into a clean arc", (
   assert.equal(result.posts[1].transitionHint, "show the next delegation unlocked focus");
   assert.equal(result.posts[4].transitionHint, null);
   assert.match(result.posts[4].objective, /close on/i);
+});
+
+test("ensureThreadPlanPosts synthesizes a thread beat plan when a thread request falls back to a generic plan", () => {
+  const result = ensureThreadPlanPosts({
+    objective: "the break-if-we-don't filter that cut 80% of ideas",
+    angle: "show the hard tradeoff behind the filter instead of turning it into a generic creativity take",
+    targetLane: "original",
+    mustInclude: [
+      "why the team needed a sharper filter",
+      "what got cut",
+      "what changed after the filter held",
+    ],
+    mustAvoid: ["generic brainstorming advice"],
+    hookType: "story",
+    pitchResponse: "lead with the tension and land the payoff",
+    formatPreference: "thread",
+  });
+
+  assert.ok(Array.isArray(result.posts));
+  assert.equal(result.posts.length, 5);
+  assert.deepEqual(
+    result.posts.map((post) => post.role),
+    ["hook", "setup", "proof", "payoff", "close"],
+  );
+  assert.equal(result.posts[0].transitionHint, "set up the context");
+  assert.equal(result.posts.at(-1)?.transitionHint, null);
 });

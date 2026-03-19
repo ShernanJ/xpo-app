@@ -53,7 +53,7 @@ function buildArtifactMismatchRetryConstraint(formatPreference: DraftFormatPrefe
 }
 
 function buildThreadShapeRetryConstraint(): string {
-  return "Return a real thread with distinct posts separated cleanly, and make sure each post is complete.";
+  return "Return a real X thread with 4-6 complete posts separated by a line containing only ---. Do not collapse it into one standalone post, and make sure Post 1 is a substantive opener.";
 }
 
 function buildThreadSeparatorCleanupConstraint(): string {
@@ -61,7 +61,7 @@ function buildThreadSeparatorCleanupConstraint(): string {
 }
 
 function buildThreadHookRetryConstraint(): string {
-  return "Rewrite the opener as a sharp thread hook. Open a loop or clear tension, keep it native to X, and do not summarize the whole thread in the first post.";
+  return "Rewrite Post 1 as a sharp, tension-first thread hook. Keep it native to X, avoid summary-block framing, and do not front-load the whole lesson, framework, or CTA into the opener.";
 }
 
 function hasMalformedThreadOpener(posts: string[]): boolean {

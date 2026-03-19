@@ -1,4 +1,15 @@
-import type { VoiceStyleCard } from "./styleProfile";
+import type { CreatorProfileHints } from "../grounding/groundingPacket.ts";
+import type { UserPreferences, VoiceStyleCard } from "./styleProfile.ts";
+
+export type DraftCasingSource =
+  | "explicit_preference"
+  | "high_confidence_voice"
+  | "default_normal";
+
+export interface DraftCasingResolution {
+  casing: "normal" | "lowercase" | "uppercase";
+  source: DraftCasingSource;
+}
 
 function normalizeText(value: string): string {
   return value.trim().toLowerCase();
@@ -39,6 +50,79 @@ function isMostlyLowercase(values: string[]): boolean {
   }
 
   return upper / total <= 0.06 && lower / total >= 0.8;
+}
+
+function normalizeExplicitCasingPreference(
+  userPreferences?: Partial<UserPreferences> | null,
+  styleCard?: VoiceStyleCard | null,
+): UserPreferences["casing"] {
+  const candidate = userPreferences?.casing ?? styleCard?.userPreferences?.casing;
+  return candidate === "auto" ||
+    candidate === "normal" ||
+    candidate === "lowercase" ||
+    candidate === "uppercase"
+    ? candidate
+    : "auto";
+}
+
+function hasHighConfidenceLowercaseVoice(
+  creatorProfileHints?: CreatorProfileHints | null,
+): boolean {
+  const voiceProfile = creatorProfileHints?.voiceProfile;
+  if (!voiceProfile || voiceProfile.primaryCasing !== "lowercase") {
+    return false;
+  }
+
+  const isLongFormCreator =
+    voiceProfile.averageLengthBand === "long" ||
+    creatorProfileHints?.threadBias === "high" ||
+    voiceProfile.multiLinePostRate >= 30;
+
+  if (isLongFormCreator) {
+    return (
+      voiceProfile.lowercaseSharePercent >= 95 &&
+      voiceProfile.multiLinePostRate < 10
+    );
+  }
+
+  return (
+    voiceProfile.lowercaseSharePercent >= 72 &&
+    voiceProfile.multiLinePostRate < 35
+  );
+}
+
+export function resolveDraftCasingPreference(args: {
+  userPreferences?: Partial<UserPreferences> | null;
+  styleCard?: VoiceStyleCard | null;
+  creatorProfileHints?: CreatorProfileHints | null;
+}): DraftCasingResolution {
+  const explicitPreference = normalizeExplicitCasingPreference(
+    args.userPreferences,
+    args.styleCard,
+  );
+
+  if (
+    explicitPreference === "normal" ||
+    explicitPreference === "lowercase" ||
+    explicitPreference === "uppercase"
+  ) {
+    return {
+      casing: explicitPreference,
+      source: "explicit_preference",
+    };
+  }
+
+  if (hasHighConfidenceLowercaseVoice(args.creatorProfileHints)) {
+    return {
+      casing: "lowercase",
+      source: "high_confidence_voice",
+    };
+  }
+
+  return {
+    casing: "normal",
+    source: "default_normal",
+  };
 }
 
 export function inferLowercasePreference(styleCard: VoiceStyleCard | null): boolean {
@@ -114,17 +198,31 @@ export function inferPreferredListMarker(styleCard: VoiceStyleCard | null): "-" 
   return null;
 }
 
-function lowercasePreservingUrls(text: string): string {
-  const urls: string[] = [];
-  const tokenized = text.replace(/https?:\/\/\S+/gi, (match) => {
-    const index = urls.push(match) - 1;
-    return `__URL_${index}__`;
-  });
+export function lowercasePreservingProtectedTokens(text: string): string {
+  const protectedTokens: string[] = [];
+  const protectedPattern =
+    /https?:\/\/\S+|@[a-z0-9_]+|#[a-z0-9_]+|\b(?:[A-Z]{2,}|X)\b|\b[A-Z][a-z]+(?:[’'-][A-Z]?[a-z]+)*\b/g;
+
+  const tokenized = text.replace(
+    protectedPattern,
+    (match: string, offset: number, source: string) => {
+      const isCapitalizedWord = /^[A-Z][a-z]+(?:[’'-][A-Z]?[a-z]+)*$/.test(match);
+      if (isCapitalizedWord) {
+        const prefix = source.slice(0, offset);
+        const isSentenceStart = /(^|[.!?]\s+|\n\s*)$/.test(prefix);
+        if (isSentenceStart) {
+          return match;
+        }
+      }
+
+      const index = protectedTokens.push(match) - 1;
+      return `__PROTECTED_${index}__`;
+    },
+  );
 
   const lowercased = tokenized.toLowerCase();
-
-  return lowercased.replace(/__url_(\d+)__/g, (_, index: string) => {
-    const value = urls[Number(index)];
+  return lowercased.replace(/__protected_(\d+)__/g, (_match, index: string) => {
+    const value = protectedTokens[Number(index)];
     return typeof value === "string" ? value : "";
   });
 }
@@ -150,15 +248,26 @@ function normalizeListMarkers(text: string, marker: "-" | ">"): string {
 export function enforceVoiceStyleOnDraft(
   text: string,
   styleCard: VoiceStyleCard | null,
+  options?: {
+    userPreferences?: Partial<UserPreferences> | null;
+    creatorProfileHints?: CreatorProfileHints | null;
+  },
 ): string {
   if (!styleCard) {
     return text.trim();
   }
 
   let nextText = text.trim();
+  const casingResolution = resolveDraftCasingPreference({
+    userPreferences: options?.userPreferences,
+    styleCard,
+    creatorProfileHints: options?.creatorProfileHints,
+  });
 
-  if (inferLowercasePreference(styleCard)) {
-    nextText = lowercasePreservingUrls(nextText);
+  if (casingResolution.casing === "lowercase") {
+    nextText = lowercasePreservingProtectedTokens(nextText);
+  } else if (casingResolution.casing === "uppercase") {
+    nextText = nextText.toUpperCase();
   }
 
   const preferredListMarker = inferPreferredListMarker(styleCard);

@@ -112,6 +112,7 @@ function createBaseRoutingTrace(overrides = {}) {
     clarification: null,
     draftGuard: null,
     planFailure: null,
+    timings: null,
     ...overrides,
   };
 }
@@ -429,7 +430,74 @@ test("buildChatRouteMappedData derives draft handoff from finalized envelope fie
   });
 
   assert.equal(mapped.mappedData.reply.includes("?"), false);
-  assert.equal(mapped.mappedData.draft, "updated draft body");
+  assert.equal(mapped.mappedData.draft, "Updated draft body");
+});
+
+test("buildChatRouteMappedData keeps normal-casing profiles out of lowercase auto-mode", () => {
+  const mapped = buildChatRouteMappedData({
+    result: {
+      outputShape: "short_form_post",
+      response: "",
+      surfaceMode: "generate_full_output",
+      responseShapePlan: {
+        surfaceMode: "generate_full_output",
+        shouldShowArtifacts: true,
+        shouldAskFollowUp: true,
+        maxFollowUps: 1,
+      },
+      memory: {
+        ...baseMemory,
+        conversationState: "draft_ready",
+      },
+      data: {
+        draft: "Stanley Ships Fast.",
+      },
+    },
+    plan: null,
+    selectedDraftContext: null,
+    formatPreference: "shortform",
+    isVerifiedAccount: false,
+    userPreferences: null,
+    styleCard: {
+      sentenceOpenings: ["ship fast"],
+      sentenceClosers: ["keep going"],
+      pacing: "short, punchy",
+      emojiPatterns: [],
+      slangAndVocabulary: [],
+      formattingRules: ["prefer lowercase when it fits"],
+      customGuidelines: [],
+      contextAnchors: [],
+      antiExamples: [],
+    },
+    creatorProfileHints: {
+      preferredOutputShape: "short_form_post",
+      threadBias: "low",
+      preferredHookPatterns: [],
+      toneGuidelines: [],
+      ctaPolicy: "none",
+      topExampleSnippets: [],
+      voiceProfile: {
+        primaryCasing: "normal",
+        averageLengthBand: "medium",
+        lowercaseSharePercent: 22,
+        multiLinePostRate: 18,
+      },
+    },
+    routingDiagnostics: {
+      turnSource: "free_text",
+      artifactKind: null,
+      planSeedSource: "message",
+      replyHandlingBypassedReason: null,
+      resolvedWorkflow: "free_text",
+    },
+    clientTurnId: "turn_casing_1",
+  });
+
+  assert.equal(mapped.mappedData.draft, "Stanley Ships Fast.");
+  assert.equal(
+    mapped.mappedData.requestTrace.casingResolution?.source,
+    "default_normal",
+  );
 });
 
 test("buildChatRouteMappedData preserves ideation format hints for angle picks", () => {
@@ -638,7 +706,10 @@ test("prepareChatRouteTurn keeps the raw runtime response while deriving persist
     prepared.mappedDataSeed.reply !== prepared.rawResponse.response,
     true,
   );
-  assert.equal(prepared.mappedDataSeed.draft, prepared.rawResponse.response);
+  assert.equal(
+    prepared.mappedDataSeed.draft,
+    "This is the actual draft body that should not be treated as the final reply envelope",
+  );
   assert.equal(prepared.persistencePlan.assistantMessageData.reply, prepared.mappedDataSeed.reply);
   assert.equal(prepared.persistencePlan.threadUpdate.title, "Prepared title");
 });

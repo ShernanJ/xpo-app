@@ -16,6 +16,7 @@ export interface TurnContextHydrationRequest {
   effectiveXHandle: string;
   userMessage: string;
   topicSummary: string | null;
+  preloadedStyleCard?: VoiceStyleCard | null;
   services: Pick<ConversationServices, "generateStyleProfile" | "retrieveAnchors">;
 }
 
@@ -86,7 +87,9 @@ export async function hydrateTurnContextWorkers(
     : "user_message";
 
   const [styleCard, anchors] = await Promise.all([
-    args.services.generateStyleProfile(args.userId, args.effectiveXHandle, 20),
+    typeof args.preloadedStyleCard !== "undefined"
+      ? Promise.resolve(args.preloadedStyleCard)
+      : args.services.generateStyleProfile(args.userId, args.effectiveXHandle, 20),
     args.services.retrieveAnchors(args.userId, args.effectiveXHandle, focusTopic),
   ]);
 
@@ -99,10 +102,13 @@ export async function hydrateTurnContextWorkers(
         capability: "shared",
         phase: "context_load",
         mode: "parallel",
-        status: "completed",
+        status: typeof args.preloadedStyleCard !== "undefined" ? "skipped" : "completed",
         groupId: TURN_CONTEXT_HYDRATION_GROUP_ID,
         details: {
           hasStyleCard: Boolean(styleCard),
+          ...(typeof args.preloadedStyleCard !== "undefined"
+            ? { reason: "preloaded_style_card" }
+            : {}),
         },
       }),
       buildRuntimeWorkerExecution({

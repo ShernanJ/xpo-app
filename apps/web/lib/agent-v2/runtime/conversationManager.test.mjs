@@ -55,6 +55,7 @@ import {
   buildPlanFailureResponse,
   hasStrongDraftCommand,
   inferExplicitDraftFormatPreference,
+  isConcreteTopicfulThreadDraftRequest,
   isBareIdeationRequest,
   isBareDraftRequest,
   isMultiDraftRequest,
@@ -160,7 +161,7 @@ test("initial context load workers return mergeable outputs for identified users
   const result = await loadInitialContextWorkers({
     userId: "user_1",
     effectiveXHandle: "stan",
-    userMessage: "write about onboarding",
+    userMessage: "always write in lowercase and i'm building stanley",
     recentHistory: "assistant: none",
     services: {
       extractStyleRules: async () => ["avoid emojis"],
@@ -260,6 +261,42 @@ test("initial context load workers skip anonymous users without changing outputs
   );
 });
 
+test("initial context load workers defer durable extraction for normal draft turns", async () => {
+  let extractStyleRulesCalls = 0;
+  let extractCoreFactsCalls = 0;
+  let sourceMaterialCalls = 0;
+
+  const result = await loadInitialContextWorkers({
+    userId: "user_1",
+    effectiveXHandle: "stan",
+    userMessage: "write me a thread about hiring",
+    recentHistory: "assistant: none",
+    services: {
+      extractStyleRules: async () => {
+        extractStyleRulesCalls += 1;
+        return ["avoid emojis"];
+      },
+      extractCoreFacts: async () => {
+        extractCoreFactsCalls += 1;
+        return ["User runs hiring at Stan"];
+      },
+      getSourceMaterialAssets: async () => {
+        sourceMaterialCalls += 1;
+        return [];
+      },
+    },
+  });
+
+  assert.equal(extractStyleRulesCalls, 0);
+  assert.equal(extractCoreFactsCalls, 0);
+  assert.equal(sourceMaterialCalls, 1);
+  assert.equal(result.workerExecutions[0]?.status, "skipped");
+  assert.equal(result.workerExecutions[0]?.details?.reason, "not_durable_style_feedback");
+  assert.equal(result.workerExecutions[1]?.status, "skipped");
+  assert.equal(result.workerExecutions[1]?.details?.reason, "not_durable_fact_feedback");
+  assert.equal(result.workerExecutions[2]?.status, "completed");
+});
+
 test("turn context hydration workers return style profile and anchors as mergeable outputs", async () => {
   const result = await hydrateTurnContextWorkers({
     userId: "user_1",
@@ -321,6 +358,53 @@ test("turn context hydration workers return style profile and anchors as mergeab
       },
     ],
   );
+});
+
+test("turn context hydration workers reuse a preloaded style card", async () => {
+  let styleProfileCalls = 0;
+  const preloadedStyleCard = {
+    sentenceOpenings: ["ship fast"],
+    sentenceClosers: ["keep going"],
+    pacing: "direct",
+    emojiPatterns: [],
+    slangAndVocabulary: [],
+    formattingRules: [],
+    customGuidelines: [],
+    contextAnchors: [],
+    factLedger: {
+      durableFacts: [],
+      allowedFirstPersonClaims: [],
+      allowedNumbers: [],
+      forbiddenClaims: [],
+      sourceMaterials: [],
+    },
+    antiExamples: [],
+  };
+
+  const result = await hydrateTurnContextWorkers({
+    userId: "user_1",
+    effectiveXHandle: "stan",
+    userMessage: "write about onboarding",
+    topicSummary: "fallback topic",
+    preloadedStyleCard,
+    services: {
+      generateStyleProfile: async () => {
+        styleProfileCalls += 1;
+        return null;
+      },
+      retrieveAnchors: async () => ({
+        topicAnchors: ["onboarding systems"],
+        laneAnchors: [],
+        formatAnchors: [],
+        rankedAnchors: [],
+      }),
+    },
+  });
+
+  assert.equal(styleProfileCalls, 0);
+  assert.equal(result.styleCard?.pacing, "direct");
+  assert.equal(result.workerExecutions[0]?.status, "skipped");
+  assert.equal(result.workerExecutions[0]?.details?.reason, "preloaded_style_card");
 });
 
 test("routing fast replies use the loaded user context for profile knowledge asks", async () => {
@@ -2764,6 +2848,18 @@ test("generic draft prompts are treated as bare draft requests", () => {
   assert.equal(isBareDraftRequest("give me random post i'd use"), true);
   assert.equal(isBareDraftRequest("write me a post about internship hunt"), false);
   assert.equal(isBareDraftRequest("write me a thread about internship hunt"), false);
+});
+
+test("topicful thread prompts are treated as concrete thread draft requests", () => {
+  assert.equal(isConcreteTopicfulThreadDraftRequest("write a thread"), false);
+  assert.equal(
+    isConcreteTopicfulThreadDraftRequest("write me a thread about hiring pipelines"),
+    true,
+  );
+  assert.equal(
+    isConcreteTopicfulThreadDraftRequest("turn this into a thread"),
+    true,
+  );
 });
 
 test("filler-prefixed draft commands still count as bare draft requests", () => {

@@ -7,6 +7,9 @@ import type {
   StrategyPlan,
 } from "../../../../../../../lib/agent-v2/contracts/chat.ts";
 import type {
+  CreatorProfileHints,
+} from "../../../../../../../lib/agent-v2/grounding/groundingPacket.ts";
+import type {
   NormalizedChatTurnDiagnostics,
 } from "../../../../../../../lib/agent-v2/contracts/turnContract.ts";
 import type { RawOrchestratorResponse } from "../../../../../../../lib/agent-v2/runtime/conversationManager.ts";
@@ -177,6 +180,7 @@ export async function prepareManagedMainTurnWithDeps(
     isVerifiedAccount: boolean;
     userPreferences: UserPreferences | null;
     styleCard: VoiceStyleCard | null;
+    creatorProfileHints?: CreatorProfileHints | null;
     routingDiagnostics: NormalizedChatTurnDiagnostics;
     clientTurnId: string | null;
     currentThreadTitle: string | null | undefined;
@@ -223,6 +227,7 @@ export async function prepareManagedMainTurnWithDeps(
     isVerifiedAccount: args.isVerifiedAccount,
     userPreferences: args.userPreferences,
     styleCard: args.styleCard,
+    creatorProfileHints: args.creatorProfileHints ?? null,
     routingDiagnostics: args.routingDiagnostics,
     clientTurnId: args.clientTurnId,
     issuesFixed:
@@ -246,6 +251,7 @@ export async function prepareManagedMainTurn(args: {
   isVerifiedAccount: boolean;
   userPreferences: UserPreferences | null;
   styleCard: VoiceStyleCard | null;
+  creatorProfileHints?: CreatorProfileHints | null;
   routingDiagnostics: NormalizedChatTurnDiagnostics;
   clientTurnId: string | null;
   currentThreadTitle: string | null | undefined;

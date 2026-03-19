@@ -118,11 +118,48 @@ test("shortform trimming backs up to a clean boundary instead of cutting mid-wor
   assert.equal(/[.!?…”’)\]]$/.test(result), true);
 });
 
-test("applies style-card lowercase normalization inside the final policy layer", () => {
+test("weak lowercase hints do not force lowercase when casing stays on auto", () => {
   const result = applyFinalDraftPolicy({
-    draft: "This Is A Test.",
+    draft: "Stanley Ships Fast.",
     formatPreference: "shortform",
     isVerifiedAccount: false,
+    styleCard: {
+      sentenceOpenings: ["ship fast"],
+      sentenceClosers: ["keep going"],
+      pacing: "short, punchy",
+      emojiPatterns: [],
+      slangAndVocabulary: [],
+      formattingRules: ["prefer lowercase when it fits"],
+      customGuidelines: [],
+      contextAnchors: [],
+      antiExamples: [],
+    },
+  });
+
+  assert.equal(result, "Stanley Ships Fast.");
+});
+
+test("explicit lowercase still lowercases while preserving protected tokens", () => {
+  const result = applyFinalDraftPolicy({
+    draft: "Stanley ships fast on X.",
+    formatPreference: "shortform",
+    isVerifiedAccount: false,
+    userPreferences: {
+      casing: "lowercase",
+    },
+  });
+
+  assert.equal(result, "stanley ships fast on X.");
+});
+
+test("explicit normal overrides lowercase-style-card hints", () => {
+  const result = applyFinalDraftPolicy({
+    draft: "Stanley Ships Fast.",
+    formatPreference: "shortform",
+    isVerifiedAccount: false,
+    userPreferences: {
+      casing: "normal",
+    },
     styleCard: {
       sentenceOpenings: ["ship fast"],
       sentenceClosers: ["keep going"],
@@ -136,7 +173,7 @@ test("applies style-card lowercase normalization inside the final policy layer",
     },
   });
 
-  assert.equal(result, "this is a test.");
+  assert.equal(result, "Stanley Ships Fast.");
 });
 
 test("returns adjustment metadata for downstream issue reporting", () => {
@@ -148,6 +185,7 @@ test("returns adjustment metadata for downstream issue reporting", () => {
 
   assert.equal(result.adjustments.markdownAdjusted, true);
   assert.equal(result.adjustments.engagementAdjusted, true);
+  assert.equal(result.casingResolution.source, "default_normal");
 });
 
 test("strips leaked transcript and composer chrome from draft content", () => {
@@ -190,7 +228,7 @@ test("strips leaked transcript and composer chrome from draft content", () => {
     isVerifiedAccount: false,
   });
 
-  assert.equal(result.startsWith("most people think you need a massive follower count"), true);
+  assert.equal(result.startsWith("Most people think you need a massive follower count"), true);
   assert.equal(result.includes("write me a random draft i would use"), false);
   assert.equal(result.includes("I’ll drop a draft:"), false);
   assert.equal(result.includes("@shernanjavier"), false);
@@ -216,7 +254,7 @@ test("shortform drafts collapse leaked thread separators into one post", () => {
   });
 
   assert.equal(result.includes("---"), false);
-  assert.equal(result, ["hook", "proof", "cta"].join("\n"));
+  assert.equal(result, ["Hook", "proof", "cta"].join("\n"));
 });
 
 test("longform drafts collapse leaked thread separators without preserving serialization", () => {
@@ -227,7 +265,7 @@ test("longform drafts collapse leaked thread separators without preserving seria
   });
 
   assert.equal(result.includes("---"), false);
-  assert.equal(result, ["opening paragraph", "supporting proof", "closer"].join("\n\n"));
+  assert.equal(result, ["Opening paragraph", "supporting proof", "closer"].join("\n\n"));
 });
 
 test("soft-signal threads strip x/x numbering without forcing a canned opener", () => {
@@ -309,7 +347,7 @@ test("thread policy strips leading and trailing separator-only scaffolding", () 
 
   const posts = result.split(/\n\s*---\s*\n/g).map((post) => post.trim()).filter(Boolean);
   assert.deepEqual(posts, [
-    "no fluff. just the schedule and feedback loop that made the thread work.",
+    "no fluff. Just the schedule and feedback loop that made the thread work.",
     "i ran it on my own profile first.",
     "that gave me one clean beat per post instead of one chopped essay.",
   ]);

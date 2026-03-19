@@ -49,6 +49,12 @@ function buildHints(args: {
     offBrandThemes: [],
     ambiguities: [],
     learningSignals: [],
+    voiceProfile: {
+      primaryCasing: args.creatorProfile.voice.primaryCasing,
+      averageLengthBand: args.creatorProfile.voice.averageLengthBand,
+      lowercaseSharePercent: args.creatorProfile.voice.lowercaseSharePercent,
+      multiLinePostRate: args.creatorProfile.voice.multiLinePostRate,
+    },
   };
 }
 

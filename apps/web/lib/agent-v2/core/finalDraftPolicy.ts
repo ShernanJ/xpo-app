@@ -1,5 +1,12 @@
 import type { DraftFormatPreference } from "../contracts/chat";
+import type { CreatorProfileHints } from "../grounding/groundingPacket.ts";
 import type { UserPreferences, VoiceStyleCard } from "./styleProfile";
+import {
+  inferPreferredListMarker,
+  lowercasePreservingProtectedTokens,
+  resolveDraftCasingPreference,
+  type DraftCasingResolution,
+} from "./voiceSignals.ts";
 import {
   joinSerializedThreadPosts,
   splitSerializedThreadPosts,
@@ -12,119 +19,6 @@ const THREAD_DEFAULT_POST_COUNT = 6;
 
 function getThreadTotalXLimit(isVerified: boolean): number {
   return (isVerified ? LONG_FORM_X_LIMIT : SHORT_FORM_X_LIMIT) * THREAD_DEFAULT_POST_COUNT;
-}
-
-function normalizeText(value: string): string {
-  return value.trim().toLowerCase();
-}
-
-function countLetters(value: string): { lower: number; upper: number } {
-  let lower = 0;
-  let upper = 0;
-
-  for (const char of value) {
-    if (char >= "a" && char <= "z") {
-      lower += 1;
-    } else if (char >= "A" && char <= "Z") {
-      upper += 1;
-    }
-  }
-
-  return { lower, upper };
-}
-
-function isMostlyLowercase(values: string[]): boolean {
-  const joined = values.join(" ");
-  const { lower, upper } = countLetters(joined);
-  const total = lower + upper;
-
-  if (total < 12) {
-    return false;
-  }
-
-  return upper / total <= 0.06 && lower / total >= 0.8;
-}
-
-function collectStyleSignals(styleCard: VoiceStyleCard): string[] {
-  return [
-    ...(styleCard.formattingRules || []),
-    ...(styleCard.customGuidelines || []),
-    ...(styleCard.sentenceOpenings || []),
-    ...(styleCard.sentenceClosers || []),
-    ...(styleCard.slangAndVocabulary || []),
-  ].filter(Boolean);
-}
-
-function inferLowercasePreference(styleCard: VoiceStyleCard | null): boolean {
-  if (!styleCard) {
-    return false;
-  }
-
-  const signals = collectStyleSignals(styleCard).map(normalizeText);
-  const lowercaseRule = signals.some(
-    (signal) =>
-      signal.includes("all lowercase") ||
-      signal.includes("always lowercase") ||
-      signal.includes("never uses capitalization") ||
-      signal.includes("no uppercase") ||
-      signal.includes("lowercase"),
-  );
-
-  if (lowercaseRule) {
-    return true;
-  }
-
-  return isMostlyLowercase([
-    ...(styleCard.sentenceOpenings || []),
-    ...(styleCard.sentenceClosers || []),
-    ...(styleCard.slangAndVocabulary || []),
-  ]);
-}
-
-function inferPreferredListMarker(styleCard: VoiceStyleCard | null): "-" | ">" | null {
-  if (!styleCard) {
-    return null;
-  }
-
-  const signals = collectStyleSignals(styleCard).map(normalizeText);
-  const prefersChevron = signals.some(
-    (signal) =>
-      signal.includes("uses >") ||
-      signal.includes("prefers >") ||
-      signal.includes("> bullets") ||
-      signal.includes("quote-style bullets"),
-  );
-  if (prefersChevron) {
-    return ">";
-  }
-
-  const prefersDash = signals.some(
-    (signal) =>
-      signal.includes("uses -") ||
-      signal.includes("prefers -") ||
-      signal.includes("dash bullets") ||
-      signal.includes("hyphen bullets"),
-  );
-  if (prefersDash) {
-    return "-";
-  }
-
-  return null;
-}
-
-function lowercasePreservingUrls(text: string): string {
-  const urls: string[] = [];
-  const tokenized = text.replace(/https?:\/\/\S+/gi, (match) => {
-    const index = urls.push(match) - 1;
-    return `__URL_${index}__`;
-  });
-
-  const lowercased = tokenized.toLowerCase();
-
-  return lowercased.replace(/__url_(\d+)__/g, (_, index: string) => {
-    const value = urls[Number(index)];
-    return typeof value === "string" ? value : "";
-  });
 }
 
 function normalizeListMarkers(text: string, marker: "-" | ">"): string {
@@ -151,10 +45,6 @@ function applyStyleCardVoice(value: string, styleCard: VoiceStyleCard | null): s
   }
 
   let nextValue = value.trim();
-
-  if (inferLowercasePreference(styleCard)) {
-    nextValue = lowercasePreservingUrls(nextValue);
-  }
 
   const preferredListMarker = inferPreferredListMarker(styleCard);
   if (preferredListMarker) {
@@ -743,7 +633,7 @@ function applyCasing(value: string, casing: UserPreferences["casing"]): string {
     case "normal":
       return applyNormalSentenceCasing(value);
     case "lowercase":
-      return value.toLowerCase();
+      return lowercasePreservingProtectedTokens(value);
     case "uppercase":
       return value.toUpperCase();
     default:
@@ -973,10 +863,12 @@ export function applyFinalDraftPolicyWithReport(args: {
   isVerifiedAccount?: boolean;
   userPreferences?: Partial<UserPreferences> | null;
   styleCard?: VoiceStyleCard | null;
+  creatorProfileHints?: CreatorProfileHints | null;
   maxCharacterLimit?: number | null;
   threadFramingStyle?: ThreadFramingStyle | null;
 }): {
   draft: string;
+  casingResolution: DraftCasingResolution;
   adjustments: {
     markdownAdjusted: boolean;
     engagementAdjusted: boolean;
@@ -1002,6 +894,11 @@ export function applyFinalDraftPolicyWithReport(args: {
       : formatPreference === "thread"
         ? hardLimit
       : Math.min(hardLimit, getXCharacterLimitForFormat(Boolean(args.isVerifiedAccount), "shortform"));
+  const casingResolution = resolveDraftCasingPreference({
+    userPreferences: normalizedPreferences,
+    styleCard: args.styleCard ?? null,
+    creatorProfileHints: args.creatorProfileHints ?? null,
+  });
 
   const withNoScaffolding = stripLeakedDraftScaffolding(args.draft);
   const withNoMarkdown = stripUnsupportedMarkdown(withNoScaffolding);
@@ -1014,7 +911,7 @@ export function applyFinalDraftPolicyWithReport(args: {
   const withBetterCta = normalizeWeakEngagementBaitCta(withResolvedFormat);
   const withBlacklistsApplied = applyBlacklist(withBetterCta, normalizedPreferences.blacklist);
   const withBullets = normalizeBulletStyle(withBlacklistsApplied, normalizedPreferences.bulletStyle);
-  const withCasing = applyCasing(withBullets, normalizedPreferences.casing);
+  const withCasing = applyCasing(withBullets, casingResolution.casing);
   const withStyle = applyStyleCardVoice(withCasing, args.styleCard ?? null);
   const withThreadFormatting =
     formatPreference === "thread"
@@ -1028,6 +925,7 @@ export function applyFinalDraftPolicyWithReport(args: {
 
   return {
     draft: finalDraft,
+    casingResolution,
     adjustments: {
       markdownAdjusted:
         withNoMarkdown !== args.draft.trim() || withNoGeneratedLinks !== withNoMarkdown,
@@ -1046,6 +944,7 @@ export function applyFinalDraftPolicy(args: {
   isVerifiedAccount?: boolean;
   userPreferences?: Partial<UserPreferences> | null;
   styleCard?: VoiceStyleCard | null;
+  creatorProfileHints?: CreatorProfileHints | null;
   maxCharacterLimit?: number | null;
   threadFramingStyle?: ThreadFramingStyle | null;
 }): string {

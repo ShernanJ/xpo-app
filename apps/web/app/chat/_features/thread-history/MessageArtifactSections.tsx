@@ -213,48 +213,13 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
   return (
     <>
       {message.autoSavedSourceMaterials?.count ? (
-        <div
-          className={`mt-2 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] ${
-            dismissedAutoSavedSource
-              ? "border-zinc-700 bg-zinc-900/70 text-zinc-400"
-              : "border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-200/90"
-          }`}
-        >
+        <div className="mt-2 inline-flex items-center gap-2 text-[11px] text-zinc-500">
           <Lightbulb className="h-3.5 w-3.5" />
           <span>
             {dismissedAutoSavedSource
               ? "Won't reuse that source."
-              : `Saved to memory${
-                  message.autoSavedSourceMaterials.assets[0]?.title
-                    ? `: ${message.autoSavedSourceMaterials.assets[0].title}`
-                    : "."
-                }`}
+              : "Saved to memory"}
           </span>
-          {!dismissedAutoSavedSource && message.autoSavedSourceMaterials.assets[0] ? (
-            <button
-              type="button"
-              onClick={() =>
-                onOpenSourceMaterialEditor({
-                  assetId: message.autoSavedSourceMaterials?.assets[0]?.id,
-                  title: message.autoSavedSourceMaterials?.assets[0]?.title,
-                })
-              }
-              className="inline-flex items-center rounded-full border border-emerald-400/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-300/40 hover:text-white"
-            >
-              Review
-            </button>
-          ) : null}
-          {!dismissedAutoSavedSource &&
-          message.autoSavedSourceMaterials.assets.some((asset) => asset.deletable) ? (
-            <button
-              type="button"
-              onClick={onUndoAutoSavedSourceMaterials}
-              disabled={autoSavedSourceUndoPending}
-              className="inline-flex items-center rounded-full border border-emerald-400/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-emerald-100 transition hover:border-emerald-300/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {autoSavedSourceUndoPending ? "Removing..." : "Undo"}
-            </button>
-          ) : null}
         </div>
       ) : null}
 

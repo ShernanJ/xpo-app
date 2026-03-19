@@ -26,6 +26,7 @@ import {
 import {
   createDefaultConversationServices,
   type ConversationServices,
+  type StoredOnboardingRun,
 } from "./services.ts";
 import {
   getDurableFactsFromStyleCard,
@@ -116,6 +117,8 @@ export interface OrchestratorInput {
   userContextString?: string | null;
   profileReplyContext?: ProfileReplyContext | null;
   diagnosticContext?: ConversationalDiagnosticContext | null;
+  preloadedRun?: StoredOnboardingRun | null;
+  preloadedStyleCard?: VoiceStyleCard | null;
 }
 
 export interface OrchestratorData {
@@ -193,6 +196,16 @@ export interface RoutingTrace {
   planFailure:
     | {
         reason: string;
+      }
+    | null;
+  timings:
+    | {
+        preflightMs?: number;
+        runtimeContextLoadMs?: number;
+        draftingMs?: number;
+        validationMs?: number;
+        persistenceMs?: number;
+        totalMs?: number;
       }
     | null;
 }
@@ -310,8 +323,10 @@ export async function manageConversationTurnRaw(
   overrides?: Partial<ConversationServices>,
 ): Promise<ManagedConversationTurnRawResult> {
   const services = { ...createDefaultConversationServices(), ...overrides } as ConversationServices;
+  const runtimeContextLoadStartedAt = Date.now();
   const context = await buildTurnContext(input, services);
   const route = await resolveRoutingPolicy(context, services);
+  route.routingTrace.timings = route.routingTrace.timings ?? null;
 
   if (route.isFastReply && route.fastReplyResponse) {
     return {
@@ -409,6 +424,10 @@ export async function manageConversationTurnRaw(
   const prevFacts = getDurableFactsFromStyleCard(context.styleCard);
   const nextFacts = getDurableFactsFromStyleCard(finalStyleCard);
   const rememberedFactCount = countNewMemoryEntries(prevFacts, nextFacts);
+  route.routingTrace.timings = {
+    ...(route.routingTrace.timings || {}),
+    runtimeContextLoadMs: Date.now() - runtimeContextLoadStartedAt,
+  };
 
   const rawResponse = await executeDraftPipeline({
     context,
@@ -421,7 +440,9 @@ export async function manageConversationTurnRaw(
     antiPatternResult,
     rememberedStyleRuleCount,
     rememberedFactCount,
-    preloadedRun: context.runId ? await services.getOnboardingRun(context.runId) : null,
+    preloadedRun:
+      context.preloadedRun ??
+      (context.runId ? await services.getOnboardingRun(context.runId) : null),
   });
 
   const responseWithAutoSavedSources =

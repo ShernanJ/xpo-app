@@ -84,6 +84,7 @@ export async function resolveRoutingPolicy(
     clarification: null,
     draftGuard: null,
     planFailure: null,
+    timings: null,
   };
 
   const controllerMemory = {

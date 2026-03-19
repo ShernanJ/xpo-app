@@ -1,6 +1,7 @@
 import type { DraftFormatPreference, DraftPreference } from "../contracts/chat.ts";
+import type { CreatorProfileHints } from "../grounding/groundingPacket.ts";
 import type { VoiceStyleCard } from "./styleProfile.ts";
-import { inferLowercasePreference } from "./voiceSignals.ts";
+import { resolveDraftCasingPreference } from "./voiceSignals.ts";
 
 export type VoiceTargetCompression = "tight" | "medium" | "spacious";
 export type VoiceTargetFormality = "casual" | "neutral" | "formal";
@@ -11,7 +12,7 @@ export type VoiceTargetRisk = "safe" | "bold";
 export type VoiceTargetLane = "original" | "reply" | "quote";
 
 export interface VoiceTarget {
-  casing: "normal" | "lowercase";
+  casing: "normal" | "lowercase" | "uppercase";
   compression: VoiceTargetCompression;
   formality: VoiceTargetFormality;
   hookStyle: VoiceTargetHookStyle;
@@ -289,6 +290,7 @@ export function resolveVoiceTarget(args: {
   draftPreference?: DraftPreference;
   formatPreference?: DraftFormatPreference | null;
   lane?: VoiceTargetLane;
+  creatorProfileHints?: CreatorProfileHints | null;
 }): VoiceTarget {
   const draftPreference = args.draftPreference || "balanced";
   const lane = args.lane || "original";
@@ -296,7 +298,10 @@ export function resolveVoiceTarget(args: {
   const signalText = collectSignals(args.styleCard)
     .map(normalizeText)
     .join(" | ");
-  const casing = inferLowercasePreference(args.styleCard) ? "lowercase" : "normal";
+  const casing = resolveDraftCasingPreference({
+    styleCard: args.styleCard,
+    creatorProfileHints: args.creatorProfileHints,
+  }).casing;
   const compression = resolveCompression({
     normalizedMessage,
     signalText,
@@ -325,6 +330,8 @@ export function resolveVoiceTarget(args: {
   const rationale = [
     casing === "lowercase"
       ? "Keep the draft in lowercase unless a proper noun or URL clearly needs casing."
+      : casing === "uppercase"
+        ? "Keep the draft in uppercase when the creator has explicitly asked for that presentation."
       : "Use the creator's normal casing instead of flattening everything to lowercase.",
     compression === "tight"
       ? "Bias toward compressed, fast-reading phrasing."

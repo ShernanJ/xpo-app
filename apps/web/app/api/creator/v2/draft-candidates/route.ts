@@ -2,14 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { getServerSession } from "@/lib/auth/serverSession";
-import { manageConversationTurn } from "@/lib/agent-v2/runtime/conversationManager";
+import { manageConversationTurnRaw } from "@/lib/agent-v2/runtime/conversationManager";
 import { buildCreatorProfileHintsFromCreatorProfile } from "@/lib/agent-v2/grounding/creatorProfileHints";
 import { serializeDraftReviewCandidate } from "@/lib/content/contentHub";
 import { buildCreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import { getXCharacterLimitForAccount } from "@/lib/onboarding/shared/draftArtifacts";
 import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store/onboardingRunStore";
 import type { DraftFormatPreference } from "@/lib/agent-v2/contracts/chat";
-import { buildInitialDraftVersionPayload } from "../chat/_lib/request/routeLogic";
 import {
   resolveOwnedThreadForWorkspace,
   resolveWorkspaceHandleForRequest,
@@ -19,18 +18,16 @@ import {
   parseJsonBody,
   requireAllowedOrigin,
 } from "@/lib/security/requestValidation";
+import {
+  buildDraftCandidateOutcome,
+  type DraftCandidateGenerationFailure,
+  type DraftQueueBrief,
+} from "./route.logic";
 
 interface DraftCandidatesRequest extends Record<string, unknown> {
   count?: unknown;
   threadId?: unknown;
   runId?: unknown;
-}
-
-interface DraftQueueBrief {
-  title: string;
-  prompt: string;
-  formatPreference: DraftFormatPreference;
-  sourcePlaybook: string;
 }
 
 function buildScratchMemoryRecord(args: {
@@ -298,9 +295,10 @@ export async function POST(request: NextRequest) {
     threadId,
   });
   const createdCandidates = [];
+  const failures: DraftCandidateGenerationFailure[] = [];
 
   for (const brief of briefs) {
-    const result = await manageConversationTurn(
+    const { rawResponse, routingTrace } = await manageConversationTurnRaw(
       {
         userId: session.user.id,
         xHandle: activeHandle,
@@ -310,6 +308,11 @@ export async function POST(request: NextRequest) {
         explicitIntent: "draft",
         formatPreference: brief.formatPreference,
         creatorProfileHints,
+        preloadedRun: {
+          id: storedRun.runId,
+          input: storedRun.input,
+          result: storedRun.result,
+        },
       },
       {
         async getConversationMemory() {
@@ -323,24 +326,14 @@ export async function POST(request: NextRequest) {
         },
       },
     );
-
-    if (result.mode !== "draft" || !result.data?.draft) {
-      continue;
-    }
-
-    const payload = buildInitialDraftVersionPayload({
-      draft: result.data.draft,
-      outputShape: result.outputShape,
-      supportAsset: result.data.supportAsset || null,
-      selectedDraftContext: null,
-      groundingSources: result.data.groundingSources ?? [],
-      voiceTarget: result.data.voiceTarget ?? null,
-      noveltyNotes: result.data.noveltyNotes ?? [],
+    const outcome = buildDraftCandidateOutcome({
+      brief,
+      rawResponse,
+      routingTrace,
       threadPostMaxCharacterLimit,
-      threadFramingStyle: result.data.threadFramingStyle ?? null,
     });
-    const artifact = payload.draftArtifacts[0] || null;
-    if (!artifact) {
+    if (!outcome.ok) {
+      failures.push(outcome.failure);
       continue;
     }
 
@@ -353,16 +346,16 @@ export async function POST(request: NextRequest) {
         title: brief.title,
         sourcePrompt: brief.prompt,
         sourcePlaybook: brief.sourcePlaybook,
-        outputShape: result.outputShape,
+        outputShape: outcome.candidate.outputShape,
         status: "DRAFT",
-        draftVersionId: payload.activeDraftVersionId ?? null,
-        basedOnVersionId: payload.draftVersions?.[0]?.basedOnVersionId ?? null,
-        revisionChainId: payload.revisionChainId ?? null,
-        artifact: artifact as unknown as Prisma.InputJsonValue,
-        voiceTarget: result.data.voiceTarget
-          ? (result.data.voiceTarget as unknown as Prisma.InputJsonValue)
+        draftVersionId: outcome.candidate.draftVersionId,
+        basedOnVersionId: outcome.candidate.basedOnVersionId,
+        revisionChainId: outcome.candidate.revisionChainId,
+        artifact: outcome.candidate.artifact as unknown as Prisma.InputJsonValue,
+        voiceTarget: outcome.candidate.voiceTarget
+          ? (outcome.candidate.voiceTarget as unknown as Prisma.InputJsonValue)
           : Prisma.JsonNull,
-        noveltyNotes: (result.data.noveltyNotes ?? []) as unknown as Prisma.InputJsonValue,
+        noveltyNotes: outcome.candidate.noveltyNotes as unknown as Prisma.InputJsonValue,
       },
       include: {
         folder: true,
@@ -375,6 +368,7 @@ export async function POST(request: NextRequest) {
     ok: true,
     data: {
       candidates: createdCandidates,
+      failures,
     },
   });
 }

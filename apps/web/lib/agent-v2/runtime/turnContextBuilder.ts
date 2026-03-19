@@ -8,6 +8,7 @@ import { scopeMemoryForCurrentTurn } from "../memory/turnScopedMemory";
 import {
   normalizeHandleForContext,
   type ConversationServices,
+  type StoredOnboardingRun,
 } from "./services.ts";
 import type { OrchestratorInput } from "./types.ts";
 import type { V2ConversationMemory } from "../contracts/chat";
@@ -37,6 +38,7 @@ export interface TurnContext {
   threadFramingStyle: OrchestratorInput["threadFramingStyle"];
   explicitIntent: OrchestratorInput["explicitIntent"];
   diagnosticContext: OrchestratorInput["diagnosticContext"];
+  preloadedRun: StoredOnboardingRun | null;
   
   creatorProfileHints: CreatorProfileHints | null;
   userContextString: string;
@@ -77,6 +79,8 @@ export async function buildTurnContext(
     profileReplyContext: inputProfileReplyContext,
     diagnosticContext,
     preferenceConstraints,
+    preloadedRun: inputPreloadedRun,
+    preloadedStyleCard,
   } = input;
 
   const resolvedFormatPreference =
@@ -85,7 +89,7 @@ export async function buildTurnContext(
       ? "thread"
       : null);
 
-  const preloadedRun = runId ? await services.getOnboardingRun(runId) : null;
+  const preloadedRun = inputPreloadedRun ?? (runId ? await services.getOnboardingRun(runId) : null);
   const runInputRecord = preloadedRun?.input as Record<string, unknown> | undefined;
   const runInputHandle =
     typeof runInputRecord?.account === "string" ? runInputRecord.account : null;
@@ -174,6 +178,7 @@ export async function buildTurnContext(
     effectiveXHandle,
     userMessage,
     topicSummary: memory.topicSummary,
+    preloadedStyleCard,
     services,
   });
 
@@ -197,6 +202,7 @@ export async function buildTurnContext(
     threadFramingStyle,
     explicitIntent,
     diagnosticContext,
+    preloadedRun,
     creatorProfileHints,
     userContextString,
     profileReplyContext,

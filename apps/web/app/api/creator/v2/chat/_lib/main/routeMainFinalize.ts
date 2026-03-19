@@ -63,6 +63,7 @@ export async function finalizeMainAssistantTurnWithDeps(
     ...args.preparedTurn.persistencePlan.assistantMessageData,
   };
   let createdAssistantMessageId: string | undefined;
+  const persistenceStartedAt = Date.now();
 
   if (args.storedThreadId) {
     const persistenceResult = await deps.persistAssistantTurn({
@@ -114,6 +115,10 @@ export async function finalizeMainAssistantTurnWithDeps(
       threadTitle: persistenceResult.updatedThreadTitle || mappedData.threadTitle,
     };
   }
+  args.routingTrace.timings = {
+    ...(args.routingTrace.timings || {}),
+    persistenceMs: Date.now() - persistenceStartedAt,
+  };
 
   if (args.onAssistantTurnPersisted) {
     try {
@@ -135,6 +140,15 @@ export async function finalizeMainAssistantTurnWithDeps(
     messageId: createdAssistantMessageId ?? null,
     recordProductEvent: args.recordProductEvent,
   });
+  args.routingTrace.timings = {
+    ...(args.routingTrace.timings || {}),
+    totalMs:
+      (args.routingTrace.timings?.preflightMs || 0) +
+      (args.routingTrace.timings?.runtimeContextLoadMs || 0) +
+      (args.routingTrace.timings?.draftingMs || 0) +
+      (args.routingTrace.timings?.validationMs || 0) +
+      (args.routingTrace.timings?.persistenceMs || 0),
+  };
 
   return await deps.buildChatSuccessResponse({
     mappedData,
