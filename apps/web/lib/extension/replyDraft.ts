@@ -199,12 +199,17 @@ export function buildReplyGroundingPacket(args: {
   strategy: GrowthStrategySnapshot;
   strategyPillar: string;
   angleLabel: string;
+  sourceContext?: ReplySourceContext | null;
+  visualContext?: ReplyVisualContextSummary | null;
+  preflightResult?: ReplyDraftPreflightResult | null;
 }): GroundingPacket {
   return buildSharedReplyGroundingPacket({
     strategy: args.strategy,
-    sourceContext: buildReplySourceContextFromExtensionRequest(args.request),
+    sourceContext: args.sourceContext || buildReplySourceContextFromExtensionRequest(args.request),
     strategyPillar: args.strategyPillar,
     angleLabel: args.angleLabel,
+    visualContext: args.visualContext || null,
+    preflightResult: args.preflightResult || null,
   });
 }
 
@@ -244,12 +249,15 @@ export function buildReplyDraftGenerationContext(args: {
   replyInsights?: ReplyInsights | null;
   selectedIntent?: ExtensionReplyIntentMetadata;
   preflightResult?: ReplyDraftPreflightResult | null;
+  sourceContext?: ReplySourceContext | null;
+  visualContext?: ReplyVisualContextSummary | null;
 }): ReplyDraftGenerationContext {
+  const sourceContext = args.sourceContext || buildReplySourceContextFromExtensionRequest(args.request);
   const policy = resolveReplyConstraintPolicy({
-    sourceText: args.request.tweetText,
-    quotedText: args.request.quotedPost?.tweetText || null,
+    sourceContext,
     strategy: args.strategy,
     preflightResult: args.preflightResult || null,
+    visualContext: args.visualContext || null,
   });
   const defaultStrategyPillar =
     args.selectedIntent?.strategyPillar ||
@@ -268,6 +276,9 @@ export function buildReplyDraftGenerationContext(args: {
     strategy: args.strategy,
     strategyPillar,
     angleLabel,
+    sourceContext,
+    visualContext: args.visualContext || null,
+    preflightResult: args.preflightResult || null,
   });
   const notes = [
     ...(intentPlan
@@ -428,6 +439,7 @@ function sanitizeReplyOption(args: {
       strategy: args.strategy,
       groundingPacket: args.groundingPacket,
       policy: args.policy || null,
+      visualContext: null,
     }),
   };
 }

@@ -104,6 +104,19 @@ export async function POST(request: NextRequest) {
   }
 
   const sourceContext = buildReplySourceContextFromExtensionRequest(parsed.data);
+  if ((sourceContext.media?.images.length || 0) > 0) {
+    console.log("[extension:reply-draft] image payload received", {
+      tweetId: parsed.data.tweetId,
+      imageCount: sourceContext.media?.images.length || 0,
+      images: (sourceContext.media?.images || []).map((image, index) => ({
+        index,
+        hasImageUrl: Boolean(image.imageUrl),
+        hasImageDataUrl: Boolean(image.imageDataUrl),
+        hasAltText: Boolean(image.altText),
+        altTextPreview: image.altText?.slice(0, 140) || null,
+      })),
+    });
+  }
   const visualContextPromise = analyzeReplySourceVisualContext(sourceContext);
   const userContext = await loadExtensionUserContext({
     userId: auth.user.id,
@@ -128,16 +141,29 @@ export async function POST(request: NextRequest) {
     replyInsights,
   });
   const visualContext = await visualContextPromise;
+  if ((sourceContext.media?.images.length || 0) > 0) {
+    console.log("[extension:reply-draft] image analysis summary", {
+      tweetId: parsed.data.tweetId,
+      imageCount: visualContext?.imageCount || 0,
+      imageRole: visualContext?.imageRole || null,
+      imageReplyAnchor: visualContext?.imageReplyAnchor || null,
+      readableText: visualContext?.readableText || null,
+      summaryLines: visualContext?.summaryLines || [],
+    });
+  }
   const preflightResult = await classifyReplyDraftMode({
     sourceText: parsed.data.tweetText,
     quotedText: parsed.data.quotedPost?.tweetText || null,
     imageSummaryLines: visualContext?.summaryLines || [],
+    visualContext,
   });
   const generation = buildReplyDraftGenerationContext({
     request: parsed.data,
     strategy: userContext.context.growthStrategySnapshot,
     replyInsights,
     preflightResult,
+    sourceContext,
+    visualContext,
   });
   const creatorProfileHints = buildCreatorProfileHintsFromOnboarding({
     runId: userContext.storedRun.runId,
@@ -212,6 +238,7 @@ export async function POST(request: NextRequest) {
               draft: bufferedCandidate,
               sourceContext: promptPacket.sourceContext,
               preflightResult: promptPacket.preflightResult,
+              visualContext: promptPacket.visualContext,
             });
 
           if (shouldReleaseBufferedStream) {
@@ -231,6 +258,7 @@ export async function POST(request: NextRequest) {
             draft: finalDraft,
             sourceContext: promptPacket.sourceContext,
             preflightResult: promptPacket.preflightResult,
+            visualContext: promptPacket.visualContext,
           });
         const resolvedDraft = streamAccepted
           ? {

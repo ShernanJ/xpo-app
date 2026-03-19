@@ -9,6 +9,7 @@ import type {
 export * from "./context.ts";
 export * from "./finalize.ts";
 export * from "./goldenExamples.ts";
+export * from "./imageAnalysis.ts";
 export * from "./policy.ts";
 export * from "./preflight.ts";
 export * from "./prompt.ts";
@@ -88,7 +89,7 @@ function buildReplyRetryInstruction(promptPacket: PreparedReplyPromptPacket): st
     promptPacket.voiceEvidence.antiPatterns.length > 0
       ? `Avoid these misses: ${promptPacket.voiceEvidence.antiPatterns.join(" | ")}`
       : null,
-    "Avoid phrases like 'interesting angle', 'cheap signal', 'iterate on content', 'real data', 'would love to see', 'next build', or 'vanity likes'.",
+    "Avoid phrases like 'interesting angle', 'cheap signal', 'iterate on content', 'real data', 'would love to see', 'next build', 'vanity likes', 'core loop', 'edge cases', or 'more like'.",
     "Return ONLY the final drafted X reply text in message content. No empty content. No reasoning. No markdown. No commentary.",
   ]
     .filter((line): line is string => Boolean(line))
@@ -133,6 +134,7 @@ export async function generateReplyDraftText(args: {
         draft: candidate,
         sourceContext: args.promptPacket.sourceContext,
         preflightResult: args.promptPacket.preflightResult,
+        visualContext: args.promptPacket.visualContext,
       })
     ) {
       return {
@@ -169,6 +171,7 @@ export async function generateReplyDraftText(args: {
         draft: retriedCandidate,
         sourceContext: args.promptPacket.sourceContext,
         preflightResult: args.promptPacket.preflightResult,
+        visualContext: args.promptPacket.visualContext,
       })
     ) {
       return {

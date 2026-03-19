@@ -1,11 +1,13 @@
-import {
-  analyzeImageVisualContext,
-} from "../creator/imagePostGeneration.ts";
 import type {
+  ExtensionOpportunityCandidate,
   ExtensionOpportunityPostType,
   ExtensionReplyDraftRequest,
 } from "../extension/types.ts";
 
+import {
+  analyzeReplyImageVisualContext,
+  buildFallbackReplyImageContext,
+} from "./imageAnalysis.ts";
 import type {
   ReplySourceContext,
   ReplySourceImage,
@@ -20,6 +22,10 @@ function normalizeHandle(value: string | null | undefined): string | null {
 function normalizeUrl(value: string | null | undefined): string | null {
   const normalized = value?.trim() || "";
   return normalized || null;
+}
+
+function normalizeWhitespace(value: string | null | undefined): string {
+  return (value || "").trim().replace(/\s+/g, " ");
 }
 
 function normalizePostType(value: string | null | undefined): ExtensionOpportunityPostType {
@@ -94,6 +100,41 @@ export function buildReplySourceContextFromExtensionRequest(
   };
 }
 
+export function buildReplySourceContextFromOpportunityCandidate(
+  candidate: ExtensionOpportunityCandidate,
+): ReplySourceContext {
+  return {
+    primaryPost: {
+      id: candidate.postId,
+      url: normalizeUrl(candidate.url),
+      text: candidate.text.trim(),
+      authorHandle: normalizeHandle(candidate.author.handle),
+      postType: normalizePostType(candidate.postType),
+    },
+    quotedPost: null,
+    media:
+      candidate.media.hasMedia ||
+      (candidate.media.images?.length || 0) > 0 ||
+      candidate.media.hasVideo ||
+      candidate.media.hasGif ||
+      candidate.media.hasLink
+        ? {
+            images: normalizeImages(candidate.media.images || []),
+            hasVideo: candidate.media.hasVideo,
+            hasGif: candidate.media.hasGif,
+            hasLink: candidate.media.hasLink,
+          }
+        : null,
+    conversation:
+      candidate.conversation.inReplyToPostId || candidate.conversation.inReplyToHandle
+        ? {
+            inReplyToPostId: candidate.conversation.inReplyToPostId?.trim() || null,
+            inReplyToHandle: normalizeHandle(candidate.conversation.inReplyToHandle),
+          }
+        : null,
+  };
+}
+
 export function buildReplySourceContextFromFlatInput(args: {
   sourceText: string;
   sourceUrl?: string | null;
@@ -119,18 +160,19 @@ export function buildReplySourceContextFromFlatInput(args: {
   };
 }
 
-function pickAnalyzableImages(sourceContext: ReplySourceContext): string[] {
+function pickReplySourceImages(sourceContext: ReplySourceContext): ReplySourceImage[] {
   const seen = new Set<string>();
-  const analyzable: string[] = [];
+  const analyzable: ReplySourceImage[] = [];
   const images = sourceContext.media?.images || [];
   for (const image of images) {
-    const candidate = image.imageDataUrl?.trim() || image.imageUrl?.trim() || "";
+    const candidate =
+      image.imageDataUrl?.trim() || image.imageUrl?.trim() || image.altText?.trim() || "";
     if (!candidate || seen.has(candidate)) {
       continue;
     }
 
     seen.add(candidate);
-    analyzable.push(candidate);
+    analyzable.push(image);
     if (analyzable.length >= 4) {
       break;
     }
@@ -139,32 +181,163 @@ function pickAnalyzableImages(sourceContext: ReplySourceContext): string[] {
   return analyzable;
 }
 
+function mergeSceneTypes(values: ReplyVisualContextSummary["images"]): ReplyVisualContextSummary["sceneType"] {
+  const unique = Array.from(new Set(values.map((image) => image.sceneType)));
+  if (unique.length === 0) {
+    return "unknown";
+  }
+  if (unique.length === 1) {
+    return unique[0];
+  }
+  return "mixed";
+}
+
+function pickPrimaryImageRole(values: ReplyVisualContextSummary["images"]): ReplyVisualContextSummary["imageRole"] {
+  const priority: Array<ReplyVisualContextSummary["imageRole"]> = [
+    "punchline",
+    "proof",
+    "reaction",
+    "context",
+    "decorative",
+    "none",
+  ];
+
+  for (const role of priority) {
+    if (values.some((image) => image.imageRole === role)) {
+      return role;
+    }
+  }
+
+  return "none";
+}
+
+function buildReplyVisualSummaryFromImages(
+  images: ReplyVisualContextSummary["images"],
+): ReplyVisualContextSummary | null {
+  if (images.length === 0) {
+    return null;
+  }
+
+  const imageRole = pickPrimaryImageRole(images);
+  const readableText = images
+    .map((image) => normalizeWhitespace(image.readableText))
+    .filter(Boolean)
+    .join(" | ");
+  const imageReplyAnchor =
+    images
+      .map((image) => image.jokeAnchor.trim())
+      .find(Boolean) ||
+    readableText ||
+    images
+      .flatMap((image) => image.keyDetails)
+      .find(Boolean) ||
+    "";
+  const summaryLines = images.flatMap((image, index) => {
+    const prefix = images.length > 1 ? `Image ${index + 1}` : "Image";
+    return [
+      `${prefix} scene type: ${image.sceneType}`,
+      `${prefix} role: ${image.imageRole}`,
+      `${prefix} primary subject: ${image.primarySubject}`,
+      `${prefix} setting: ${image.setting}`,
+      `${prefix} mood: ${image.lightingAndMood}`,
+      image.readableText ? `${prefix} readable text: ${image.readableText}` : null,
+      image.jokeAnchor ? `${prefix} reply anchor: ${image.jokeAnchor}` : null,
+      image.keyDetails.length > 0
+        ? `${prefix} key details: ${image.keyDetails.slice(0, 4).join(" | ")}`
+        : null,
+      image.replyRelevance ? `${prefix} reply relevance: ${image.replyRelevance}` : null,
+    ].filter((line): line is string => Boolean(line));
+  });
+
+  return {
+    primarySubject: images.map((image) => image.primarySubject).join(" | "),
+    setting: images.map((image) => image.setting).join(" | "),
+    lightingAndMood: images.map((image) => image.lightingAndMood).join(" | "),
+    readableText,
+    keyDetails: Array.from(
+      new Set(images.flatMap((image) => image.keyDetails.map((detail) => detail.trim()).filter(Boolean))),
+    ).slice(0, 12),
+    imageCount: images.length,
+    sceneType: mergeSceneTypes(images),
+    imageRole,
+    imageReplyAnchor,
+    shouldReferenceImageText: Boolean(
+      readableText && (imageRole === "punchline" || imageRole === "proof" || imageRole === "context"),
+    ),
+    replyRelevance:
+      images.find((image) => image.imageRole === imageRole)?.replyRelevance ||
+      (imageRole === "punchline" || imageRole === "proof" ? "high" : "medium"),
+    images,
+    summaryLines,
+  };
+}
+
+export function deriveHeuristicReplySourceVisualContext(
+  sourceContext: ReplySourceContext,
+): ReplyVisualContextSummary | null {
+  const images = pickReplySourceImages(sourceContext)
+    .map((image) => {
+      const fallback = buildFallbackReplyImageContext({
+        sourceText: sourceContext.primaryPost.text,
+        quotedText: sourceContext.quotedPost?.text || null,
+        image,
+      });
+      if (!fallback) {
+        return null;
+      }
+
+      return {
+        imageUrl: image.imageUrl?.trim() || null,
+        source: "alt_text" as const,
+        sceneType: fallback.scene_type,
+        imageRole: fallback.image_role,
+        primarySubject: fallback.primary_subject,
+        setting: fallback.setting,
+        lightingAndMood: fallback.lighting_and_mood,
+        readableText: fallback.readable_text,
+        keyDetails: fallback.key_details,
+        jokeAnchor: fallback.joke_anchor,
+        replyRelevance: fallback.reply_relevance,
+      };
+    })
+    .filter((image): image is NonNullable<typeof image> => Boolean(image));
+
+  return buildReplyVisualSummaryFromImages(images);
+}
+
 export async function analyzeReplySourceVisualContext(
   sourceContext: ReplySourceContext,
 ): Promise<ReplyVisualContextSummary | null> {
-  const imageUrls = pickAnalyzableImages(sourceContext);
-  if (imageUrls.length === 0) {
+  const sourceImages = pickReplySourceImages(sourceContext);
+  if (sourceImages.length === 0) {
     return null;
   }
 
   const settled = await Promise.allSettled(
-    imageUrls.map(async (imageUrl) => {
-      const result = await analyzeImageVisualContext({
-        imageDataUrl: imageUrl,
+    sourceImages.map(async (image) => {
+      const result = await analyzeReplyImageVisualContext({
+        sourceText: sourceContext.primaryPost.text,
+        quotedText: sourceContext.quotedPost?.text || null,
+        image,
       });
 
       return {
-        imageUrl,
+        imageUrl: image.imageUrl?.trim() || null,
+        source: result.source,
+        sceneType: result.visualContext.scene_type,
+        imageRole: result.visualContext.image_role,
         primarySubject: result.visualContext.primary_subject,
         setting: result.visualContext.setting,
         lightingAndMood: result.visualContext.lighting_and_mood,
-        readableText: result.visualContext.any_readable_text,
+        readableText: result.visualContext.readable_text,
         keyDetails: result.visualContext.key_details,
+        jokeAnchor: result.visualContext.joke_anchor,
+        replyRelevance: result.visualContext.reply_relevance,
       };
     }),
   );
 
-  const images = settled
+  const analyzedImages = settled
     .flatMap((result) => {
       if (result.status === "fulfilled") {
         return [result.value];
@@ -174,36 +347,8 @@ export async function analyzeReplySourceVisualContext(
       return [];
     });
 
-  if (images.length === 0) {
-    return null;
-  }
-
-  const summaryLines = images.flatMap((image, index) => {
-    const prefix = images.length > 1 ? `Image ${index + 1}` : "Image";
-    return [
-      `${prefix} primary subject: ${image.primarySubject}`,
-      `${prefix} setting: ${image.setting}`,
-      `${prefix} mood: ${image.lightingAndMood}`,
-      image.readableText ? `${prefix} readable text: ${image.readableText}` : null,
-      image.keyDetails.length > 0
-        ? `${prefix} key details: ${image.keyDetails.slice(0, 4).join(" | ")}`
-        : null,
-    ].filter((line): line is string => Boolean(line));
-  });
-
-  return {
-    primarySubject: images.map((image) => image.primarySubject).join(" | "),
-    setting: images.map((image) => image.setting).join(" | "),
-    lightingAndMood: images.map((image) => image.lightingAndMood).join(" | "),
-    readableText: images
-      .map((image) => image.readableText.trim())
-      .filter(Boolean)
-      .join(" | "),
-    keyDetails: Array.from(
-      new Set(images.flatMap((image) => image.keyDetails.map((detail) => detail.trim()).filter(Boolean))),
-    ).slice(0, 12),
-    imageCount: images.length,
-    images,
-    summaryLines,
-  };
+  return (
+    buildReplyVisualSummaryFromImages(analyzedImages) ||
+    deriveHeuristicReplySourceVisualContext(sourceContext)
+  );
 }

@@ -63,6 +63,17 @@ export const ExtensionObservedReplyMetricsSchema = z
 
 export const ExtensionExpectedValueLevelSchema = z.enum(["low", "medium", "high"]);
 
+export const ExtensionReplyMediaImageSchema = z
+  .object({
+    imageUrl: z.string().trim().min(1).url().optional(),
+    imageDataUrl: z.string().trim().min(1).optional(),
+    altText: z.string().trim().min(1).max(2_000).optional(),
+  })
+  .strict()
+  .refine((value) => Boolean(value.imageUrl || value.imageDataUrl || value.altText), {
+    message: "Image entries must include imageUrl, imageDataUrl, or altText.",
+  });
+
 export const ExtensionOpportunityCandidateSchema = z
   .object({
     postId: z.string().trim().min(1),
@@ -103,6 +114,7 @@ export const ExtensionOpportunityCandidateSchema = z
         hasGif: z.boolean(),
         hasLink: z.boolean(),
         hasPoll: z.boolean(),
+        images: z.array(ExtensionReplyMediaImageSchema).max(4).optional(),
       })
       .strict(),
     surface: ExtensionOpportunitySurfaceSchema,

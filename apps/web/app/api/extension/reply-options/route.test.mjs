@@ -34,12 +34,18 @@ const validRequest = {
       inReplyToHandle: null,
     },
     media: {
-      hasMedia: false,
-      hasImage: false,
+      hasMedia: true,
+      hasImage: true,
       hasVideo: false,
       hasGif: false,
       hasLink: false,
       hasPoll: false,
+      images: [
+        {
+          imageUrl: "https://pbs.twimg.com/media/example.jpg",
+          altText: 'Tweet screenshot showing "Posts aren\'t loading right now".',
+        },
+      ],
     },
     surface: "home",
     captureSource: "graphql",

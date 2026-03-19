@@ -366,12 +366,18 @@ function formatPreflightBlock(args: {
   postIntent: string;
   recommendedReplyMode: string;
   sourceShape: string;
+  imageRole: string;
+  imageReplyAnchor: string;
+  shouldReferenceImageText: boolean;
 }) {
   return [
     `- Observed OP tone: ${args.opTone}`,
     `- Inferred post intent: ${args.postIntent}`,
     `- Recommended reply mode: ${args.recommendedReplyMode}`,
     `- Source shape: ${args.sourceShape}`,
+    `- Image role: ${args.imageRole}`,
+    `- Image reply anchor: ${args.imageReplyAnchor || "none"}`,
+    `- Should reference image text: ${args.shouldReferenceImageText ? "yes" : "no"}`,
   ].join("\n");
 }
 
@@ -404,6 +410,7 @@ export function buildReplyGroundingPacket(args: {
     sourceContext: args.sourceContext,
     strategy: args.strategy,
     preflightResult: args.preflightResult,
+    visualContext: args.visualContext || null,
   });
   const useIntentOverlay =
     policy.allowStrategyLens &&
@@ -542,6 +549,12 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     args.visualContext?.summaryLines?.length
       ? `- Image context available: ${args.visualContext.summaryLines.join(" | ")}`
       : "- Image context available: none.",
+    args.visualContext?.imageRole && args.visualContext.imageRole !== "none"
+      ? `- Image role: ${args.visualContext.imageRole}`
+      : "- Image role: none.",
+    args.visualContext?.imageReplyAnchor
+      ? `- Image reply anchor: ${args.visualContext.imageReplyAnchor}`
+      : "- Image reply anchor: none.",
     "",
     "CLASSIFIER READ:",
     formatPreflightBlock({
@@ -549,6 +562,9 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
       postIntent: classifierRead.post_intent,
       recommendedReplyMode: classifierRead.recommended_reply_mode,
       sourceShape: classifierRead.source_shape,
+      imageRole: classifierRead.image_role,
+      imageReplyAnchor: classifierRead.image_reply_anchor,
+      shouldReferenceImageText: classifierRead.should_reference_image_text,
     }),
     "",
     "RETRIEVED GOLDEN EXAMPLES:",
@@ -569,6 +585,14 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     sourceMode.isPlayful
       ? "- This post is playful / joke-shaped. Prioritize a short riff, pile-on, or extension of the bit."
       : "- This post is straightforward. Prioritize a direct, native reply.",
+    policy.imageRole === "punchline"
+      ? "- The image is carrying the punchline. Treat it as source material, not decoration."
+      : policy.imageRole === "proof"
+        ? "- The image is acting like proof or evidence. It can anchor the reply when useful."
+        : "- Only pull the image into the reply when it materially sharpens the point.",
+    policy.imageRole === "punchline"
+      ? "- For image punchlines, prefer a dry reaction, understated pile-on, or short deadpan observation. Do not perform the joke like a caption writer."
+      : null,
     policy.treatAsLowSignalCasual
       ? "- This source is a casual low-signal observation. Stay literal to the post and do not smuggle in a niche or strategy lens."
       : "- If the post is niche-relevant, you can add a sharper layer without changing the subject.",
@@ -581,6 +605,12 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     !policy.allowAdvice
       ? "- Do not give unsolicited self-improvement, productivity, or behavioral advice."
       : "- Advice is only useful if it feels naturally invited by the source post.",
+    policy.shouldReferenceImageText
+      ? "- Readable in-image text is first-class source material here. Reuse it naturally if it sharpens the reply."
+      : "- Do not force a mention of image text unless it clearly matters.",
+    policy.imageRole === "punchline"
+      ? "- Do not default to obvious joke formats like 'x? more like y', winky punchline rewrites, or a full caption explaining why the image is funny."
+      : null,
     policy.preferShortRiff
       ? "- Prefer one short human riff over a useful next layer or mini-framework."
       : "- Add value without turning the reply into a mini post.",
@@ -611,6 +641,14 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     !policy.allowAdvice
       ? "13. Do not tell the author what they should do next."
       : "13. If you give advice, keep it native and directly grounded in the source.",
+    policy.imageRole === "punchline"
+      ? "14. The image is the joke. Reference the visual or OCR naturally instead of ignoring it and inventing a strategy lens."
+      : policy.imageRole === "proof"
+        ? "14. If the image provides proof, keep the reply anchored to that proof instead of drifting generic."
+        : "14. Mention the image only if it genuinely sharpens the reply.",
+    policy.imageRole === "punchline"
+      ? "15. Avoid performative joke constructions like 'more like...', big wink-nod phrasing, or turning the OCR into a caption."
+      : "15. Keep the phrasing native and unforced.",
     "",
     "OPTIONAL REPLY LENS:",
     useIntentOverlay
@@ -658,8 +696,12 @@ export function buildReplyDraftUserPrompt(args: Pick<
           `Classifier source shape: ${args.preflightResult.source_shape}`,
           `Classifier reply mode: ${args.preflightResult.recommended_reply_mode}`,
           `Classifier post intent: ${args.preflightResult.post_intent}`,
+          `Classifier image role: ${args.preflightResult.image_role}`,
+          args.preflightResult.image_reply_anchor
+            ? `Classifier image anchor: ${args.preflightResult.image_reply_anchor}`
+            : null,
           "",
-        ]
+        ].filter((line): line is string => Boolean(line))
       : []),
     `Goal: ${args.goal}`,
     `Requested tone: ${args.tone}`,
@@ -692,6 +734,7 @@ export async function prepareReplyPromptPacket(
       sourceText: args.sourceContext.primaryPost.text,
       quotedText: args.sourceContext.quotedPost?.text || null,
       imageSummaryLines: resolvedVisualContext?.summaryLines || [],
+      visualContext: resolvedVisualContext,
     }));
   const goldenExamples =
     args.goldenExamples ||

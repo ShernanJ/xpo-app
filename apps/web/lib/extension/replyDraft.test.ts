@@ -537,12 +537,15 @@ test("reply draft prompt injects explicit playful tone enforcement", () => {
       post_intent: "riff on a joke or observation",
       recommended_reply_mode: "joke_riff",
       source_shape: "joke_setup",
+      image_role: "none",
+      image_reply_anchor: "",
+      should_reference_image_text: false,
     },
   });
 
   assert.equal(
     systemPrompt.includes(
-      "TONE ENFORCEMENT: Be witty, lean into the joke or meme, and keep it extremely casual. Do NOT give serious advice, operator frameworks, or over-explain the post.",
+      "TONE ENFORCEMENT: Be playful in a deadpan, understated, internet-native way. Lean into the joke or meme without sounding performative, caption-y, or try-hard. Do NOT give serious advice, operator frameworks, or over-explain the post.",
     ),
     true,
   );
@@ -622,6 +625,9 @@ test("casual observation drafts drop the strategic lens and stay literal", () =>
       post_intent: "share a casual observation or shrug",
       recommended_reply_mode: "joke_riff",
       source_shape: "casual_observation",
+      image_role: "none",
+      image_reply_anchor: "",
+      should_reference_image_text: false,
     },
   });
 
@@ -879,9 +885,261 @@ test("looksAcceptableReplyDraft rejects business and advice drift on casual obse
       post_intent: "share a casual observation or shrug",
       recommended_reply_mode: "joke_riff",
       source_shape: "casual_observation",
+      image_role: "none",
+      image_reply_anchor: "",
+      should_reference_image_text: false,
     },
   });
 
   assert.equal(businessDrift, false);
   assert.equal(adviceDrift, false);
+});
+
+test("reply draft prompt treats image punchlines as first-class source material", () => {
+  const generation = buildReplyDraftGenerationContext({
+    request: {
+      tweetId: "tweet_18",
+      tweetText: "Perfect algo pull",
+      authorHandle: "chribjel",
+      tweetUrl: "https://x.com/chribjel/status/18",
+      stage: "0_to_1k",
+      tone: "playful",
+      goal: "followers",
+    },
+    strategy,
+    visualContext: {
+      primarySubject: "app or tweet screenshot",
+      setting: "digital interface",
+      lightingAndMood: "internet-native and jokey",
+      readableText: "Posts aren't loading right now",
+      keyDetails: ["screenshot layout", "nested tweet image"],
+      imageCount: 1,
+      sceneType: "screenshot",
+      imageRole: "punchline",
+      imageReplyAnchor: "Posts aren't loading right now",
+      shouldReferenceImageText: true,
+      replyRelevance: "high",
+      images: [
+        {
+          imageUrl: null,
+          source: "alt_text",
+          sceneType: "screenshot",
+          imageRole: "punchline",
+          primarySubject: "app or tweet screenshot",
+          setting: "digital interface",
+          lightingAndMood: "internet-native and jokey",
+          readableText: "Posts aren't loading right now",
+          keyDetails: ["screenshot layout", "nested tweet image"],
+          jokeAnchor: "Posts aren't loading right now",
+          replyRelevance: "high",
+        },
+      ],
+      summaryLines: [
+        "Image scene type: screenshot",
+        "Image role: punchline",
+        "Image readable text: Posts aren't loading right now",
+      ],
+    },
+    preflightResult: {
+      op_tone: "playful",
+      post_intent: "riff on a joke or observation",
+      recommended_reply_mode: "joke_riff",
+      source_shape: "joke_setup",
+      image_role: "punchline",
+      image_reply_anchor: "Posts aren't loading right now",
+      should_reference_image_text: true,
+    },
+  });
+
+  const prompt = buildReplyDraftSystemPrompt({
+    request: {
+      tweetId: "tweet_18",
+      tweetText: "Perfect algo pull",
+      authorHandle: "chribjel",
+      tweetUrl: "https://x.com/chribjel/status/18",
+      stage: "0_to_1k",
+      tone: "playful",
+      goal: "followers",
+    },
+    strategy,
+    generation,
+    visualContext: generation.policy.allowImageAnchoring
+      ? {
+          primarySubject: "app or tweet screenshot",
+          setting: "digital interface",
+          lightingAndMood: "internet-native and jokey",
+          readableText: "Posts aren't loading right now",
+          keyDetails: ["screenshot layout", "nested tweet image"],
+          imageCount: 1,
+          sceneType: "screenshot",
+          imageRole: "punchline",
+          imageReplyAnchor: "Posts aren't loading right now",
+          shouldReferenceImageText: true,
+          replyRelevance: "high",
+          images: [
+            {
+              imageUrl: null,
+              source: "alt_text",
+              sceneType: "screenshot",
+              imageRole: "punchline",
+              primarySubject: "app or tweet screenshot",
+              setting: "digital interface",
+              lightingAndMood: "internet-native and jokey",
+              readableText: "Posts aren't loading right now",
+              keyDetails: ["screenshot layout", "nested tweet image"],
+              jokeAnchor: "Posts aren't loading right now",
+              replyRelevance: "high",
+            },
+          ],
+          summaryLines: [
+            "Image scene type: screenshot",
+            "Image role: punchline",
+            "Image readable text: Posts aren't loading right now",
+          ],
+        }
+      : null,
+    preflightResult: {
+      op_tone: "playful",
+      post_intent: "riff on a joke or observation",
+      recommended_reply_mode: "joke_riff",
+      source_shape: "joke_setup",
+      image_role: "punchline",
+      image_reply_anchor: "Posts aren't loading right now",
+      should_reference_image_text: true,
+    },
+  });
+
+  assert.match(prompt, /image is carrying the punchline/i);
+  assert.match(prompt, /posts aren't loading right now/i);
+});
+
+test("looksAcceptableReplyDraft rejects ai-coded business drift on image-led jokes", () => {
+  const visualContext = {
+    primarySubject: "app or tweet screenshot",
+    setting: "digital interface",
+    lightingAndMood: "internet-native and jokey",
+    readableText: "Posts aren't loading right now",
+    keyDetails: ["screenshot layout", "nested tweet image"],
+    imageCount: 1,
+    sceneType: "screenshot" as const,
+    imageRole: "punchline" as const,
+    imageReplyAnchor: "Posts aren't loading right now",
+    shouldReferenceImageText: true,
+    replyRelevance: "high",
+    images: [
+      {
+        imageUrl: null,
+        source: "alt_text" as const,
+        sceneType: "screenshot" as const,
+        imageRole: "punchline" as const,
+        primarySubject: "app or tweet screenshot",
+        setting: "digital interface",
+        lightingAndMood: "internet-native and jokey",
+        readableText: "Posts aren't loading right now",
+        keyDetails: ["screenshot layout", "nested tweet image"],
+        jokeAnchor: "Posts aren't loading right now",
+        replyRelevance: "high",
+      },
+    ],
+    summaryLines: [
+      "Image scene type: screenshot",
+      "Image role: punchline",
+      "Image readable text: Posts aren't loading right now",
+    ],
+  };
+  const preflightResult = {
+    op_tone: "playful",
+    post_intent: "riff on a joke or observation",
+    recommended_reply_mode: "joke_riff" as const,
+    source_shape: "joke_setup" as const,
+    image_role: "punchline" as const,
+    image_reply_anchor: "Posts aren't loading right now",
+    should_reference_image_text: true,
+  };
+  const rejected = looksAcceptableReplyDraft({
+    draft:
+      "nice, that pull could be the cheap traffic hack most early teams miss. the real win is turning that cheap signal into repeatable onboarding.",
+    sourceContext: {
+      primaryPost: {
+        id: "tweet_19",
+        url: "https://x.com/chribjel/status/19",
+        text: "Perfect algo pull",
+        authorHandle: "chribjel",
+        postType: "original",
+      },
+      media: {
+        images: [{ altText: 'Tweet screenshot showing "Posts aren\'t loading right now".' }],
+        hasVideo: false,
+        hasGif: false,
+        hasLink: false,
+      },
+    },
+    preflightResult,
+    visualContext,
+  });
+  const rejectedLoopDraft = looksAcceptableReplyDraft({
+    draft: "nice, that pull will surface the edge cases faster and let you iterate on the core loop.",
+    sourceContext: {
+      primaryPost: {
+        id: "tweet_19b",
+        url: "https://x.com/chribjel/status/19",
+        text: "Perfect algo pull",
+        authorHandle: "chribjel",
+        postType: "original",
+      },
+      media: {
+        images: [{ altText: 'Tweet screenshot showing "Posts aren\'t loading right now".' }],
+        hasVideo: false,
+        hasGif: false,
+        hasLink: false,
+      },
+    },
+    preflightResult,
+    visualContext,
+  });
+  const acceptable = looksAcceptableReplyDraft({
+    draft: `the "posts aren't loading right now" banner really sold it`,
+    sourceContext: {
+      primaryPost: {
+        id: "tweet_20",
+        url: "https://x.com/chribjel/status/20",
+        text: "Perfect algo pull",
+        authorHandle: "chribjel",
+        postType: "original",
+      },
+      media: {
+        images: [{ altText: 'Tweet screenshot showing "Posts aren\'t loading right now".' }],
+        hasVideo: false,
+        hasGif: false,
+        hasLink: false,
+      },
+    },
+    preflightResult,
+    visualContext,
+  });
+  const rejectedCaptionRewrite = looksAcceptableReplyDraft({
+    draft: `perfect algo pull? more like "posts aren't loading right now, try again"`,
+    sourceContext: {
+      primaryPost: {
+        id: "tweet_20b",
+        url: "https://x.com/chribjel/status/20",
+        text: "Perfect algo pull",
+        authorHandle: "chribjel",
+        postType: "original",
+      },
+      media: {
+        images: [{ altText: 'Tweet screenshot showing "Posts aren\'t loading right now".' }],
+        hasVideo: false,
+        hasGif: false,
+        hasLink: false,
+      },
+    },
+    preflightResult,
+    visualContext,
+  });
+
+  assert.equal(rejected, false);
+  assert.equal(rejectedLoopDraft, false);
+  assert.equal(rejectedCaptionRewrite, false);
+  assert.equal(acceptable, true);
 });

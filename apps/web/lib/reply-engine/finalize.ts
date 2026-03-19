@@ -8,7 +8,7 @@ import {
   violatesReplyConstraintPolicy,
 } from "./policy.ts";
 import { inferReplySourceMode } from "./tone.ts";
-import type { ReplySourceContext } from "./types.ts";
+import type { ReplySourceContext, ReplyVisualContextSummary } from "./types.ts";
 
 const LIST_MARKER_PATTERN = /^\s*(?:[-*•]+|\d+[.)])\s+/;
 const BANNED_GENERIC_PATTERNS = [
@@ -21,8 +21,12 @@ const BANNED_GENERIC_PATTERNS = [
   /\bhigh[-\s]roi\b/i,
   /\boperator\b/i,
   /\bcheap signal\b/i,
+  /\bcheap traffic hack\b/i,
+  /\bsurface the edge cases\b/i,
   /\biterate on content\b/i,
   /\breal data\b/i,
+  /\bthe real win is\b/i,
+  /\brepeatable onboarding\b/i,
   /\bwould love to see\b/i,
   /\bnext build\b/i,
   /\bvanity likes?\b/i,
@@ -32,6 +36,9 @@ const OFF_TOPIC_PRODUCT_DRIFT_TERMS = [
   "onboarding",
   "feedback loop",
   "feedback loops",
+  "core loop",
+  "edge case",
+  "edge cases",
   "workflow",
   "pipeline",
   "dashboard",
@@ -163,14 +170,43 @@ function collectAnchorTokens(sourceContext: ReplySourceContext): Set<string> {
   return new Set(source);
 }
 
+function collectAnchorTokensWithVisual(
+  sourceContext: ReplySourceContext,
+  visualContext?: ReplyVisualContextSummary | null,
+): Set<string> {
+  const anchors = collectAnchorTokens(sourceContext);
+  const visualTokens = [
+    visualContext?.imageReplyAnchor || "",
+    visualContext?.readableText || "",
+    visualContext?.primarySubject || "",
+    ...(visualContext?.keyDetails || []),
+  ]
+    .join(" ")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 4)
+    .slice(0, 20);
+
+  for (const token of visualTokens) {
+    anchors.add(token);
+  }
+
+  return anchors;
+}
+
 function containsOffTopicProductDrift(args: {
   draft: string;
   sourceContext: ReplySourceContext;
+  visualContext?: ReplyVisualContextSummary | null;
 }): boolean {
   const draftLower = args.draft.toLowerCase();
   const sourceLower = [
     args.sourceContext.primaryPost.text,
     args.sourceContext.quotedPost?.text || "",
+    args.visualContext?.imageReplyAnchor || "",
+    args.visualContext?.readableText || "",
+    ...(args.visualContext?.keyDetails || []),
   ]
     .join(" ")
     .toLowerCase();
@@ -218,10 +254,39 @@ function isLiteralizingPlayfulSource(args: {
   );
 }
 
+function isPerformativePunchlineRewrite(args: {
+  draft: string;
+  preflightResult?: ReplyDraftPreflightResult | null;
+  visualContext?: ReplyVisualContextSummary | null;
+}): boolean {
+  const imageRole = args.preflightResult?.image_role || args.visualContext?.imageRole || "none";
+  if (imageRole !== "punchline") {
+    return false;
+  }
+
+  const normalizedDraft = finalizeReplyDraftText(args.draft);
+  if (!normalizedDraft) {
+    return false;
+  }
+
+  if (/\bmore like\b/i.test(normalizedDraft)) {
+    return true;
+  }
+
+  const quotedPunchlineRewritePattern =
+    /^[^.!?\n]{0,120}\?\s*["“][^"”]{8,120}["”]\s*[.!?]?$/i;
+  if (quotedPunchlineRewritePattern.test(normalizedDraft)) {
+    return true;
+  }
+
+  return false;
+}
+
 export function looksAcceptableReplyDraft(args: {
   draft: string;
   sourceContext: ReplySourceContext;
   preflightResult?: ReplyDraftPreflightResult | null;
+  visualContext?: ReplyVisualContextSummary | null;
 }): boolean {
   const normalized = finalizeReplyDraftText(args.draft);
   if (!normalized) {
@@ -243,9 +308,16 @@ export function looksAcceptableReplyDraft(args: {
   const policy = resolveReplyConstraintPolicy({
     sourceContext: args.sourceContext,
     preflightResult: args.preflightResult,
+    visualContext: args.visualContext || null,
   });
 
-  if (containsOffTopicProductDrift({ draft: normalized, sourceContext: args.sourceContext })) {
+  if (
+    containsOffTopicProductDrift({
+      draft: normalized,
+      sourceContext: args.sourceContext,
+      visualContext: args.visualContext || null,
+    })
+  ) {
     return false;
   }
 
@@ -254,6 +326,7 @@ export function looksAcceptableReplyDraft(args: {
       draft: normalized,
       sourceContext: args.sourceContext,
       policy,
+      visualContext: args.visualContext || null,
     })
   ) {
     return false;
@@ -269,8 +342,18 @@ export function looksAcceptableReplyDraft(args: {
     return false;
   }
 
+  if (
+    isPerformativePunchlineRewrite({
+      draft: normalized,
+      preflightResult: args.preflightResult,
+      visualContext: args.visualContext || null,
+    })
+  ) {
+    return false;
+  }
+
   const lower = normalized.toLowerCase();
-  const anchors = collectAnchorTokens(args.sourceContext);
+  const anchors = collectAnchorTokensWithVisual(args.sourceContext, args.visualContext || null);
   if (anchors.size === 0) {
     return true;
   }

@@ -2,6 +2,10 @@ import Groq from "groq-sdk";
 import { z } from "zod";
 
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
+import {
+  buildReplySourceContextFromOpportunityCandidate,
+  deriveHeuristicReplySourceVisualContext,
+} from "../reply-engine/index.ts";
 import type { ReplyInsights } from "./replyOpportunities.ts";
 import type {
   ExtensionOpportunityBatchRequest,
@@ -68,6 +72,9 @@ function formatTopAngleLabels(replyInsights?: ReplyInsights | null) {
 function summarizeCandidate(candidate: ExtensionOpportunityCandidate) {
   const author = candidate.author.handle ? `@${candidate.author.handle}` : "unknown author";
   const createdAt = candidate.createdAtIso || "unknown";
+  const visualContext = deriveHeuristicReplySourceVisualContext(
+    buildReplySourceContextFromOpportunityCandidate(candidate),
+  );
 
   return [
     `tweetId: ${candidate.postId}`,
@@ -78,6 +85,9 @@ function summarizeCandidate(candidate: ExtensionOpportunityCandidate) {
     `followers: ${candidate.author.followerCount}`,
     `engagement: replies=${candidate.engagement.replyCount}, likes=${candidate.engagement.likeCount}, reposts=${candidate.engagement.repostCount}, quotes=${candidate.engagement.quoteCount}, views=${candidate.engagement.viewCount}`,
     `text: """${candidate.text.trim()}"""`,
+    visualContext
+      ? `imageContext: role=${visualContext.imageRole}; anchor=${visualContext.imageReplyAnchor || "none"}; text=${visualContext.readableText || "none"}; scene=${visualContext.sceneType}`
+      : "imageContext: none",
   ].join("\n");
 }
 
@@ -123,6 +133,7 @@ export function buildOpportunityBatchSystemPrompt(args: {
     "- opportunityScore must be an integer from 0 to 100.",
     "- reason must be one concise sentence grounded in the creator strategy and reply insights.",
     "- Prefer posts where the creator can add non-generic nuance, proof, translation, or a sharper angle.",
+    "- When an image or screenshot carries the joke or proof, use that image context instead of treating the post like sparse generic text.",
     "- Penalize generic motivation, off-niche topics, spammy posts, rage bait, and conversations with poor audience fit.",
     "- Do not add markdown, commentary, or extra keys.",
     "",

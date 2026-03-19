@@ -2,7 +2,11 @@ import { Prisma, type ReplyOpportunity } from "../generated/prisma/client.ts";
 import { prisma } from "../db.ts";
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
-import { resolveReplyConstraintPolicy } from "../reply-engine/index.ts";
+import {
+  buildReplySourceContextFromOpportunityCandidate,
+  deriveHeuristicReplySourceVisualContext,
+  resolveReplyConstraintPolicy,
+} from "../reply-engine/index.ts";
 import type {
   ExtensionExpectedValueLevel,
   ExtensionOpportunity,
@@ -897,9 +901,12 @@ export function scoreOpportunityCandidate(args: {
   styleCard: VoiceStyleCard | null;
   replyInsights?: ReplyInsights | null;
 }): RankedExtensionOpportunity {
+  const sourceContext = buildReplySourceContextFromOpportunityCandidate(args.candidate);
+  const visualContext = deriveHeuristicReplySourceVisualContext(sourceContext);
   const constraintPolicy = resolveReplyConstraintPolicy({
-    sourceText: args.candidate.text,
+    sourceContext,
     strategy: args.strategy,
+    visualContext,
   });
   const strategyPillar = pickStrategyPillar({
     candidate: args.candidate,
@@ -938,13 +945,31 @@ export function scoreOpportunityCandidate(args: {
     audienceFit,
     offNicheRisk,
   });
+  let imageAwareNote: string | null = null;
+
+  if (visualContext?.imageRole === "punchline") {
+    conversationQuality = roundScore(conversationQuality + 16);
+    genericityRisk = roundScore(genericityRisk - 18);
+    offNicheRisk = roundScore(offNicheRisk - 12);
+    profileClickPotential = roundScore(profileClickPotential + 6);
+    imageAwareNote = "Image punchline boost applied because the screenshot/meme carries the actual bit.";
+  } else if (visualContext?.imageRole === "proof") {
+    conversationQuality = roundScore(conversationQuality + 10);
+    genericityRisk = roundScore(genericityRisk - 12);
+    offNicheRisk = roundScore(offNicheRisk - 8);
+    profileClickPotential = roundScore(profileClickPotential + 4);
+    imageAwareNote = "Image proof boost applied because the visual adds evidence beyond the caption.";
+  } else if (visualContext?.imageRole === "decorative") {
+    imageAwareNote = "Image was treated as decorative and did not materially affect ranking.";
+  }
 
   if (constraintPolicy.treatAsLowSignalCasual) {
-    conversationQuality = roundScore(conversationQuality - 24);
-    genericityRisk = roundScore(genericityRisk + 20);
-    offNicheRisk = roundScore(offNicheRisk + 26);
-    profileClickPotential = roundScore(profileClickPotential - 14);
-    followConversionPotential = roundScore(followConversionPotential - 18);
+    const imageLedJoke = visualContext?.imageRole === "punchline" || visualContext?.imageRole === "proof";
+    conversationQuality = roundScore(conversationQuality - (imageLedJoke ? 10 : 24));
+    genericityRisk = roundScore(genericityRisk + (imageLedJoke ? 8 : 20));
+    offNicheRisk = roundScore(offNicheRisk + (imageLedJoke ? 12 : 26));
+    profileClickPotential = roundScore(profileClickPotential - (imageLedJoke ? 6 : 14));
+    followConversionPotential = roundScore(followConversionPotential - (imageLedJoke ? 8 : 18));
   }
 
   const baseSuggestedAngle = constraintPolicy.treatAsLowSignalCasual
@@ -1021,6 +1046,7 @@ export function scoreOpportunityCandidate(args: {
     learningFit >= 55 && args.replyInsights?.topIntentAnchors?.[0]?.label
       ? `Learning bias favored opportunities similar to the recently converting anchor "${args.replyInsights.topIntentAnchors[0].label}".`
       : null,
+    imageAwareNote,
     constraintPolicy.treatAsLowSignalCasual
       ? "Casual/off-niche penalty applied because the post reads like a low-signal life update."
       : null,

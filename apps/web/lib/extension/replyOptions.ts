@@ -22,9 +22,15 @@ import type {
 import type { ReplyInsights } from "./replyOpportunities.ts";
 import type { ReplyConstraintPolicy } from "../reply-engine/index.ts";
 import {
+  analyzeReplySourceVisualContext,
+  buildReplySourceContextFromOpportunityCandidate,
   classifyReplyDraftMode,
   resolveReplyConstraintPolicy,
 } from "../reply-engine/index.ts";
+import type {
+  ReplySourceContext,
+  ReplyVisualContextSummary,
+} from "../reply-engine/types.ts";
 
 function inferLowercasePreference(styleCard: VoiceStyleCard | null): boolean {
   if (!styleCard) {
@@ -160,13 +166,16 @@ function buildCasualTemplate(args: {
   label: ExtensionSuggestedAngle;
   candidate: ExtensionOpportunityCandidate;
   concise: boolean;
+  visualContext?: ReplyVisualContextSummary | null;
 }) {
+  const anchorText = args.visualContext?.imageReplyAnchor || args.visualContext?.readableText || null;
   switch (args.label) {
     case "sharpen":
       return buildCasualReplyText({
         sourceText: args.candidate.text,
         variant: "pile_on",
         concise: args.concise,
+        anchorText,
       });
     case "disagree":
       return sourceInvitesPlayfulPushback(args.candidate.text)
@@ -174,11 +183,13 @@ function buildCasualTemplate(args: {
             sourceText: args.candidate.text,
             variant: "deadpan",
             concise: true,
+            anchorText,
           })}`
         : buildCasualReplyText({
             sourceText: args.candidate.text,
             variant: "deadpan",
             concise: args.concise,
+            anchorText,
           });
     case "example":
     case "translate":
@@ -189,6 +200,7 @@ function buildCasualTemplate(args: {
         sourceText: args.candidate.text,
         variant: "relatable",
         concise: args.concise,
+        anchorText,
       });
   }
 }
@@ -201,17 +213,29 @@ function buildCasualLabels(base: ExtensionSuggestedAngle): ExtensionSuggestedAng
 export async function prepareExtensionReplyOptionsPolicy(args: {
   post: ExtensionOpportunityCandidate;
   strategy: GrowthStrategySnapshot;
+  sourceContext?: ReplySourceContext | null;
+  visualContext?: ReplyVisualContextSummary | null;
 }) {
+  const sourceContext = args.sourceContext || buildReplySourceContextFromOpportunityCandidate(args.post);
+  const visualContext =
+    args.visualContext === undefined
+      ? await analyzeReplySourceVisualContext(sourceContext)
+      : args.visualContext;
   const preflightResult = await classifyReplyDraftMode({
     sourceText: args.post.text,
+    imageSummaryLines: visualContext?.summaryLines || [],
+    visualContext,
   });
   const policy = resolveReplyConstraintPolicy({
-    sourceText: args.post.text,
+    sourceContext,
     strategy: args.strategy,
     preflightResult,
+    visualContext: visualContext || null,
   });
 
   return {
+    sourceContext,
+    visualContext: visualContext || null,
     preflightResult,
     policy,
   };
@@ -229,15 +253,19 @@ export function buildExtensionReplyOptions(args: {
   replyInsights?: ReplyInsights | null;
   preflightResult?: ReplyDraftPreflightResult | null;
   policy?: ReplyConstraintPolicy | null;
+  sourceContext?: ReplySourceContext | null;
+  visualContext?: ReplyVisualContextSummary | null;
 }): ExtensionReplyOptionsResponse {
   const lowercase = inferLowercasePreference(args.styleCard);
   const concise = inferConcisePreference(args.styleCard);
+  const sourceContext = args.sourceContext || buildReplySourceContextFromOpportunityCandidate(args.post);
   const policy =
     args.policy ||
     resolveReplyConstraintPolicy({
-      sourceText: args.post.text,
+      sourceContext,
       strategy: args.strategy,
       preflightResult: args.preflightResult || null,
+      visualContext: args.visualContext || null,
     });
   const intents = buildReplyIntentPlansFromOpportunity({
     post: args.post,
@@ -252,6 +280,12 @@ export function buildExtensionReplyOptions(args: {
   ];
   const groundingNotes = [
     ...(policy.allowStrategyLens ? [`Anchored to ${args.strategyPillar}.`] : ["Staying literal to the visible post only."]),
+    ...(args.visualContext?.imageRole && args.visualContext.imageRole !== "none"
+      ? [`Image role: ${args.visualContext.imageRole}.`]
+      : []),
+    ...(args.visualContext?.imageReplyAnchor
+      ? [`Image anchor: ${args.visualContext.imageReplyAnchor}.`]
+      : []),
     `Known for ${args.strategy.knownFor}.`,
     ...args.strategy.truthBoundary.verifiedFacts.slice(0, 1),
     ...buildReplyLearningNotes(args.replyInsights),
@@ -263,18 +297,28 @@ export function buildExtensionReplyOptions(args: {
       authorHandle: args.post.author.handle,
       tweetUrl: args.post.url,
       stage: "0_to_1k",
-      tone: args.tone === "dry" || args.tone === "bold" || args.tone === "warm" ? args.tone : "builder",
+      tone:
+        args.tone === "dry" ||
+        args.tone === "bold" ||
+        args.tone === "warm" ||
+        args.tone === "playful"
+          ? args.tone
+          : "builder",
       goal: args.goal,
     },
     strategy: args.strategy,
     strategyPillar: args.strategyPillar,
     angleLabel: args.opportunity.suggestedAngle,
+    sourceContext,
+    visualContext: args.visualContext || null,
+    preflightResult: args.preflightResult || null,
   });
 
   const fallback = policy.treatAsLowSignalCasual
     ? buildCasualReplyText({
         sourceText: args.post.text,
         variant: "relatable",
+        anchorText: args.visualContext?.imageReplyAnchor || args.visualContext?.readableText || null,
       })
     : `the useful nuance is ${buildPillarLens(args.strategyPillar)}. that's the part that makes the point usable instead of just agreeable.`;
   const casualSeen = new Set<string>();
@@ -285,6 +329,7 @@ export function buildExtensionReplyOptions(args: {
           label,
           candidate: args.post,
           concise,
+          visualContext: args.visualContext || null,
         }),
         fallbackText: fallback,
         sourceText: args.post.text,
@@ -294,6 +339,7 @@ export function buildExtensionReplyOptions(args: {
         styleCard: args.styleCard,
         preflightResult: args.preflightResult || null,
         policy,
+        visualContext: args.visualContext || null,
       });
       const nextText = applyVoiceCase(sanitized, lowercase);
       const dedupeKey = normalizeComparable(nextText);
@@ -329,6 +375,7 @@ export function buildExtensionReplyOptions(args: {
         styleCard: args.styleCard,
         preflightResult: args.preflightResult || null,
         policy,
+        visualContext: args.visualContext || null,
       });
       const nextText = applyVoiceCase(sanitized, lowercase);
       const dedupeKey = normalizeComparable(nextText);
@@ -363,6 +410,7 @@ export function buildExtensionReplyOptions(args: {
       styleCard: args.styleCard,
       preflightResult: args.preflightResult || null,
       policy,
+      visualContext: args.visualContext || null,
     }),
     lowercase,
   );
@@ -374,11 +422,17 @@ export function buildExtensionReplyOptions(args: {
       ...(policy.treatAsLowSignalCasual
         ? ["Source reads as a casual/off-niche observation, so options stay literal on purpose."]
         : []),
+      ...(args.visualContext?.imageRole === "punchline"
+        ? ["Image is carrying the punchline, so options are anchored to the visual bit."]
+        : []),
     ],
     groundingNotes: [
       ...groundingNotes,
       ...(policy.treatAsLowSignalCasual
         ? ["Literal casual riff mode is active; no strategy or business overlay was applied."]
+        : []),
+      ...(policy.shouldReferenceImageText
+        ? ["Readable image text can be used as source grounding when it sharpens the reply."]
         : []),
     ],
   };

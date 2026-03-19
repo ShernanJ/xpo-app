@@ -18,6 +18,10 @@ import {
   prepareExtensionReplyOptionsPolicy,
 } from "../../../../lib/extension/replyOptions.ts";
 import { getReplyInsightsForUser } from "../../../../lib/extension/replyOpportunities.ts";
+import type {
+  ExtensionOpportunityCandidate,
+  ExtensionReplyMediaImage,
+} from "../../../../lib/extension/types.ts";
 import { recordProductEvent } from "../../../../lib/productEvents.ts";
 import {
   assertExtensionReplyOptionsResponseShape,
@@ -33,6 +37,68 @@ function buildContextErrorResponse(args: {
     { ok: false, errors: [{ field: args.field, message: args.message }] },
     { status: args.status },
   );
+}
+
+function isJsonObject(value: Prisma.JsonValue | null | undefined): value is Prisma.JsonObject {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizePersistedMediaImages(value: unknown): ExtensionReplyMediaImage[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .flatMap((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        return [];
+      }
+      const record = entry as Record<string, unknown>;
+      const imageUrl = typeof record.imageUrl === "string" ? record.imageUrl.trim() : "";
+      const imageDataUrl = typeof record.imageDataUrl === "string" ? record.imageDataUrl.trim() : "";
+      const altText = typeof record.altText === "string" ? record.altText.trim() : "";
+      if (!imageUrl && !imageDataUrl && !altText) {
+        return [];
+      }
+
+      return [
+        {
+          imageUrl: imageUrl || null,
+          imageDataUrl: imageDataUrl || null,
+          altText: altText || null,
+        },
+      ];
+    })
+    .slice(0, 4);
+}
+
+function hydrateCandidateFromSnapshot(
+  post: ExtensionOpportunityCandidate,
+  tweetSnapshot: Prisma.JsonValue | null,
+): ExtensionOpportunityCandidate {
+  if (!isJsonObject(tweetSnapshot) || !isJsonObject(tweetSnapshot.candidate)) {
+    return post;
+  }
+
+  const persistedCandidate = tweetSnapshot.candidate;
+  const persistedImages = isJsonObject(persistedCandidate.media)
+    ? normalizePersistedMediaImages(persistedCandidate.media.images)
+    : [];
+  const requestImages = post.media.images || [];
+
+  if (requestImages.length > 0 || persistedImages.length === 0) {
+    return post;
+  }
+
+  return {
+    ...post,
+    media: {
+      ...post.media,
+      images: persistedImages,
+      hasMedia: post.media.hasMedia || persistedImages.length > 0,
+      hasImage: post.media.hasImage || persistedImages.length > 0,
+    },
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -108,12 +174,14 @@ export async function POST(request: NextRequest) {
       userId: auth.user.id,
       xHandle: userContext.xHandle,
     });
-    const { preflightResult, policy } = await prepareExtensionReplyOptionsPolicy({
-      post: parsed.data.post,
-      strategy: userContext.context.growthStrategySnapshot,
-    });
+    const hydratedPost = hydrateCandidateFromSnapshot(parsed.data.post, record.tweetSnapshot);
+    const { preflightResult, policy, sourceContext, visualContext } =
+      await prepareExtensionReplyOptionsPolicy({
+        post: hydratedPost,
+        strategy: userContext.context.growthStrategySnapshot,
+      });
     const response = buildExtensionReplyOptions({
-      post: parsed.data.post,
+      post: hydratedPost,
       opportunity: persistedOpportunity,
       strategy: userContext.context.growthStrategySnapshot,
       strategyPillar:
@@ -127,6 +195,8 @@ export async function POST(request: NextRequest) {
       replyInsights,
       preflightResult,
       policy,
+      sourceContext,
+      visualContext,
     });
 
     if (!assertExtensionReplyOptionsResponseShape(response)) {

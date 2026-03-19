@@ -1,10 +1,11 @@
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 import type {
+  ReplyDraftImageRole,
   ReplyDraftPreflightResult,
   ReplyDraftSourceShape,
 } from "../extension/types.ts";
 
-import type { ReplySourceContext } from "./types.ts";
+import type { ReplySourceContext, ReplyVisualContextSummary } from "./types.ts";
 
 const STOPWORDS = new Set([
   "a",
@@ -76,6 +77,10 @@ const EXPLICIT_ADVICE_REQUEST_PATTERNS = [
 export const DISALLOWED_BUSINESS_DRIFT_TERMS = [
   "sprint",
   "next build",
+  "core loop",
+  "edge case",
+  "edge cases",
+  "surface the edge cases",
   "workflow",
   "operator",
   "operators",
@@ -88,7 +93,11 @@ export const DISALLOWED_BUSINESS_DRIFT_TERMS = [
   "profile clicks",
   "gtm",
   "growth strategy",
+  "iterate",
+  "cheap traffic hack",
+  "real win",
   "roadmap",
+  "repeatable onboarding",
   "feedback loop",
   "feedback loops",
   "onboarding",
@@ -111,6 +120,10 @@ export const DISALLOWED_ADVICE_DRIFT_PATTERNS = [
 
 export interface ReplyConstraintPolicy {
   sourceShape: ReplyDraftSourceShape;
+  imageRole: ReplyDraftImageRole;
+  imageReplyAnchor: string | null;
+  shouldReferenceImageText: boolean;
+  allowImageAnchoring: boolean;
   allowStrategyLens: boolean;
   allowBusinessInference: boolean;
   allowAdvice: boolean;
@@ -134,12 +147,16 @@ function collectCombinedSourceText(args: {
   sourceContext?: ReplySourceContext | null;
   sourceText?: string | null;
   quotedText?: string | null;
+  visualContext?: ReplyVisualContextSummary | null;
 }) {
   return [
     args.sourceContext?.primaryPost.text || "",
     args.sourceContext?.quotedPost?.text || "",
     args.sourceText || "",
     args.quotedText || "",
+    args.visualContext?.imageReplyAnchor || "",
+    args.visualContext?.readableText || "",
+    ...(args.visualContext?.keyDetails || []),
   ]
     .join("\n")
     .trim();
@@ -207,9 +224,19 @@ export function inferHeuristicReplySourceShape(args: {
   sourceText?: string | null;
   quotedText?: string | null;
   imageSummaryLines?: string[] | null;
+  visualContext?: ReplyVisualContextSummary | null;
 }): ReplyDraftSourceShape {
+  const visibleText =
+    args.sourceContext?.primaryPost.text ||
+    args.sourceText ||
+    "";
   const combined = [
-    collectCombinedSourceText(args),
+    collectCombinedSourceText({
+      sourceContext: args.sourceContext,
+      sourceText: args.sourceText,
+      quotedText: args.quotedText,
+      visualContext: args.visualContext || null,
+    }),
     ...(args.imageSummaryLines || []),
   ]
     .join("\n")
@@ -220,6 +247,27 @@ export function inferHeuristicReplySourceShape(args: {
   }
 
   const hasBusinessSignal = hasBusinessDomainSignal(combined);
+  const hasImageMaterial = Boolean(
+    args.visualContext ||
+      (args.imageSummaryLines?.length || 0) > 0 ||
+      (args.sourceContext?.media?.images.length || 0) > 0,
+  );
+  const shortCaption = collectKeywords(visibleText).length <= 4;
+  const playfulShortCaption =
+    /\b(perfect|insane|wild|crazy|absurd|pull|lmao|lol|lmfao)\b/i.test(visibleText);
+
+  if (args.visualContext?.imageRole === "punchline") {
+    return "joke_setup";
+  }
+  if (args.visualContext?.imageRole === "proof") {
+    return hasBusinessSignal ? "strategic_take" : "casual_observation";
+  }
+  if (hasImageMaterial && shortCaption && !hasBusinessSignal && playfulShortCaption) {
+    return "joke_setup";
+  }
+  if (hasImageMaterial && shortCaption && !hasBusinessSignal) {
+    return "casual_observation";
+  }
   if (isCasualObservation(combined) && !hasBusinessSignal) {
     return "casual_observation";
   }
@@ -241,8 +289,14 @@ export function resolveReplyConstraintPolicy(args: {
   quotedText?: string | null;
   strategy?: GrowthStrategySnapshot | null;
   preflightResult?: ReplyDraftPreflightResult | null;
+  visualContext?: ReplyVisualContextSummary | null;
 }): ReplyConstraintPolicy {
-  const sourceText = collectCombinedSourceText(args);
+  const sourceText = collectCombinedSourceText({
+    sourceContext: args.sourceContext,
+    sourceText: args.sourceText,
+    quotedText: args.quotedText,
+    visualContext: args.visualContext || null,
+  });
   const lexicalOverlap = computeLexicalOverlapScore({
     sourceText,
     strategy: args.strategy || null,
@@ -253,6 +307,7 @@ export function resolveReplyConstraintPolicy(args: {
       sourceContext: args.sourceContext || null,
       sourceText: args.sourceText || null,
       quotedText: args.quotedText || null,
+      visualContext: args.visualContext || null,
     });
   const sourceHasBusinessSignal = hasBusinessDomainSignal(sourceText);
   const sourceWantsAdvice = EXPLICIT_ADVICE_REQUEST_PATTERNS.some((pattern) =>
@@ -260,11 +315,28 @@ export function resolveReplyConstraintPolicy(args: {
   );
   const lowOverlap = lexicalOverlap < 0.12;
   const lexicalOverlapScore = Math.round(lexicalOverlap * 100);
+  const imageRole = args.preflightResult?.image_role || args.visualContext?.imageRole || "none";
+  const imageReplyAnchor =
+    args.preflightResult?.image_reply_anchor?.trim() ||
+    args.visualContext?.imageReplyAnchor?.trim() ||
+    null;
+  const shouldReferenceImageText = Boolean(
+    args.preflightResult?.should_reference_image_text || args.visualContext?.shouldReferenceImageText,
+  );
+  const allowImageAnchoring =
+    shouldReferenceImageText ||
+    imageRole === "punchline" ||
+    imageRole === "proof" ||
+    imageRole === "context";
 
   switch (sourceShape) {
     case "emotional_update":
       return {
         sourceShape,
+        imageRole,
+        imageReplyAnchor,
+        shouldReferenceImageText,
+        allowImageAnchoring,
         allowStrategyLens: false,
         allowBusinessInference: sourceHasBusinessSignal && !lowOverlap,
         allowAdvice: sourceWantsAdvice,
@@ -275,6 +347,10 @@ export function resolveReplyConstraintPolicy(args: {
     case "casual_observation":
       return {
         sourceShape,
+        imageRole,
+        imageReplyAnchor,
+        shouldReferenceImageText,
+        allowImageAnchoring,
         allowStrategyLens: false,
         allowBusinessInference: false,
         allowAdvice: sourceWantsAdvice,
@@ -285,6 +361,10 @@ export function resolveReplyConstraintPolicy(args: {
     case "joke_setup":
       return {
         sourceShape,
+        imageRole,
+        imageReplyAnchor,
+        shouldReferenceImageText,
+        allowImageAnchoring,
         allowStrategyLens: false,
         allowBusinessInference: false,
         allowAdvice: sourceWantsAdvice && sourceHasBusinessSignal && !lowOverlap,
@@ -296,6 +376,10 @@ export function resolveReplyConstraintPolicy(args: {
     default:
       return {
         sourceShape: "strategic_take",
+        imageRole,
+        imageReplyAnchor,
+        shouldReferenceImageText,
+        allowImageAnchoring,
         allowStrategyLens: sourceHasBusinessSignal || lexicalOverlap >= 0.12,
         allowBusinessInference: sourceHasBusinessSignal || lexicalOverlap >= 0.12,
         allowAdvice: sourceWantsAdvice || (sourceHasBusinessSignal && lexicalOverlap >= 0.08),
@@ -312,8 +396,14 @@ export function violatesReplyConstraintPolicy(args: {
   sourceContext?: ReplySourceContext | null;
   sourceText?: string | null;
   quotedText?: string | null;
+  visualContext?: ReplyVisualContextSummary | null;
 }): boolean {
-  const sourceText = collectCombinedSourceText(args).toLowerCase();
+  const sourceText = collectCombinedSourceText({
+    sourceContext: args.sourceContext,
+    sourceText: args.sourceText,
+    quotedText: args.quotedText,
+    visualContext: args.visualContext || null,
+  }).toLowerCase();
   const draftText = args.draft.toLowerCase();
 
   if (!args.policy.allowBusinessInference) {

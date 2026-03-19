@@ -537,3 +537,102 @@ test("buildExtensionReplyOptions uses literal casual riffs for off-niche observa
     true,
   );
 });
+
+test("image-led joke posts stay anchored to the screenshot instead of business drift", async () => {
+  const post = {
+    postId: "post_7",
+    author: {
+      id: "author_7",
+      handle: "chribjel",
+      name: "Christoffer Bjelke",
+      verified: true,
+      followerCount: 12000,
+    },
+    text: "Perfect algo pull",
+    url: "https://x.com/chribjel/status/7",
+    createdAtIso: "2026-03-18T15:29:00.000Z",
+    engagement: {
+      replyCount: 8,
+      repostCount: 12,
+      likeCount: 420,
+      quoteCount: 4,
+      viewCount: 64000,
+    },
+    postType: "original" as const,
+    conversation: {
+      conversationId: "conv_7",
+      inReplyToPostId: null,
+      inReplyToHandle: null,
+    },
+    media: {
+      hasMedia: true,
+      hasImage: true,
+      hasVideo: false,
+      hasGif: false,
+      hasLink: false,
+      hasPoll: false,
+      images: [
+        {
+          altText:
+            'Tweet screenshot showing the X app banner "Posts aren\'t loading right now" above a nested tweet image.',
+        },
+      ],
+    },
+    surface: "home" as const,
+    captureSource: "graphql" as const,
+    capturedAtIso: "2026-03-18T15:31:00.000Z",
+  };
+  const prepared = await prepareExtensionReplyOptionsPolicy({ post, strategy });
+  const response = buildExtensionReplyOptions({
+    post,
+    opportunity: {
+      opportunityId: "opp_7",
+      postId: "post_7",
+      score: 63,
+      verdict: "watch",
+      why: ["The screenshot is doing the heavy lifting for the joke."],
+      riskFlags: [],
+      suggestedAngle: "nuance",
+      expectedValue: {
+        visibility: "medium",
+        profileClicks: "low",
+        followConversion: "low",
+      },
+      scoringBreakdown: {
+        niche_match: 32,
+        audience_fit: 41,
+        freshness: 82,
+        conversation_quality: 61,
+        profile_click_potential: 38,
+        follow_conversion_potential: 30,
+        visibility_potential: 58,
+        spam_risk: 4,
+        off_niche_risk: 46,
+        genericity_risk: 29,
+        negative_signal_risk: 1,
+      },
+    },
+    strategy,
+    strategyPillar: "product positioning",
+    styleCard: null,
+    stage: "0-1k",
+    tone: "playful",
+    goal: "followers",
+    sourceContext: prepared.sourceContext,
+    visualContext: prepared.visualContext,
+    preflightResult: prepared.preflightResult,
+    policy: prepared.policy,
+  });
+
+  assert.equal(prepared.preflightResult.image_role, "punchline");
+  assert.equal(
+    response.options.some((option) => /posts? aren'?t loading right now|perfect algo pull/i.test(option.text)),
+    true,
+  );
+  assert.equal(
+    response.options.every(
+      (option) => !/\b(cheap traffic hack|real win|repeatable onboarding|workflow|startup|product)\b/i.test(option.text),
+    ),
+    true,
+  );
+});

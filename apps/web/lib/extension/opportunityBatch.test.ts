@@ -427,3 +427,48 @@ test("scoreOpportunityCandidate penalizes casual off-niche life updates", () => 
     true,
   );
 });
+
+test("scoreOpportunityCandidate gives screenshot punchlines a lighter genericity penalty", () => {
+  const withoutImage = scoreCandidate(
+    makeCandidate({
+      postId: "text_only_joke",
+      text: "Perfect algo pull",
+      author: {
+        handle: "chribjel",
+        followerCount: 12000,
+      },
+    }),
+  );
+  const withImage = scoreCandidate(
+    makeCandidate({
+      postId: "image_joke",
+      text: "Perfect algo pull",
+      author: {
+        handle: "chribjel",
+        followerCount: 12000,
+      },
+      media: {
+        hasMedia: true,
+        hasImage: true,
+        images: [
+          {
+            altText:
+              'Tweet screenshot showing the X app banner "Posts aren\'t loading right now" above a nested tweet image.',
+          },
+        ],
+      },
+    }),
+  );
+
+  assert.equal(
+    withImage.opportunity.scoringBreakdown.conversation_quality >
+      withoutImage.opportunity.scoringBreakdown.conversation_quality,
+    true,
+  );
+  assert.equal(
+    withImage.opportunity.scoringBreakdown.genericity_risk <
+      withoutImage.opportunity.scoringBreakdown.genericity_risk,
+    true,
+  );
+  assert.equal(withImage.opportunity.score >= withoutImage.opportunity.score, true);
+});

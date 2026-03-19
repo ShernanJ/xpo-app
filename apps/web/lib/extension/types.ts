@@ -15,6 +15,22 @@ export type ExtensionReplyMode =
   | "insightful_add_on"
   | "empathetic_support";
 
+export type ReplyDraftImageRole =
+  | "none"
+  | "punchline"
+  | "proof"
+  | "reaction"
+  | "context"
+  | "decorative";
+
+export type ReplyDraftImageSceneType =
+  | "screenshot"
+  | "meme"
+  | "product_ui"
+  | "photo"
+  | "mixed"
+  | "unknown";
+
 export type ReplyDraftSourceShape =
   | "strategic_take"
   | "casual_observation"
@@ -58,6 +74,9 @@ export interface ReplyDraftPreflightResult {
   post_intent: string;
   recommended_reply_mode: ExtensionReplyMode;
   source_shape: ReplyDraftSourceShape;
+  image_role: ReplyDraftImageRole;
+  image_reply_anchor: string;
+  should_reference_image_text: boolean;
 }
 
 export interface ExtensionObservedReplyMetrics {
@@ -164,6 +183,7 @@ export interface ExtensionOpportunityMedia {
   hasGif: boolean;
   hasLink: boolean;
   hasPoll: boolean;
+  images?: ExtensionReplyMediaImage[];
 }
 
 export interface ExtensionOpportunityCandidate {

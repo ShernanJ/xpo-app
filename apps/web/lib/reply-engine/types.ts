@@ -13,6 +13,8 @@ import type {
   ExtensionReplyIntentMetadata,
   ExtensionReplyMode,
   ExtensionReplyTone,
+  ReplyDraftImageRole,
+  ReplyDraftImageSceneType,
   ReplyDraftPreflightResult,
 } from "../extension/types.ts";
 import type { CreatorAgentContext } from "../onboarding/strategy/agentContext.ts";
@@ -65,13 +67,23 @@ export interface ReplyVisualContextSummary {
   readableText: string;
   keyDetails: string[];
   imageCount: number;
+  sceneType: ReplyDraftImageSceneType;
+  imageRole: ReplyDraftImageRole;
+  imageReplyAnchor: string;
+  shouldReferenceImageText: boolean;
+  replyRelevance: string;
   images: Array<{
     imageUrl: string | null;
+    source: "vision" | "alt_text";
+    sceneType: ReplyDraftImageSceneType;
+    imageRole: ReplyDraftImageRole;
     primarySubject: string;
     setting: string;
     lightingAndMood: string;
     readableText: string;
     keyDetails: string[];
+    jokeAnchor: string;
+    replyRelevance: string;
   }>;
   summaryLines: string[];
 }

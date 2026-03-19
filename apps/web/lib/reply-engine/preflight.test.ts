@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { analyzeReplySourceVisualContext } from "./context.ts";
 import { classifyReplyDraftMode } from "./preflight.ts";
 
 test("classifyReplyDraftMode falls back to joke riff for playful posts in tests", async () => {
@@ -55,4 +56,74 @@ test("classifyReplyDraftMode defaults to insightful add-on when no strong heuris
 
   assert.equal(result.recommended_reply_mode, "insightful_add_on");
   assert.equal(result.source_shape, "strategic_take");
+});
+
+test("classifyReplyDraftMode uses screenshot joke context as a punchline signal", async () => {
+  const visualContext = await analyzeReplySourceVisualContext({
+    primaryPost: {
+      id: "tweet_7",
+      url: "https://x.com/chribjel/status/7",
+      text: "Perfect algo pull",
+      authorHandle: "chribjel",
+      postType: "original",
+    },
+    quotedPost: null,
+    media: {
+      images: [
+        {
+          altText:
+            'Tweet screenshot showing the X app banner "Posts aren\'t loading right now" above a nested tweet image.',
+        },
+      ],
+      hasVideo: false,
+      hasGif: false,
+      hasLink: false,
+    },
+    conversation: null,
+  });
+  const result = await classifyReplyDraftMode({
+    sourceText: "Perfect algo pull",
+    imageSummaryLines: visualContext?.summaryLines || [],
+    visualContext,
+  });
+
+  assert.equal(result.recommended_reply_mode, "joke_riff");
+  assert.equal(result.source_shape, "joke_setup");
+  assert.equal(result.image_role, "punchline");
+  assert.equal(result.should_reference_image_text, true);
+  assert.match(result.image_reply_anchor, /posts? aren'?t loading right now/i);
+});
+
+test("classifyReplyDraftMode uses proof screenshots as evidence instead of jokes", async () => {
+  const visualContext = await analyzeReplySourceVisualContext({
+    primaryPost: {
+      id: "tweet_8",
+      url: "https://x.com/builder/status/8",
+      text: "retention looks way better after the onboarding cleanup",
+      authorHandle: "builder",
+      postType: "original",
+    },
+    quotedPost: null,
+    media: {
+      images: [
+        {
+          altText:
+            "Dashboard screenshot showing a retention chart and analytics proof after the onboarding update.",
+        },
+      ],
+      hasVideo: false,
+      hasGif: false,
+      hasLink: false,
+    },
+    conversation: null,
+  });
+  const result = await classifyReplyDraftMode({
+    sourceText: "retention looks way better after the onboarding cleanup",
+    imageSummaryLines: visualContext?.summaryLines || [],
+    visualContext,
+  });
+
+  assert.equal(result.recommended_reply_mode, "insightful_add_on");
+  assert.equal(result.image_role, "proof");
+  assert.equal(result.should_reference_image_text, true);
 });

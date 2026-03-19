@@ -4,6 +4,7 @@ import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 import type { ReplyDraftPreflightResult } from "./types.ts";
 import type { ReplyConstraintPolicy } from "../reply-engine/policy.ts";
+import type { ReplyVisualContextSummary } from "../reply-engine/types.ts";
 import {
   resolveReplyConstraintPolicy,
   violatesReplyConstraintPolicy,
@@ -149,6 +150,7 @@ function lacksReplyAnchor(args: {
   strategyPillar: string;
   knownFor?: string | null;
   policy?: ReplyConstraintPolicy | null;
+  visualContext?: ReplyVisualContextSummary | null;
 }): boolean {
   const replyTokens = new Set(collectKeywords(args.value));
   const anchorTokens = new Set(
@@ -156,6 +158,15 @@ function lacksReplyAnchor(args: {
       ...collectKeywords(args.sourceText),
       ...(args.policy?.allowStrategyLens !== false ? collectKeywords(args.strategyPillar) : []),
       ...(args.policy?.allowStrategyLens !== false ? collectKeywords(args.knownFor || "") : []),
+      ...(args.policy?.allowImageAnchoring
+        ? collectKeywords(
+            [
+              args.visualContext?.imageReplyAnchor || "",
+              args.visualContext?.readableText || "",
+              ...(args.visualContext?.keyDetails || []),
+            ].join(" "),
+          )
+        : []),
     ].slice(0, 18),
   );
 
@@ -182,6 +193,7 @@ export function sanitizeReplyText(args: {
   styleCard?: VoiceStyleCard | null;
   preflightResult?: ReplyDraftPreflightResult | null;
   policy?: ReplyConstraintPolicy | null;
+  visualContext?: ReplyVisualContextSummary | null;
 }): string {
   const policy =
     args.policy ||
@@ -189,6 +201,7 @@ export function sanitizeReplyText(args: {
       sourceText: args.sourceText,
       strategy: args.strategy,
       preflightResult: args.preflightResult || null,
+      visualContext: args.visualContext || null,
     });
   const candidateChecked = checkDraftClaimsAgainstGrounding({
     draft: normalizeWhitespace(args.candidate),
@@ -213,6 +226,7 @@ export function sanitizeReplyText(args: {
       draft: candidateText,
       sourceText: args.sourceText,
       policy,
+      visualContext: args.visualContext || null,
     }) &&
     !lacksReplyAnchor({
       value: candidateText,
@@ -220,6 +234,7 @@ export function sanitizeReplyText(args: {
       strategyPillar: args.strategyPillar,
       knownFor: args.strategy.knownFor,
       policy,
+      visualContext: args.visualContext || null,
     });
 
   if (candidateIsSafe) {

@@ -29,8 +29,9 @@ export function buildCasualReplyText(args: {
   sourceText: string;
   variant: "relatable" | "pile_on" | "deadpan";
   concise?: boolean;
+  anchorText?: string | null;
 }) {
-  const snippet = extractLiteralSnippet(args.sourceText);
+  const snippet = extractLiteralSnippet(args.anchorText || args.sourceText);
   const hashtag = extractHashtag(args.sourceText);
 
   switch (args.variant) {

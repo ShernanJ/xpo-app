@@ -59,7 +59,7 @@ export function inferReplySourceMode(args: {
 export function resolveReplyToneDirection(tone: ExtensionReplyTone) {
   switch (tone) {
     case "playful":
-      return "Be witty, lean into the joke or meme, and keep it extremely casual. Do NOT give serious advice, operator frameworks, or over-explain the post.";
+      return "Be playful in a deadpan, understated, internet-native way. Lean into the joke or meme without sounding performative, caption-y, or try-hard. Do NOT give serious advice, operator frameworks, or over-explain the post.";
     case "dry":
       return "Be crisp, understated, and analytical.";
     case "warm":
