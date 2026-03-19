@@ -6,6 +6,10 @@ import { buildProfileReplyContext } from "@/lib/agent-v2/grounding/profileReplyC
 import { authenticateExtensionRequest } from "@/lib/extension/auth";
 import { loadExtensionUserContext } from "@/lib/extension/context";
 import {
+  buildExtensionHandleErrorResponse,
+  resolveExtensionHandleForRequest,
+} from "@/lib/extension/handles";
+import {
   buildReplyDraftGenerationContext,
   cleanReplyDraftStreamChunk,
   finalizeReplyDraftText,
@@ -68,6 +72,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const handleResolution = await resolveExtensionHandleForRequest({
+    request,
+    userId: auth.user.id,
+    activeXHandle: auth.user.activeXHandle,
+  });
+  if (!handleResolution.ok) {
+    return buildExtensionHandleErrorResponse(handleResolution);
+  }
+
   let body: unknown;
 
   try {
@@ -122,7 +135,8 @@ export async function POST(request: NextRequest) {
   const visualContextPromise = analyzeReplySourceVisualContext(sourceContext);
   const userContext = await loadExtensionUserContext({
     userId: auth.user.id,
-    activeXHandle: auth.user.activeXHandle,
+    requestedHandle: handleResolution.xHandle,
+    attachedHandles: handleResolution.attachedHandles,
   });
   if (!userContext.ok) {
     return NextResponse.json(

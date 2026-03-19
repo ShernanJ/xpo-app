@@ -2,6 +2,7 @@ import { NextRequest } from "next/server.js";
 
 import { authenticateExtensionRequest } from "../../../../lib/extension/auth.ts";
 import { loadExtensionUserContext } from "../../../../lib/extension/context.ts";
+import { resolveExtensionHandleForRequest } from "../../../../lib/extension/handles.ts";
 import { logExtensionRouteFailure } from "../../../../lib/extension/http.ts";
 import { scoreOpportunityBatchWithGroq } from "../../../../lib/extension/opportunityBatchGroq.ts";
 import { getReplyInsightsForUser } from "../../../../lib/extension/replyOpportunities.ts";
@@ -15,6 +16,7 @@ import { handleExtensionOpportunityBatchPost } from "./route.handler.ts";
 export async function POST(request: NextRequest) {
   return handleExtensionOpportunityBatchPost(request, {
     authenticateExtensionRequest,
+    resolveExtensionHandleForRequest,
     parseExtensionOpportunityBatchRequest,
     loadExtensionUserContext,
     getReplyInsightsForUser,

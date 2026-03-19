@@ -5,6 +5,10 @@ import { prisma } from "../../../../lib/db.ts";
 import { authenticateExtensionRequest } from "../../../../lib/extension/auth.ts";
 import { loadExtensionUserContext } from "../../../../lib/extension/context.ts";
 import {
+  buildExtensionHandleErrorResponse,
+  resolveExtensionHandleForRequest,
+} from "../../../../lib/extension/handles.ts";
+import {
   buildExtensionBadRequestResponse,
   buildExtensionUnauthorizedResponse,
   logExtensionRouteFailure,
@@ -108,6 +112,15 @@ export async function POST(request: NextRequest) {
     return buildExtensionUnauthorizedResponse();
   }
 
+  const handleResolution = await resolveExtensionHandleForRequest({
+    request,
+    userId: auth.user.id,
+    activeXHandle: auth.user.activeXHandle,
+  });
+  if (!handleResolution.ok) {
+    return buildExtensionHandleErrorResponse(handleResolution);
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -122,7 +135,8 @@ export async function POST(request: NextRequest) {
 
   const userContext = await loadExtensionUserContext({
     userId: auth.user.id,
-    activeXHandle: auth.user.activeXHandle,
+    requestedHandle: handleResolution.xHandle,
+    attachedHandles: handleResolution.attachedHandles,
   });
   if (!userContext.ok) {
     return buildContextErrorResponse(userContext);

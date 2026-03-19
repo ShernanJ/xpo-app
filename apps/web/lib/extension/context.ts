@@ -2,25 +2,22 @@ import { prisma } from "../db.ts";
 import { StyleCardSchema, type VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import { buildCreatorAgentContext } from "../onboarding/strategy/agentContext.ts";
 import { readLatestOnboardingRunByHandle } from "../onboarding/store/onboardingRunStore.ts";
-
-export function normalizeXHandle(value: string | null | undefined): string | null {
-  const normalized = value?.trim().replace(/^@+/, "").toLowerCase() || "";
-  return normalized || null;
-}
+import { resolveExtensionHandleAccess } from "./handles.ts";
 
 export async function loadExtensionUserContext(args: {
   userId: string;
-  activeXHandle: string | null | undefined;
+  requestedHandle: string | null | undefined;
+  attachedHandles?: string[];
 }) {
-  const xHandle = normalizeXHandle(args.activeXHandle);
-  if (!xHandle) {
-    return {
-      ok: false as const,
-      status: 409,
-      field: "profile",
-      message: "No active X handle is connected for this token.",
-    };
+  const handleResolution = await resolveExtensionHandleAccess({
+    userId: args.userId,
+    requestedHandle: args.requestedHandle,
+    attachedHandles: args.attachedHandles,
+  });
+  if (!handleResolution.ok) {
+    return handleResolution;
   }
+  const xHandle = handleResolution.xHandle;
 
   const storedRun = await readLatestOnboardingRunByHandle(args.userId, xHandle);
   if (!storedRun) {
@@ -50,6 +47,7 @@ export async function loadExtensionUserContext(args: {
   return {
     ok: true as const,
     xHandle,
+    attachedHandles: handleResolution.attachedHandles,
     storedRun,
     styleCard,
     context: buildCreatorAgentContext({

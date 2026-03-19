@@ -2,7 +2,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 const EXTENSION_TOKEN_PREFIX = "xpo_ext";
-const EXTENSION_TOKEN_TTL_DAYS = 30;
+const DEFAULT_EXTENSION_TOKEN_TTL_DAYS = 7;
 export const XPO_COMPANION_EXTENSION_SCOPE = "xpo-companion-extension";
 
 function getExtensionTokenSecret(): string {
@@ -28,6 +28,15 @@ export function hashExtensionToken(token: string): string {
 
 export function buildExtensionTokenValue(): string {
   return `${EXTENSION_TOKEN_PREFIX}_${randomBytes(24).toString("base64url")}`;
+}
+
+function resolveExtensionTokenTtlDays(): number {
+  const rawValue = Number.parseInt(process.env.EXTENSION_TOKEN_TTL_DAYS?.trim() || "", 10);
+  if (Number.isFinite(rawValue) && rawValue >= 1 && rawValue <= 30) {
+    return rawValue;
+  }
+
+  return DEFAULT_EXTENSION_TOKEN_TTL_DAYS;
 }
 
 export function parseExtensionBearerToken(
@@ -76,17 +85,37 @@ export async function issueExtensionApiToken(args: {
   name?: string | null;
   scope?: string;
   now?: Date;
+  revokeExisting?: boolean;
 }) {
   const { prisma } = await import("../db.ts");
   const now = args.now ?? new Date();
   const rawToken = buildExtensionTokenValue();
-  const expiresAt = new Date(now.getTime() + EXTENSION_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
+  const tokenTtlDays = resolveExtensionTokenTtlDays();
+  const expiresAt = new Date(now.getTime() + tokenTtlDays * 24 * 60 * 60 * 1000);
+  const name = args.name?.trim() || "xpo-companion";
+  const scope = args.scope?.trim() || XPO_COMPANION_EXTENSION_SCOPE;
+
+  if (args.revokeExisting !== false) {
+    await prisma.extensionApiToken.updateMany({
+      where: {
+        userId: args.userId,
+        scope,
+        revokedAt: null,
+        expiresAt: {
+          gt: now,
+        },
+      },
+      data: {
+        revokedAt: now,
+      },
+    });
+  }
 
   await prisma.extensionApiToken.create({
     data: {
       userId: args.userId,
-      name: args.name?.trim() || "xpo-companion",
-      scope: args.scope?.trim() || XPO_COMPANION_EXTENSION_SCOPE,
+      name,
+      scope,
       tokenHash: hashExtensionToken(rawToken),
       expiresAt,
     },

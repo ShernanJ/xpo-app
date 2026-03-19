@@ -16,6 +16,9 @@ test("GET /api/extension/drafts returns 401 when auth fails", async () => {
     }),
     {
       authenticateExtensionRequest: async () => null,
+      resolveExtensionHandleForRequest: async () => {
+        throw new Error("should not be reached");
+      },
       listDrafts: async () => [],
       assertExtensionDraftsResponseShape,
     },
@@ -39,6 +42,12 @@ test("GET /api/extension/drafts returns 400 when handle is missing", async () =>
           id: "user_1",
         },
       }),
+      resolveExtensionHandleForRequest: async () => ({
+        ok: false,
+        status: 400,
+        field: "xHandle",
+        message: "A workspace X handle is required for this request.",
+      }),
       listDrafts: async () => [],
       assertExtensionDraftsResponseShape,
     },
@@ -48,7 +57,40 @@ test("GET /api/extension/drafts returns 400 when handle is missing", async () =>
   assert.equal(response.status, 400);
   assert.deepEqual(await response.json(), {
     ok: false,
-    errors: [{ field: "handle", message: "A handle query parameter is required." }],
+    errors: [{ field: "xHandle", message: "A workspace X handle is required for this request." }],
+  });
+});
+
+test("GET /api/extension/drafts rejects unattached handles", async () => {
+  const response = await handleExtensionDraftsGet(
+    new Request("http://localhost/api/extension/drafts", {
+      method: "GET",
+      headers: {
+        authorization: "Bearer token_123",
+      },
+    }),
+    {
+      authenticateExtensionRequest: async () => ({
+        user: {
+          id: "user_1",
+        },
+      }),
+      resolveExtensionHandleForRequest: async () => ({
+        ok: false,
+        status: 404,
+        field: "xHandle",
+        message: "That X handle is not attached to this Xpo profile.",
+      }),
+      listDrafts: async () => [],
+      assertExtensionDraftsResponseShape,
+    },
+    "@OtherHandle",
+  );
+
+  assert.equal(response.status, 404);
+  assert.deepEqual(await response.json(), {
+    ok: false,
+    errors: [{ field: "xHandle", message: "That X handle is not attached to this Xpo profile." }],
   });
 });
 
@@ -67,6 +109,10 @@ test("GET /api/extension/drafts scopes to the requested handle and returns only 
         user: {
           id: "user_1",
         },
+      }),
+      resolveExtensionHandleForRequest: async () => ({
+        ok: true,
+        xHandle: "standev",
       }),
       listDrafts: async (args) => {
         calls.push(args);

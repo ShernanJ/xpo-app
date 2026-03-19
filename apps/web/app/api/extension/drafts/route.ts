@@ -5,6 +5,7 @@ import {
   listContentItemsForWorkspace,
   serializeContentItem,
 } from "../../../../lib/content/contentHub.ts";
+import { resolveExtensionHandleForRequest } from "../../../../lib/extension/handles.ts";
 import { normalizeWorkspaceHandle } from "../../../../lib/workspaceHandle.ts";
 import { assertExtensionDraftsResponseShape } from "./route.logic.ts";
 import { handleExtensionDraftsGet } from "./route.handler.ts";
@@ -16,6 +17,7 @@ export async function GET(request: NextRequest) {
 
   return handleExtensionDraftsGet(request, {
     authenticateExtensionRequest,
+    resolveExtensionHandleForRequest,
     listDrafts: async ({ userId, xHandle }) =>
       (
         await listContentItemsForWorkspace({

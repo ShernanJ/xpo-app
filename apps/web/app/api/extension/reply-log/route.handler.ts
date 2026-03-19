@@ -59,6 +59,22 @@ type ReplyOpportunityRecord = ReplyOpportunity;
 
 interface ReplyLogHandlerDeps {
   authenticateExtensionRequest(request: Request): Promise<ExtensionAuthResult | null>;
+  resolveExtensionHandleForRequest(args: {
+    request: Request;
+    userId: string;
+    activeXHandle?: string | null;
+  }): Promise<
+    | {
+        ok: true;
+        xHandle: string;
+      }
+    | {
+        ok: false;
+        status: number;
+        field: string;
+        message: string;
+      }
+  >;
   parseExtensionReplyLogRequest(body: unknown):
     | { ok: true; kind: "lifecycle"; data: ReplyLogRequest }
     | { ok: true; kind: "edit"; data: ReplyEditLogRequest }
@@ -67,7 +83,7 @@ interface ReplyLogHandlerDeps {
     opportunityId?: string | null;
     userId: string;
     postId: string;
-    xHandle: string | null;
+    xHandle: string;
   }): Promise<ReplyOpportunityRecord | null>;
   mergeStoredOpportunityNotes(record: ReplyOpportunityRecord, patch: Record<string, unknown>): unknown;
   updateReplyOpportunity(args: {
@@ -76,13 +92,13 @@ interface ReplyLogHandlerDeps {
   }): Promise<void>;
   recordProductEvent(args: {
     userId: string;
-    xHandle: string | null;
+    xHandle: string;
     eventType: string;
     properties: Record<string, unknown>;
   }): Promise<void>;
   saveReplyGoldenExample(args: {
     userId: string;
-    xHandle: string | null;
+    xHandle: string;
     replyMode: ExtensionReplyMode;
     text: string;
     source?: string;
@@ -226,7 +242,16 @@ export async function handleExtensionReplyLogPost(
   const lifecycleData = parsed.kind === "lifecycle" ? parsed.data : null;
 
   try {
-    const activeHandle = auth.user.activeXHandle?.trim().replace(/^@+/, "").toLowerCase() || null;
+    const handleResolution = await deps.resolveExtensionHandleForRequest({
+      request,
+      userId: auth.user.id,
+      activeXHandle: auth.user.activeXHandle,
+    });
+    if (!handleResolution.ok) {
+      return jsonError(handleResolution.status, handleResolution.field, handleResolution.message);
+    }
+    const xHandle = handleResolution.xHandle;
+
     if (parsed.kind === "edit") {
       if (
         shouldSaveGoldenExample({
@@ -237,7 +262,7 @@ export async function handleExtensionReplyLogPost(
       ) {
         const inserted = await deps.saveReplyGoldenExample({
           userId: auth.user.id,
-          xHandle: activeHandle,
+          xHandle,
           replyMode: parsed.data.replyMode,
           text: parsed.data.finalPostedText,
           source: "human_edit",
@@ -245,7 +270,7 @@ export async function handleExtensionReplyLogPost(
 
         void deps.recordProductEvent({
           userId: auth.user.id,
-          xHandle: activeHandle,
+          xHandle,
           eventType: "extension_reply_golden_example_saved",
           properties: {
             replyMode: parsed.data.replyMode,
@@ -268,7 +293,7 @@ export async function handleExtensionReplyLogPost(
       opportunityId: parsed.data.opportunityId,
       userId: auth.user.id,
       postId: parsed.data.postId,
-      xHandle: activeHandle,
+      xHandle,
     });
 
     if (existing) {
@@ -329,7 +354,7 @@ export async function handleExtensionReplyLogPost(
     ) {
       await deps.saveReplyGoldenExample({
         userId: auth.user.id,
-        xHandle: activeHandle,
+        xHandle,
         replyMode: parsed.data.replyMode!,
         text: parsed.data.finalPostedText!,
         source: "human_edit",
@@ -338,7 +363,7 @@ export async function handleExtensionReplyLogPost(
 
     void deps.recordProductEvent({
       userId: auth.user.id,
-      xHandle: activeHandle,
+      xHandle,
       eventType: `extension_reply_${parsed.data.event}`,
       properties: {
         opportunityId: parsed.data.opportunityId ?? existing?.id ?? null,

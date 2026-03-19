@@ -394,6 +394,10 @@ export interface ExtensionDraftsResponse {
   drafts: ExtensionDraft[];
 }
 
+export interface ExtensionHandlesResponse {
+  handles: string[];
+}
+
 export interface ExtensionDraftPublishRequest {
   publishedTweetId?: string | null;
 }

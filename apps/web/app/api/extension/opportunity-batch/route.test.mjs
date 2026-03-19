@@ -118,6 +118,9 @@ test("POST returns 401 when extension auth rejects the bearer token", async () =
     }),
     {
       authenticateExtensionRequest: async () => null,
+      resolveExtensionHandleForRequest: async () => {
+        throw new Error("should not be reached");
+      },
       parseExtensionOpportunityBatchRequest,
       loadExtensionUserContext: async () => {
         throw new Error("should not be reached");
@@ -137,8 +140,50 @@ test("POST returns 401 when extension auth rejects the bearer token", async () =
   assert.equal(response.status, 401);
 });
 
+test("POST returns 400 when no explicit workspace handle is provided", async () => {
+  const response = await handleExtensionOpportunityBatchPost(
+    new Request("http://localhost/api/extension/opportunity-batch", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer token_123",
+      },
+      body: JSON.stringify(validPayload),
+    }),
+    {
+      authenticateExtensionRequest: async () => ({
+        user: {
+          id: "user_1",
+        },
+      }),
+      resolveExtensionHandleForRequest: async () => ({
+        ok: false,
+        status: 400,
+        field: "xHandle",
+        message: "A workspace X handle is required for this request.",
+      }),
+      parseExtensionOpportunityBatchRequest,
+      loadExtensionUserContext: async () => {
+        throw new Error("should not be reached");
+      },
+      getReplyInsightsForUser: async () => {
+        throw new Error("should not be reached");
+      },
+      scoreOpportunityBatch: async () => {
+        throw new Error("should not be reached");
+      },
+      assertExtensionOpportunityBatchResponseShape,
+      recordProductEvent: async () => {},
+      logExtensionRouteFailure: () => {},
+    },
+  );
+
+  assert.equal(response.status, 400);
+});
+
 test("POST passes reply insights into opportunity ranking", async () => {
   const scoreCalls = [];
+  const contextCalls = [];
   const expandedPayload = {
     ...validPayload,
     candidates: Array.from({ length: 5 }, (_, index) => ({
@@ -164,26 +209,34 @@ test("POST passes reply insights into opportunity ranking", async () => {
           activeXHandle: "standev",
         },
       }),
-      parseExtensionOpportunityBatchRequest,
-      loadExtensionUserContext: async () => ({
+      resolveExtensionHandleForRequest: async () => ({
         ok: true,
-        xHandle: "standev",
-        styleCard: null,
-        storedRun: {
-          result: {
-            growthStage: "0_to_1k",
-            strategyState: {
+        xHandle: "handle_b",
+        attachedHandles: ["standev", "handle_b"],
+      }),
+      parseExtensionOpportunityBatchRequest,
+      loadExtensionUserContext: async (args) => {
+        contextCalls.push(args);
+        return {
+          ok: true,
+          xHandle: "handle_b",
+          styleCard: null,
+          storedRun: {
+            result: {
               growthStage: "0_to_1k",
-              goal: "followers",
+              strategyState: {
+                growthStage: "0_to_1k",
+                goal: "followers",
+              },
             },
           },
-        },
-        context: {
-          growthStrategySnapshot: {
-            knownFor: "product positioning",
+          context: {
+            growthStrategySnapshot: {
+              knownFor: "product positioning",
+            },
           },
-        },
-      }),
+        };
+      },
       getReplyInsightsForUser: async () => ({
         bestSignals: ["Example-driven replies are earning the strongest downstream action."],
         cautionSignals: ["Generic agreement is underperforming."],
@@ -212,6 +265,13 @@ test("POST passes reply insights into opportunity ranking", async () => {
 
   assert.equal(response.status, 200);
   assert.equal(scoreCalls.length, 1);
+  assert.deepEqual(contextCalls, [
+    {
+      userId: "user_1",
+      requestedHandle: "handle_b",
+      attachedHandles: ["standev", "handle_b"],
+    },
+  ]);
   assert.equal(scoreCalls[0]?.replyInsights?.topIntentAnchors?.[0]?.label, "proof | the proof layer");
   assert.equal(scoreCalls[0]?.growthStage, "0_to_1k");
   assert.equal(scoreCalls[0]?.goal, "followers");

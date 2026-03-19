@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { parseExtensionDraftPublishRequest } from "../../route.logic.ts";
 import { handleExtensionDraftPublishPost } from "./route.handler.ts";
 
-test("POST /api/extension/drafts/[id]/publish returns 404 when the draft is not found for the active handle", async () => {
+test("POST /api/extension/drafts/[id]/publish returns 404 when the draft is not found for the requested handle", async () => {
   const response = await handleExtensionDraftPublishPost(
     new Request("http://localhost/api/extension/drafts/draft_1/publish", {
       method: "POST",
@@ -21,6 +21,10 @@ test("POST /api/extension/drafts/[id]/publish returns 404 when the draft is not 
           id: "user_1",
           activeXHandle: "standev",
         },
+      }),
+      resolveExtensionHandleForRequest: async () => ({
+        ok: true,
+        xHandle: "handle_b",
       }),
       parseExtensionDraftPublishRequest,
       findDraft: async () => null,
@@ -54,6 +58,10 @@ test("POST /api/extension/drafts/[id]/publish passes the published tweet id thro
           id: "user_1",
           activeXHandle: "@StanDev",
         },
+      }),
+      resolveExtensionHandleForRequest: async () => ({
+        ok: true,
+        xHandle: "handle_b",
       }),
       parseExtensionDraftPublishRequest,
       findDraft: async () => ({

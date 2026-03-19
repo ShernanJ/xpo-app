@@ -156,6 +156,10 @@ test("POST returns ok:true when persistence throws after auth and validation", a
           name: "Stan",
         },
       }),
+      resolveExtensionHandleForRequest: async () => ({
+        ok: true,
+        xHandle: "handle_b",
+      }),
       parseExtensionReplyLogRequest,
       findReplyOpportunity: async () => {
         throw new Error("db exploded");
@@ -265,6 +269,10 @@ test("POST persists observed metrics and follow conversion outcome metadata", as
           name: "Stan",
         },
       }),
+      resolveExtensionHandleForRequest: async () => ({
+        ok: true,
+        xHandle: "handle_b",
+      }),
       parseExtensionReplyLogRequest,
       findReplyOpportunity: async () => existing,
       mergeStoredOpportunityNotes: (_record, patch) => patch,
@@ -324,6 +332,10 @@ test("POST accepts minimal edit-learning payloads and saves changed drafts", asy
           activeXHandle: "standev",
         },
       }),
+      resolveExtensionHandleForRequest: async () => ({
+        ok: true,
+        xHandle: "handle_b",
+      }),
       parseExtensionReplyLogRequest,
       findReplyOpportunity: async () => null,
       mergeStoredOpportunityNotes: () => ({}),
@@ -342,6 +354,7 @@ test("POST accepts minimal edit-learning payloads and saves changed drafts", asy
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { ok: true });
   assert.equal(saveCalls.length, 1);
+  assert.equal(saveCalls[0]?.xHandle, "handle_b");
   assert.equal(saveCalls[0]?.replyMode, "insightful_add_on");
   assert.equal(eventCalls[0]?.eventType, "extension_reply_golden_example_saved");
 });
@@ -369,6 +382,10 @@ test("POST skips Golden Example persistence when the final reply is unchanged", 
           activeXHandle: "standev",
         },
       }),
+      resolveExtensionHandleForRequest: async () => ({
+        ok: true,
+        xHandle: "handle_b",
+      }),
       parseExtensionReplyLogRequest,
       findReplyOpportunity: async () => null,
       mergeStoredOpportunityNotes: () => ({}),
@@ -385,4 +402,55 @@ test("POST skips Golden Example persistence when the final reply is unchanged", 
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { ok: true });
   assert.equal(saveCalls.length, 0);
+});
+
+test("POST uses the explicitly requested handle instead of session activeXHandle", async () => {
+  const findCalls = [];
+  const eventCalls = [];
+
+  const response = await handleExtensionReplyLogPost(
+    new Request("http://localhost/api/extension/reply-log", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer token_123",
+      },
+      body: JSON.stringify(validPayload),
+    }),
+    {
+      authenticateExtensionRequest: async () => ({
+        user: {
+          id: "user_1",
+          activeXHandle: "standev",
+        },
+      }),
+      resolveExtensionHandleForRequest: async () => ({
+        ok: true,
+        xHandle: "handle_b",
+      }),
+      parseExtensionReplyLogRequest,
+      findReplyOpportunity: async (payload) => {
+        findCalls.push(payload);
+        return null;
+      },
+      mergeStoredOpportunityNotes: () => ({}),
+      updateReplyOpportunity: async () => {},
+      recordProductEvent: async (payload) => {
+        eventCalls.push(payload);
+      },
+      saveReplyGoldenExample: async () => false,
+      logExtensionRouteFailure: () => {},
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(findCalls, [
+    {
+      opportunityId: "opp_1",
+      userId: "user_1",
+      postId: "post_1",
+      xHandle: "handle_b",
+    },
+  ]);
+  assert.equal(eventCalls[0]?.xHandle, "handle_b");
 });

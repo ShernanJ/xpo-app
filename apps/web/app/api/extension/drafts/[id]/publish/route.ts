@@ -5,6 +5,7 @@ import {
   findContentItemForWorkspace,
   updateContentItemById,
 } from "../../../../../../lib/content/contentHub.ts";
+import { resolveExtensionHandleForRequest } from "../../../../../../lib/extension/handles.ts";
 import { parseExtensionDraftPublishRequest } from "../../route.logic.ts";
 import { handleExtensionDraftPublishPost } from "./route.handler.ts";
 
@@ -16,6 +17,7 @@ export async function POST(
 
   return handleExtensionDraftPublishPost(request, { id }, {
     authenticateExtensionRequest,
+    resolveExtensionHandleForRequest,
     parseExtensionDraftPublishRequest,
     findDraft: async ({ id: draftId, userId, xHandle }) =>
       findContentItemForWorkspace({

@@ -42,12 +42,30 @@ interface RankedOpportunityBatch {
 
 interface OpportunityBatchHandlerDeps {
   authenticateExtensionRequest(request: Request): Promise<ExtensionAuthResult | null>;
+  resolveExtensionHandleForRequest(args: {
+    request: Request;
+    userId: string;
+    activeXHandle?: string | null;
+  }): Promise<
+    | {
+        ok: true;
+        xHandle: string;
+        attachedHandles: string[];
+      }
+    | {
+        ok: false;
+        status: number;
+        field: string;
+        message: string;
+      }
+  >;
   parseExtensionOpportunityBatchRequest(body: unknown):
     | { ok: true; data: ExtensionOpportunityBatchRequest }
     | { ok: false; message: string };
   loadExtensionUserContext(args: {
     userId: string;
-    activeXHandle: string | null | undefined;
+    requestedHandle: string | null | undefined;
+    attachedHandles?: string[];
   }): Promise<ExtensionUserContextSuccess | ExtensionUserContextFailure>;
   getReplyInsightsForUser(args: {
     userId: string;
@@ -91,6 +109,15 @@ export async function handleExtensionOpportunityBatchPost(
     return jsonError(401, "auth", "Unauthorized");
   }
 
+  const handleResolution = await deps.resolveExtensionHandleForRequest({
+    request,
+    userId: auth.user.id,
+    activeXHandle: auth.user.activeXHandle,
+  });
+  if (!handleResolution.ok) {
+    return jsonError(handleResolution.status, handleResolution.field, handleResolution.message);
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -105,7 +132,8 @@ export async function handleExtensionOpportunityBatchPost(
 
   const userContext = await deps.loadExtensionUserContext({
     userId: auth.user.id,
-    activeXHandle: auth.user.activeXHandle,
+    requestedHandle: handleResolution.xHandle,
+    attachedHandles: handleResolution.attachedHandles,
   });
   if (!userContext.ok) {
     return jsonError(userContext.status, userContext.field, userContext.message);

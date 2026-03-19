@@ -16,6 +16,22 @@ interface PublishableDraftRecord {
 
 interface ExtensionDraftPublishHandlerDeps {
   authenticateExtensionRequest(request: Request): Promise<ExtensionAuthResult | null>;
+  resolveExtensionHandleForRequest(args: {
+    request: Request;
+    userId: string;
+    activeXHandle?: string | null;
+  }): Promise<
+    | {
+        ok: true;
+        xHandle: string;
+      }
+    | {
+        ok: false;
+        status: number;
+        field: string;
+        message: string;
+      }
+  >;
   parseExtensionDraftPublishRequest(body: unknown):
     | { ok: true; data: DraftPublishRequest }
     | { ok: false; message: string };
@@ -37,11 +53,6 @@ function jsonError(status: number, field: string, message: string) {
   );
 }
 
-function normalizeHandle(value: string | null | undefined): string | null {
-  const normalized = value?.trim().replace(/^@+/, "").toLowerCase() || "";
-  return normalized || null;
-}
-
 export async function handleExtensionDraftPublishPost(
   request: Request,
   args: { id: string },
@@ -52,9 +63,13 @@ export async function handleExtensionDraftPublishPost(
     return jsonError(401, "auth", "Unauthorized");
   }
 
-  const xHandle = normalizeHandle(auth.user.activeXHandle);
-  if (!xHandle) {
-    return jsonError(409, "profile", "No active X handle is connected for this token.");
+  const handleResolution = await deps.resolveExtensionHandleForRequest({
+    request,
+    userId: auth.user.id,
+    activeXHandle: auth.user.activeXHandle,
+  });
+  if (!handleResolution.ok) {
+    return jsonError(handleResolution.status, handleResolution.field, handleResolution.message);
   }
 
   let body: unknown = {};
@@ -73,7 +88,7 @@ export async function handleExtensionDraftPublishPost(
   const draft = await deps.findDraft({
     id: args.id,
     userId: auth.user.id,
-    xHandle,
+    xHandle: handleResolution.xHandle,
   });
   if (!draft) {
     return jsonError(404, "id", "Draft not found.");
