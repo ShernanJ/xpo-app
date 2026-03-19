@@ -8,7 +8,11 @@ import {
   buildReplyDraftUserPrompt,
   cleanReplyDraftStreamChunk,
   finalizeReplyDraftText,
+  prepareExtensionReplyDraftPromptPacket,
 } from "./replyDraft.ts";
+import { looksAcceptableReplyDraft } from "../reply-engine/index.ts";
+import { resolveVoiceTarget } from "../agent-v2/core/voiceTarget.ts";
+import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 
 const strategy: GrowthStrategySnapshot = {
@@ -31,6 +35,57 @@ const strategy: GrowthStrategySnapshot = {
     unknowns: ["No profile click data yet."],
   },
 };
+
+const lowercaseStyleCard: VoiceStyleCard = {
+  sentenceOpenings: ["yeah", "lwk", "honestly"],
+  sentenceClosers: ["idk", "that's kind of it"],
+  pacing: "short casual replies",
+  emojiPatterns: [],
+  slangAndVocabulary: ["lwk", "idk", "ngl"],
+  formattingRules: ["all lowercase", "no bullet points"],
+  customGuidelines: ["don't sound polished", "stay literal to the post"],
+  contextAnchors: [],
+  factLedger: {
+    durableFacts: [],
+    allowedFirstPersonClaims: [],
+    allowedNumbers: [],
+    forbiddenClaims: [],
+    sourceMaterials: [],
+  },
+  antiExamples: [
+    {
+      badSnippet: "Would love to see it in the next build.",
+      reason: "Sounds like a product manager or AI assistant.",
+      guidance: "avoid polished pm-speak and assistant phrasing",
+      createdAt: "2026-03-18T00:00:00.000Z",
+    },
+  ],
+  userPreferences: {
+    casing: "lowercase",
+    bulletStyle: "auto",
+    emojiUsage: "off",
+    profanity: "auto",
+    blacklist: ["cheap signal"],
+    writingGoal: "voice_first",
+    verifiedMaxChars: null,
+  },
+};
+
+const creatorAgentContext = {
+  creatorProfile: {
+    examples: {
+      replyVoiceAnchors: [
+        { text: "yeah that ux is rough. the lag makes the whole thing feel heavier than it is." },
+        { text: "lwk the frustration usually starts when the product makes you guess too much." },
+      ],
+      quoteVoiceAnchors: [
+        { text: "yeah the quote is the whole point here. the original post just explains why it hit." },
+      ],
+      voiceAnchors: [{ text: "good products feel obvious in use, not just in screenshots." }],
+      bestPerforming: [{ text: "most product takes land harder when the wording stays plain." }],
+    },
+  },
+} as never;
 
 test("buildExtensionReplyDraft returns safe and bold options with strategy notes", () => {
   const result = buildExtensionReplyDraft({
@@ -217,7 +272,7 @@ test("buildExtensionReplyDraft can stay locked to a selected reply intent", () =
   );
 });
 
-test("reply draft prompt includes durable facts, analytics, and raw tweet text", () => {
+test("reply draft prompt prioritizes lane-matched anchors and anti-pattern guidance", () => {
   const generation = buildReplyDraftGenerationContext({
     request: {
       tweetId: "tweet_7",
@@ -257,21 +312,8 @@ test("reply draft prompt includes durable facts, analytics, and raw tweet text",
       goal: "followers",
     },
     strategy,
-    replyInsights: {
-      topAngleLabels: [
-        {
-          label: "translate",
-          generatedCount: 3,
-          selectedCount: 2,
-          postedCount: 1,
-          observedCount: 1,
-          selectionRate: 0.67,
-          postedRate: 0.33,
-        },
-      ],
-      bestSignals: ["Translate-style replies are most likely to get posted."],
-      cautionSignals: ["Generic agreement underperforms."],
-    } as never,
+    styleCard: lowercaseStyleCard,
+    creatorAgentContext,
     generation,
   });
   const userPrompt = buildReplyDraftUserPrompt({
@@ -289,8 +331,20 @@ test("reply draft prompt includes durable facts, analytics, and raw tweet text",
 
   assert.equal(systemPrompt.includes("Known for: software and product through product positioning"), true);
   assert.equal(systemPrompt.includes("Target audience: builders who want clearer positioning on X"), true);
-  assert.equal(systemPrompt.includes("Translate-style replies are most likely to get posted."), true);
-  assert.equal(systemPrompt.includes("Generic agreement underperforms."), true);
+  assert.equal(systemPrompt.includes("DELIVERY BIAS (draft):"), true);
+  assert.equal(systemPrompt.includes("FORMAT BIAS (draft):"), true);
+  assert.equal(systemPrompt.includes("NEGATIVE GUIDANCE:"), true);
+  assert.equal(systemPrompt.includes("VOICE / SHAPE LAYER:"), true);
+  assert.equal(systemPrompt.includes("avoid polished pm-speak and assistant phrasing"), true);
+  assert.equal(systemPrompt.includes("stay literal to the post"), true);
+  assert.equal(systemPrompt.includes("avoid cheap signal"), true);
+  assert.equal(
+    systemPrompt.indexOf("yeah that ux is rough. the lag makes the whole thing feel heavier than it is.") <
+      systemPrompt.indexOf("good products feel obvious in use, not just in screenshots."),
+    true,
+  );
+  assert.equal(systemPrompt.includes("Translate-style replies are most likely to get posted."), false);
+  assert.equal(systemPrompt.includes("Generic agreement underperforms."), false);
   assert.equal(userPrompt.includes('"""Replies should translate big ideas into workflows people can actually use."""'), true);
 });
 
@@ -373,4 +427,92 @@ test("reply draft stream cleanup strips labels, markdown, hashtags, and emoji wr
 test("reply draft stream cleanup preserves leading spaces in later chunks", () => {
   assert.equal(cleanReplyDraftStreamChunk(" first", true), " first");
   assert.equal(cleanReplyDraftStreamChunk(" second line", true), " second line");
+});
+
+test("prepareExtensionReplyDraftPromptPacket uses voice-first shortform reply evidence defaults", async () => {
+  const generation = buildReplyDraftGenerationContext({
+    request: {
+      tweetId: "tweet_10",
+      tweetText: "the ux gets worse when every click makes you wait",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/10",
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+    },
+    strategy,
+  });
+
+  const packet = await prepareExtensionReplyDraftPromptPacket({
+    request: {
+      tweetId: "tweet_10",
+      tweetText: "the ux gets worse when every click makes you wait",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/10",
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+    },
+    strategy,
+    styleCard: lowercaseStyleCard,
+    creatorAgentContext,
+    generation,
+  });
+
+  assert.equal(packet.voiceEvidence.targetLane, "reply");
+  assert.equal(packet.voiceEvidence.draftPreference, "voice_first");
+  assert.equal(packet.voiceEvidence.formatPreference, "shortform");
+  assert.equal(packet.voiceEvidence.laneMatchedAnchors.length > 0, true);
+  assert.equal(String(packet.messages[0]?.content || "").includes("VOICE / SHAPE LAYER:"), true);
+});
+
+test("resolveVoiceTarget does not default replies to question CTA or curious hook", () => {
+  const target = resolveVoiceTarget({
+    styleCard: null,
+    userMessage: "keep it direct and close to my normal reply tone",
+    draftPreference: "voice_first",
+    formatPreference: "shortform",
+    lane: "reply",
+  });
+
+  assert.equal(target.ctaPolicy, "none");
+  assert.equal(target.hookStyle, "blunt");
+});
+
+test("finalizeReplyDraftText preserves lowercase creator style", () => {
+  const finalized = finalizeReplyDraftText("Reply: I Feel That Too. The Lag Makes It Worse.", {
+    styleCard: lowercaseStyleCard,
+  });
+
+  assert.equal(finalized, "i feel that too. the lag makes it worse.");
+});
+
+test("looksAcceptableReplyDraft rejects product-marketing phrasing", () => {
+  const acceptable = looksAcceptableReplyDraft({
+    draft: "yeah the ux part is what makes it feel broken",
+    sourceContext: {
+      primaryPost: {
+        id: "tweet_11",
+        url: "https://x.com/creator/status/11",
+        text: "the ux feels broken when every click stalls",
+        authorHandle: "creator",
+        postType: "original",
+      },
+    },
+  });
+  const rejected = looksAcceptableReplyDraft({
+    draft: "Dislike = cheap signal. If you add it, you get real data to iterate on content.",
+    sourceContext: {
+      primaryPost: {
+        id: "tweet_12",
+        url: "https://x.com/creator/status/12",
+        text: "we should probably have dislikes on here",
+        authorHandle: "creator",
+        postType: "original",
+      },
+    },
+  });
+
+  assert.equal(acceptable, true);
+  assert.equal(rejected, false);
 });

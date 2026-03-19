@@ -134,6 +134,8 @@ export async function planReplyContinuation(args: {
   activeReplyContext: ActiveReplyContext | null;
   replyContinuation: ReplyContinuationAction | null;
   highConfidenceReplyContext?: ReplyEmbeddedRequestContext | null;
+  userId?: string | null;
+  xHandle?: string | null;
   defaultReplyStage: ActiveReplyContext["stage"];
   defaultReplyTone: ActiveReplyContext["tone"];
   defaultReplyGoal: string;
@@ -230,6 +232,8 @@ export async function planReplyContinuation(args: {
         postType: activeReplyContext.sourceContext?.primaryPost.postType,
         sourceContext: activeReplyContext.sourceContext || null,
       },
+      userId: args.userId || null,
+      xHandle: args.xHandle || null,
       strategy: args.replyStrategy,
       styleCard: args.styleCard,
       creatorAgentContext: args.creatorAgentContext || null,
@@ -268,6 +272,8 @@ export async function planReplyContinuation(args: {
         postType: activeReplyContext.sourceContext?.primaryPost.postType,
         sourceContext: activeReplyContext.sourceContext || null,
       },
+      userId: args.userId || null,
+      xHandle: args.xHandle || null,
       strategy: args.replyStrategy,
       styleCard: args.styleCard,
       creatorAgentContext: args.creatorAgentContext || null,

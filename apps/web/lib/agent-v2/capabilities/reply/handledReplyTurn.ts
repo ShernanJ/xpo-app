@@ -35,6 +35,7 @@ interface ControllerMemorySummary {
 }
 
 export interface PrepareHandledReplyTurnArgs {
+  userId?: string | null;
   userMessage: string;
   recentHistory: string;
   explicitIntent?: V2ChatIntent | null;
@@ -112,6 +113,8 @@ export async function prepareHandledReplyTurn(
     activeReplyContext: args.memory.activeReplyContext,
     replyContinuation,
     replyParseResult,
+    userId: args.userId || null,
+    activeHandle: args.activeHandle,
     defaultReplyStage,
     defaultReplyTone,
     defaultReplyGoal,

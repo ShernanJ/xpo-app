@@ -165,7 +165,17 @@ function resolveHookStyle(args: {
   signalText: string;
   lane: VoiceTargetLane;
 }): VoiceTargetHookStyle {
-  if (args.lane === "reply") {
+  if (
+    args.lane === "reply" &&
+    (includesAny(args.normalizedMessage, [
+      "?",
+      "thoughts",
+      "ask a question",
+      "end with a question",
+      "question ending",
+    ]) ||
+      includesAny(args.signalText, ["thoughts?", "asks questions", "question endings"]))
+  ) {
     return "curious";
   }
 
@@ -241,10 +251,6 @@ function resolveCtaPolicy(args: {
   lane: VoiceTargetLane;
   signalText: string;
 }): VoiceTargetCtaPolicy {
-  if (args.lane === "reply") {
-    return "question";
-  }
-
   if (includesAny(args.signalText, ["no cta", "without cta", "avoid cta"])) {
     return "none";
   }

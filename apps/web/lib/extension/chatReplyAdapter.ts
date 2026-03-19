@@ -206,6 +206,8 @@ export function buildChatReplyOptions(args: {
 
 export async function buildChatReplyDraft(args: {
   source: ChatReplySource;
+  userId?: string | null;
+  xHandle?: string | null;
   strategy: GrowthStrategySnapshot;
   styleCard: VoiceStyleCard | null;
   creatorAgentContext?: CreatorAgentContext | null;
@@ -285,6 +287,13 @@ export async function buildChatReplyDraft(args: {
       profileReplyContext: args.profileReplyContext || null,
       groundingPacket: fallback.groundingPacket,
       maxCharacterLimit: 280,
+      retrievalContext:
+        args.userId && args.xHandle
+          ? {
+              userId: args.userId,
+              xHandle: args.xHandle,
+            }
+          : null,
     });
     const generated = await generateReplyDraftText({
       promptPacket,
@@ -304,6 +313,7 @@ export async function buildChatReplyDraft(args: {
         ...(fallback.response.notes || []),
         generated.visualContext ? "Used image context to sharpen the reply." : null,
         `Voice target: ${generated.voiceTarget.summary}`,
+        ...promptPacket.voiceEvidence.summaryLines.slice(0, 2),
       ].filter((entry): entry is string => Boolean(entry)).slice(0, 6),
     };
 

@@ -141,6 +141,8 @@ export async function POST(request: NextRequest) {
     creatorProfileHints,
     creatorAgentContext: userContext.context,
     profileReplyContext,
+    userId: auth.user.id,
+    xHandle: userContext.xHandle,
   });
 
   const chatCompletion = await groq.chat.completions.create({
@@ -162,23 +164,54 @@ export async function POST(request: NextRequest) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let streamedDraft = "";
-      let hasEmittedContent = false;
+      let pendingBuffer = "";
+      let hasReleasedContent = false;
 
       try {
         for await (const chunk of chatCompletion) {
           const rawContent = extractTextContent(chunk.choices[0]?.delta?.content);
-          const content = cleanReplyDraftStreamChunk(rawContent, hasEmittedContent);
+          const content = cleanReplyDraftStreamChunk(rawContent, streamedDraft.length > 0);
           if (!content) {
             continue;
           }
 
           streamedDraft += content;
-          hasEmittedContent = true;
-          controller.enqueue(encoder.encode(content));
+          if (hasReleasedContent) {
+            controller.enqueue(encoder.encode(content));
+            continue;
+          }
+
+          pendingBuffer += content;
+          const bufferedCandidate = finalizeReplyDraftText(streamedDraft, {
+            styleCard: promptPacket.styleCard,
+            maxCharacterLimit: promptPacket.maxCharacterLimit,
+          });
+          const shouldReleaseBufferedStream =
+            bufferedCandidate.length >= 48 &&
+            (/[.?!]/.test(bufferedCandidate) || bufferedCandidate.length >= 96) &&
+            looksAcceptableReplyDraft({
+              draft: bufferedCandidate,
+              sourceContext: promptPacket.sourceContext,
+            });
+
+          if (shouldReleaseBufferedStream) {
+            controller.enqueue(encoder.encode(pendingBuffer));
+            pendingBuffer = "";
+            hasReleasedContent = true;
+          }
         }
 
-        const finalDraft = finalizeReplyDraftText(streamedDraft);
-        const resolvedDraft = finalDraft
+        const finalDraft = finalizeReplyDraftText(streamedDraft, {
+          styleCard: promptPacket.styleCard,
+          maxCharacterLimit: promptPacket.maxCharacterLimit,
+        });
+        const streamAccepted =
+          Boolean(finalDraft) &&
+          looksAcceptableReplyDraft({
+            draft: finalDraft,
+            sourceContext: promptPacket.sourceContext,
+          });
+        const resolvedDraft = streamAccepted
           ? {
               draft: finalDraft,
               model: DEFAULT_REPLY_DRAFT_MODEL,
@@ -189,7 +222,11 @@ export async function POST(request: NextRequest) {
               fallbackModel: FALLBACK_REPLY_DRAFT_MODEL,
             });
 
-        if (!finalDraft) {
+        if (streamAccepted) {
+          if (!hasReleasedContent && pendingBuffer) {
+            controller.enqueue(encoder.encode(pendingBuffer));
+          }
+        } else if (!hasReleasedContent) {
           controller.enqueue(encoder.encode(resolvedDraft.draft));
         }
 
@@ -244,10 +281,7 @@ export async function POST(request: NextRequest) {
                 usedFallback: resolvedDraft.model !== DEFAULT_REPLY_DRAFT_MODEL,
                 replyLane: promptPacket.voiceTarget.lane,
                 usedVisualContext: Boolean(promptPacket.visualContext),
-                streamAccepted: looksAcceptableReplyDraft({
-                  draft: resolvedDraft.draft,
-                  sourceContext: promptPacket.sourceContext,
-                }),
+                streamAccepted,
               },
             });
           } catch (error) {

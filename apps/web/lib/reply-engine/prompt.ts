@@ -1,13 +1,19 @@
 import type { ChatCompletionMessageParam } from "groq-sdk/resources/chat/completions";
 
+import { retrieveAnchors } from "../agent-v2/core/retrieval.ts";
 import { buildVoiceHydrationBlock } from "../agent-v2/prompts/promptHydrator.ts";
+import {
+  buildAntiPatternBlock,
+  buildConversationToneBlock,
+  buildDraftPreferenceBlock,
+  buildFormatPreferenceBlock,
+} from "../agent-v2/prompts/promptHydrator.ts";
 import { resolveVoiceTarget } from "../agent-v2/core/voiceTarget.ts";
 import type {
   CreatorProfileHints,
   GroundingPacket,
 } from "../agent-v2/grounding/groundingPacket.ts";
 import type { ProfileReplyContext } from "../agent-v2/grounding/profileReplyContext.ts";
-import type { ReplyInsights } from "../extension/replyOpportunities.ts";
 import type {
   ExtensionReplyIntentMetadata,
   ExtensionReplyTone,
@@ -20,6 +26,7 @@ import type {
   PreparedReplyPromptPacket,
   ReplyPromptBuildInput,
   ReplySourceContext,
+  ReplyVoiceEvidence,
   ReplyVisualContextSummary,
 } from "./types.ts";
 
@@ -37,23 +44,6 @@ function formatPromptList(values: Array<string | null | undefined>, fallback: st
   }
 
   return entries.map((entry) => `- ${entry}`).join("\n");
-}
-
-function formatTopAngleLabels(replyInsights?: ReplyInsights | null) {
-  const entries = (replyInsights?.topAngleLabels || []).slice(0, 3);
-  if (entries.length === 0) {
-    return "- No historical angle labels yet.";
-  }
-
-  return entries
-    .map((entry) => {
-      const selectionRate =
-        typeof entry.selectionRate === "number"
-          ? `${Math.round(entry.selectionRate * 100)}% selected`
-          : "selection rate unknown";
-      return `- ${entry.label}: ${selectionRate}; ${entry.postedCount} posted`;
-    })
-    .join("\n");
 }
 
 function truncateLine(value: string, max = 220): string {
@@ -100,7 +90,7 @@ function formatProfileReplyContext(profileReplyContext: ProfileReplyContext | nu
     .join("\n");
 }
 
-function collectLaneVoiceExamples(args: {
+function buildFallbackVoiceAnchors(args: {
   creatorAgentContext?: CreatorAgentContext | null;
   creatorProfileHints?: CreatorProfileHints | null;
   sourceContext: ReplySourceContext;
@@ -110,21 +100,159 @@ function collectLaneVoiceExamples(args: {
     ? examples?.quoteVoiceAnchors || []
     : examples?.replyVoiceAnchors || [];
 
-  const snippets = [
-    ...laneAnchors.map((post) => truncateLine(post.text, 180)),
-    ...(args.creatorProfileHints?.topExampleSnippets || []).map((snippet) =>
-      truncateLine(snippet, 180),
-    ),
-  ]
-    .filter(Boolean)
-    .filter((value, index, list) => list.indexOf(value) === index)
-    .slice(0, 4);
+  return {
+    laneMatchedAnchors: laneAnchors.map((post) => truncateLine(post.text, 180)),
+    fallbackAnchors: [
+      ...(args.creatorProfileHints?.topExampleSnippets || []).map((snippet) =>
+        truncateLine(snippet, 180),
+      ),
+      ...((examples?.voiceAnchors || []).map((post) => truncateLine(post.text, 180))),
+      ...((examples?.bestPerforming || []).map((post) => truncateLine(post.text, 180))),
+    ],
+  };
+}
 
-  if (snippets.length === 0) {
-    return "- No lane-specific voice examples captured yet.";
+function dedupeAnchors(values: Array<string | null | undefined>, limit: number): string[] {
+  const seen = new Set<string>();
+  const next: string[] = [];
+
+  for (const value of values) {
+    const normalized = value?.trim().replace(/\s+/g, " ") || "";
+    const key = normalized.toLowerCase();
+    if (!normalized || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    next.push(normalized);
+
+    if (next.length >= limit) {
+      break;
+    }
   }
 
-  return snippets.map((snippet) => `- ${snippet}`).join("\n");
+  return next;
+}
+
+function collectReplyAntiPatterns(styleCard: ReplyPromptBuildInput["styleCard"]): string[] {
+  if (!styleCard) {
+    return [];
+  }
+
+  return dedupeAnchors(
+    [
+      ...(styleCard.antiExamples || []).slice(-3).map((entry) => entry.guidance),
+      ...(styleCard.customGuidelines || []).slice(-3),
+      ...((styleCard.userPreferences?.blacklist || []).slice(0, 3).map((entry) => `avoid ${entry}`)),
+    ],
+    5,
+  );
+}
+
+function buildVoiceEvidenceSummary(args: {
+  targetLane: ReplyVoiceEvidence["targetLane"];
+  laneMatchedAnchors: string[];
+  fallbackAnchors: string[];
+  antiPatterns: string[];
+}): string[] {
+  return [
+    `Target lane: ${args.targetLane}`,
+    args.laneMatchedAnchors.length > 0
+      ? `Primary voice evidence: ${args.laneMatchedAnchors.length} lane-matched anchor${args.laneMatchedAnchors.length === 1 ? "" : "s"}`
+      : "Primary voice evidence: no lane-matched anchors available.",
+    args.fallbackAnchors.length > 0
+      ? `Fallback style support: ${args.fallbackAnchors.length} original-post anchor${args.fallbackAnchors.length === 1 ? "" : "s"}`
+      : "Fallback style support: none.",
+    args.antiPatterns.length > 0
+      ? `Anti-pattern guidance: ${args.antiPatterns.join(" | ")}`
+      : "Anti-pattern guidance: none captured.",
+  ];
+}
+
+async function resolveReplyVoiceEvidence(
+  args: ReplyPromptBuildInput,
+): Promise<ReplyVoiceEvidence> {
+  const targetLane: ReplyVoiceEvidence["targetLane"] = args.sourceContext.quotedPost
+    ? "quote"
+    : "reply";
+  const fallbackAnchors = buildFallbackVoiceAnchors({
+    creatorAgentContext: args.creatorAgentContext,
+    creatorProfileHints: args.creatorProfileHints,
+    sourceContext: args.sourceContext,
+  });
+
+  let retrievedLaneAnchors: string[] = [];
+  let retrievedTopicAnchors: string[] = [];
+  if (args.retrievalContext?.userId && args.retrievalContext.xHandle) {
+    const retrieval = await retrieveAnchors(
+      args.retrievalContext.userId,
+      args.retrievalContext.xHandle,
+      [
+        args.sourceContext.primaryPost.text,
+        args.sourceContext.quotedPost?.text || "",
+        args.selectedIntent?.anchor || "",
+        args.selectedIntent?.label || "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      {
+        targetLane,
+        preferredFormat: "shortform",
+        limit: 6,
+      },
+    );
+    retrievedLaneAnchors = retrieval.laneAnchors.map((entry) => truncateLine(entry, 180));
+    retrievedTopicAnchors = retrieval.topicAnchors.map((entry) => truncateLine(entry, 180));
+  }
+
+  const laneMatchedAnchors = dedupeAnchors(
+    [...retrievedLaneAnchors, ...fallbackAnchors.laneMatchedAnchors],
+    4,
+  );
+  const fallbackStyleAnchors = dedupeAnchors(
+    [...fallbackAnchors.fallbackAnchors, ...retrievedTopicAnchors].filter(
+      (entry) => !laneMatchedAnchors.includes(entry || ""),
+    ),
+    laneMatchedAnchors.length >= 3 ? 2 : 3,
+  );
+  const antiPatterns = collectReplyAntiPatterns(args.styleCard || null);
+
+  return {
+    targetLane,
+    draftPreference: "voice_first",
+    formatPreference: "shortform",
+    laneMatchedAnchors,
+    fallbackAnchors: fallbackStyleAnchors,
+    antiPatterns,
+    summaryLines: buildVoiceEvidenceSummary({
+      targetLane,
+      laneMatchedAnchors,
+      fallbackAnchors: fallbackStyleAnchors,
+      antiPatterns,
+    }),
+  };
+}
+
+function formatVoiceEvidenceBlock(voiceEvidence: ReplyVoiceEvidence) {
+  return [
+    `- Target lane: ${voiceEvidence.targetLane}`,
+    `- Delivery preference: ${voiceEvidence.draftPreference}`,
+    `- Format preference: ${voiceEvidence.formatPreference}`,
+    "Lane-matched reply evidence:",
+    formatPromptList(
+      voiceEvidence.laneMatchedAnchors,
+      "No lane-matched reply anchors available.",
+      4,
+    ),
+    "Fallback style support:",
+    formatPromptList(
+      voiceEvidence.fallbackAnchors,
+      "No fallback original-post anchors available.",
+      3,
+    ),
+    "Use voice evidence for casing, cadence, sentence shape, and endings.",
+    "Do not reuse facts, metrics, or anecdotes from voice evidence unless they also appear in the factual truth layer.",
+  ].join("\n");
 }
 
 function resolveToneDirection(tone: ExtensionReplyTone) {
@@ -178,6 +306,7 @@ export function buildReplyGroundingPacket(args: {
 
 export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
   voiceTargetSummaryMessage?: string | null;
+  voiceEvidence?: ReplyVoiceEvidence | null;
   visualContext?: ReplyVisualContextSummary | null;
 }): string {
   const voiceTarget = resolveVoiceTarget({
@@ -188,12 +317,38 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
         args.goal,
         args.tone === "bold" ? "bolder" : "voice first",
         args.sourceContext.primaryPost.text,
-      ]
+        ]
         .filter(Boolean)
         .join(" "),
     draftPreference: "voice_first",
+    formatPreference: "shortform",
     lane: args.sourceContext.quotedPost ? "quote" : "reply",
   });
+  const voiceEvidence =
+    args.voiceEvidence ||
+    {
+      targetLane: args.sourceContext.quotedPost ? "quote" : "reply",
+      draftPreference: "voice_first" as const,
+      formatPreference: "shortform" as const,
+      laneMatchedAnchors: dedupeAnchors(
+        buildFallbackVoiceAnchors({
+          creatorAgentContext: args.creatorAgentContext,
+          creatorProfileHints: args.creatorProfileHints,
+          sourceContext: args.sourceContext,
+        }).laneMatchedAnchors,
+        4,
+      ),
+      fallbackAnchors: dedupeAnchors(
+        buildFallbackVoiceAnchors({
+          creatorAgentContext: args.creatorAgentContext,
+          creatorProfileHints: args.creatorProfileHints,
+          sourceContext: args.sourceContext,
+        }).fallbackAnchors,
+        3,
+      ),
+      antiPatterns: collectReplyAntiPatterns(args.styleCard || null),
+      summaryLines: [],
+    };
 
   return [
     "You write exactly one X reply in the creator's real voice.",
@@ -213,22 +368,13 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     `Keep it under ${(args.maxCharacterLimit || 280).toLocaleString()} characters.`,
     resolveToneDirection(args.tone),
     "",
+    buildConversationToneBlock("draft"),
+    buildDraftPreferenceBlock("voice_first", "draft"),
+    buildFormatPreferenceBlock("shortform", "draft"),
     buildVoiceHydrationBlock(args.styleCard || null, voiceTarget),
+    buildAntiPatternBlock(voiceEvidence.antiPatterns),
     "",
-    "CREATOR PROFILE HINTS:",
-    formatCreatorHints(args.creatorProfileHints),
-    "",
-    "PROFILE REPLY CONTEXT:",
-    formatProfileReplyContext(args.profileReplyContext),
-    "",
-    "LANE-SPECIFIC VOICE EVIDENCE:",
-    collectLaneVoiceExamples({
-      creatorAgentContext: args.creatorAgentContext,
-      creatorProfileHints: args.creatorProfileHints,
-      sourceContext: args.sourceContext,
-    }),
-    "",
-    "GROUNDING PACKET:",
+    "FACTUAL TRUTH LAYER:",
     "Durable facts:",
     formatPromptList(args.groundingPacket.durableFacts, "No durable facts recorded.", 8),
     "Turn grounding:",
@@ -236,13 +382,38 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     "Unknowns:",
     formatPromptList(args.groundingPacket.unknowns, "No explicit unknowns recorded.", 4),
     "",
-    "REPLY ANALYTICS:",
-    "Top angle labels:",
-    formatTopAngleLabels(args.replyInsights),
-    "Best signals:",
-    formatPromptList(args.replyInsights?.bestSignals || [], "No positive reply signals recorded yet.", 4),
-    "Caution signals:",
-    formatPromptList(args.replyInsights?.cautionSignals || [], "No caution signals recorded yet.", 4),
+    "REPLY CONTEXT LAYER:",
+    `- Visible post author: @${args.sourceContext.primaryPost.authorHandle || "unknown"}`,
+    `- Visible post type: ${args.sourceContext.primaryPost.postType}`,
+    `- Selected reply angle: ${args.selectedIntent?.label || "none selected"}`,
+    `- Selected reply anchor: ${args.selectedIntent?.anchor || "none selected"}`,
+    args.sourceContext.quotedPost
+      ? "- Quote rule: respond to the visible quote-tweet text first; use the quoted post only as supporting context."
+      : "- Reply rule: stay inside the visible post's literal topic and wording.",
+    args.visualContext?.summaryLines?.length
+      ? `- Image context available: ${args.visualContext.summaryLines.join(" | ")}`
+      : "- Image context available: none.",
+    "",
+    "CREATOR PROFILE HINTS:",
+    formatCreatorHints(args.creatorProfileHints),
+    "",
+    "PROFILE REPLY CONTEXT:",
+    formatProfileReplyContext(args.profileReplyContext),
+    "",
+    "VOICE / SHAPE LAYER:",
+    formatVoiceEvidenceBlock(voiceEvidence),
+    "",
+    "REQUIREMENTS:",
+    "1. Write exactly one reply and nothing else.",
+    "2. Sound like the creator actually wrote it, not like a polished assistant or PM.",
+    "3. Prefer the creator's real reply cadence over broad growth or product-strategy language.",
+    "4. Keep it native to X replies: short, direct, and human. Do not turn it into a mini post.",
+    "5. If the creator's historical replies are casual or lowercase, preserve that instead of professionalizing it.",
+    "6. Use lane-matched reply evidence first. Original-post evidence is only fallback style support.",
+    "7. Do not copy factual claims from voice evidence unless the factual truth layer also supports them.",
+    "8. Avoid product-marketing phrasing like 'cheap signal', 'iterate on content', 'real data', 'would love to see', 'next build', or 'vanity likes' unless the creator truly talks that way.",
+    "9. Stay close to the literal nouns and tension in the source post instead of pivoting to adjacent themes.",
+    "10. If you end with a question, it must feel natural to the creator's actual reply style, not like a forced engagement CTA.",
     "",
     "SELECTED REPLY INTENT:",
     `- Angle label: ${args.selectedIntent?.label || "none selected"}`,
@@ -297,7 +468,10 @@ export function buildReplyDraftUserPrompt(args: Pick<
 export async function prepareReplyPromptPacket(
   args: ReplyPromptBuildInput,
 ): Promise<PreparedReplyPromptPacket> {
-  const visualContext = await analyzeReplySourceVisualContext(args.sourceContext);
+  const [visualContext, voiceEvidence] = await Promise.all([
+    analyzeReplySourceVisualContext(args.sourceContext),
+    resolveReplyVoiceEvidence(args),
+  ]);
   const voiceTarget = resolveVoiceTarget({
     styleCard: args.styleCard || null,
     userMessage:
@@ -309,14 +483,17 @@ export async function prepareReplyPromptPacket(
         .filter(Boolean)
         .join(" "),
     draftPreference: "voice_first",
+    formatPreference: "shortform",
     lane: args.sourceContext.quotedPost ? "quote" : "reply",
   });
+  const maxCharacterLimit = args.maxCharacterLimit || 280;
   const messages: ChatCompletionMessageParam[] = [
     {
       role: "system",
       content: buildReplyDraftSystemPrompt({
         ...args,
         visualContext,
+        voiceEvidence,
         voiceTargetSummaryMessage: [
           args.goal,
           args.tone === "bold" ? "bolder" : "voice first",
@@ -341,5 +518,8 @@ export async function prepareReplyPromptPacket(
     groundingPacket: args.groundingPacket,
     voiceTarget,
     visualContext,
+    voiceEvidence,
+    styleCard: args.styleCard || null,
+    maxCharacterLimit,
   };
 }

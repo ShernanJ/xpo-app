@@ -65,6 +65,21 @@ export interface ReplyVisualContextSummary {
   summaryLines: string[];
 }
 
+export interface ReplyVoiceRetrievalContext {
+  userId: string;
+  xHandle: string;
+}
+
+export interface ReplyVoiceEvidence {
+  targetLane: "reply" | "quote";
+  draftPreference: "voice_first";
+  formatPreference: "shortform";
+  laneMatchedAnchors: string[];
+  fallbackAnchors: string[];
+  antiPatterns: string[];
+  summaryLines: string[];
+}
+
 export interface ReplyPromptBuildInput {
   sourceContext: ReplySourceContext;
   strategy: GrowthStrategySnapshot;
@@ -81,6 +96,7 @@ export interface ReplyPromptBuildInput {
   profileReplyContext?: ProfileReplyContext | null;
   groundingPacket: GroundingPacket;
   maxCharacterLimit?: number;
+  retrievalContext?: ReplyVoiceRetrievalContext | null;
 }
 
 export interface PreparedReplyPromptPacket {
@@ -89,6 +105,9 @@ export interface PreparedReplyPromptPacket {
   groundingPacket: GroundingPacket;
   voiceTarget: VoiceTarget;
   visualContext: ReplyVisualContextSummary | null;
+  voiceEvidence: ReplyVoiceEvidence;
+  styleCard: VoiceStyleCard | null;
+  maxCharacterLimit: number;
 }
 
 export interface GeneratedReplyDraftResult {

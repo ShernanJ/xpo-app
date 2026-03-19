@@ -221,6 +221,8 @@ export async function planReplyTurn(args: {
   activeReplyContext: ActiveReplyContext | null;
   replyContinuation: ReplyContinuationResult | null;
   replyParseResult: EmbeddedReplyParseResult;
+  userId?: string | null;
+  activeHandle?: string | null;
   defaultReplyStage: ActiveReplyContext["stage"];
   defaultReplyTone: ActiveReplyContext["tone"];
   defaultReplyGoal: string;
@@ -239,6 +241,8 @@ export async function planReplyTurn(args: {
       args.replyParseResult.context?.confidence === "high"
         ? args.replyParseResult.context
         : null,
+    userId: args.userId || null,
+    xHandle: args.activeHandle || null,
     defaultReplyStage: args.defaultReplyStage,
     defaultReplyTone: args.defaultReplyTone,
     defaultReplyGoal: args.defaultReplyGoal,

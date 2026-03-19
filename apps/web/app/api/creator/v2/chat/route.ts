@@ -1284,6 +1284,7 @@ async function handleChatRouteRequest(args: {
       }),
     );
     const replyTurnPreflight = await prepareHandledReplyTurn({
+      userId: args.userId,
       userMessage: effectiveMessage,
       recentHistory: recentHistoryStr || "None",
       explicitIntent: effectiveExplicitIntent,

@@ -305,6 +305,8 @@ export async function prepareExtensionReplyDraftPromptPacket(args: {
   creatorProfileHints?: CreatorProfileHints | null;
   creatorAgentContext?: CreatorAgentContext | null;
   profileReplyContext?: ProfileReplyContext | null;
+  userId?: string | null;
+  xHandle?: string | null;
 }): Promise<PreparedReplyPromptPacket> {
   return prepareReplyPromptPacket({
     sourceContext: buildReplySourceContextFromExtensionRequest(args.request),
@@ -322,6 +324,13 @@ export async function prepareExtensionReplyDraftPromptPacket(args: {
     profileReplyContext: args.profileReplyContext || null,
     groundingPacket: args.generation.groundingPacket,
     maxCharacterLimit: 280,
+    retrievalContext:
+      args.userId && args.xHandle
+        ? {
+            userId: args.userId,
+            xHandle: args.xHandle,
+          }
+        : null,
   });
 }
 

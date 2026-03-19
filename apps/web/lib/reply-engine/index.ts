@@ -49,6 +49,47 @@ function extractTextContent(
   return "";
 }
 
+async function requestReplyDraft(args: {
+  model: string;
+  messages: PreparedReplyPromptPacket["messages"];
+  temperature: number;
+  maxTokens: number;
+}) {
+  const completion = await getGroqClient().chat.completions.create({
+    model: args.model,
+    temperature: args.temperature,
+    ...(isOpenAiModel(args.model)
+      ? {
+          max_completion_tokens: args.maxTokens,
+          reasoning_effort: "low" as const,
+        }
+      : {
+          max_tokens: args.maxTokens,
+        }),
+    stream: false,
+    messages: args.messages,
+  });
+
+  return extractTextContent(completion.choices?.[0]?.message?.content);
+}
+
+function buildReplyRetryInstruction(promptPacket: PreparedReplyPromptPacket): string {
+  return [
+    "Retry once.",
+    "The previous attempt sounded too generic, too polished, or too marketing-heavy.",
+    "Lean harder on the lane-matched reply evidence for casing, cadence, sentence shape, and endings.",
+    "Stay on the literal subject of the visible post.",
+    "Reuse concrete nouns or phrasing from the visible post naturally.",
+    promptPacket.voiceEvidence.antiPatterns.length > 0
+      ? `Avoid these misses: ${promptPacket.voiceEvidence.antiPatterns.join(" | ")}`
+      : null,
+    "Avoid phrases like 'cheap signal', 'iterate on content', 'real data', 'would love to see', 'next build', or 'vanity likes'.",
+    "Return ONLY the final drafted X reply text in message content. No empty content. No reasoning. No markdown. No commentary.",
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+}
+
 export async function generateReplyDraftText(args: {
   promptPacket: PreparedReplyPromptPacket;
   model?: string;
@@ -60,40 +101,65 @@ export async function generateReplyDraftText(args: {
     .filter((model, index, list) => model && list.indexOf(model) === index);
 
   for (const model of modelsToTry) {
-    const completion = await getGroqClient().chat.completions.create({
-      model,
-      temperature: args.temperature ?? 0.55,
-      ...(isOpenAiModel(model)
-        ? {
-            max_completion_tokens: args.maxTokens ?? 220,
-            reasoning_effort: "low" as const,
-          }
-        : {
-            max_tokens: args.maxTokens ?? 220,
-          }),
-      stream: false,
-      messages: [
-        ...args.promptPacket.messages,
-        {
-          role: "user",
-          content:
-            "Return ONLY the final drafted X reply text in message content. No empty content. No reasoning. No markdown. No commentary.",
-        },
-      ],
-    });
-
+    const maxTokens = args.maxTokens ?? 220;
+    const baseMessages = [
+      ...args.promptPacket.messages,
+      {
+        role: "user" as const,
+        content:
+          "Return ONLY the final drafted X reply text in message content. No empty content. No reasoning. No markdown. No commentary.",
+      },
+    ];
     const candidate = finalizeReplyDraftText(
-      extractTextContent(completion.choices?.[0]?.message?.content),
+      await requestReplyDraft({
+        model,
+        messages: baseMessages,
+        temperature: args.temperature ?? 0.55,
+        maxTokens,
+      }),
+      {
+        styleCard: args.promptPacket.styleCard,
+        maxCharacterLimit: args.promptPacket.maxCharacterLimit,
+      },
+    );
+    if (candidate && looksAcceptableReplyDraft({ draft: candidate, sourceContext: args.promptPacket.sourceContext })) {
+      return {
+        draft: candidate,
+        model,
+        voiceTarget: args.promptPacket.voiceTarget,
+        sourceContext: args.promptPacket.sourceContext,
+        groundingPacket: args.promptPacket.groundingPacket,
+        visualContext: args.promptPacket.visualContext,
+      };
+    }
+
+    const retriedCandidate = finalizeReplyDraftText(
+      await requestReplyDraft({
+        model,
+        messages: [
+          ...args.promptPacket.messages,
+          {
+            role: "user",
+            content: buildReplyRetryInstruction(args.promptPacket),
+          },
+        ],
+        temperature: Math.min(args.temperature ?? 0.55, 0.35),
+        maxTokens,
+      }),
+      {
+        styleCard: args.promptPacket.styleCard,
+        maxCharacterLimit: args.promptPacket.maxCharacterLimit,
+      },
     );
     if (
-      candidate &&
+      retriedCandidate &&
       looksAcceptableReplyDraft({
-        draft: candidate,
+        draft: retriedCandidate,
         sourceContext: args.promptPacket.sourceContext,
       })
     ) {
       return {
-        draft: candidate,
+        draft: retriedCandidate,
         model,
         voiceTarget: args.promptPacket.voiceTarget,
         sourceContext: args.promptPacket.sourceContext,
