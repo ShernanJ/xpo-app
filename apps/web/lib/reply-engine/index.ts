@@ -79,11 +79,12 @@ function buildReplyRetryInstruction(promptPacket: PreparedReplyPromptPacket): st
     "The previous attempt sounded too generic, too polished, or too marketing-heavy.",
     "Lean harder on the lane-matched reply evidence for casing, cadence, sentence shape, and endings.",
     "Stay on the literal subject of the visible post.",
+    "If the visible post is casual, funny, or punchy, match that energy instead of unpacking it into product strategy or consultant language.",
     "Reuse concrete nouns or phrasing from the visible post naturally.",
     promptPacket.voiceEvidence.antiPatterns.length > 0
       ? `Avoid these misses: ${promptPacket.voiceEvidence.antiPatterns.join(" | ")}`
       : null,
-    "Avoid phrases like 'cheap signal', 'iterate on content', 'real data', 'would love to see', 'next build', or 'vanity likes'.",
+    "Avoid phrases like 'interesting angle', 'cheap signal', 'iterate on content', 'real data', 'would love to see', 'next build', or 'vanity likes'.",
     "Return ONLY the final drafted X reply text in message content. No empty content. No reasoning. No markdown. No commentary.",
   ]
     .filter((line): line is string => Boolean(line))

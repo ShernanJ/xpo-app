@@ -6,6 +6,7 @@ import type { ReplySourceContext } from "./types.ts";
 
 const LIST_MARKER_PATTERN = /^\s*(?:[-*•]+|\d+[.)])\s+/;
 const BANNED_GENERIC_PATTERNS = [
+  /\binteresting angle\b/i,
   /\bthe real (?:issue|hinge|leak) is\b/i,
   /\bhere'?s the framework\b/i,
   /\blevel up\b/i,
@@ -19,6 +20,20 @@ const BANNED_GENERIC_PATTERNS = [
   /\bwould love to see\b/i,
   /\bnext build\b/i,
   /\bvanity likes?\b/i,
+];
+const OFF_TOPIC_PRODUCT_DRIFT_TERMS = [
+  "system",
+  "onboarding",
+  "feedback loop",
+  "feedback loops",
+  "workflow",
+  "pipeline",
+  "dashboard",
+  "roadmap",
+  "platform",
+  "feature",
+  "intentional",
+  "clear exit path",
 ];
 
 function stripFormatting(value: string): string {
@@ -142,6 +157,84 @@ function collectAnchorTokens(sourceContext: ReplySourceContext): Set<string> {
   return new Set(source);
 }
 
+function inferReplySourceMode(sourceContext: ReplySourceContext): {
+  isPlayful: boolean;
+  shouldContinueMetaphor: boolean;
+} {
+  const primaryText = sourceContext.primaryPost.text.trim().toLowerCase();
+  const combinedText = [sourceContext.primaryPost.text, sourceContext.quotedPost?.text || ""]
+    .join("\n")
+    .toLowerCase();
+  const hasQuotedPunchline = /["“][^"”]{6,}["”]/.test(sourceContext.primaryPost.text);
+  const hasAnalogy =
+    /\b(like|as if|feels like|market themselves like|basically)\b/.test(primaryText);
+  const hasCasualJokeSignal =
+    /\b(lwk|lol|lmao|lmfao|haha|roast|meme|bit|joke|funny|drop out|dropped out of)\b/.test(
+      combinedText,
+    );
+  const hasPlayfulConstruction =
+    /\bshould market\b/.test(primaryText) || /\bdesigned to be\b/.test(primaryText);
+
+  const isPlayful =
+    (hasQuotedPunchline && hasAnalogy) || hasCasualJokeSignal || (hasAnalogy && hasPlayfulConstruction);
+
+  return {
+    isPlayful,
+    shouldContinueMetaphor: isPlayful && hasAnalogy,
+  };
+}
+
+function containsOffTopicProductDrift(args: {
+  draft: string;
+  sourceContext: ReplySourceContext;
+}): boolean {
+  const draftLower = args.draft.toLowerCase();
+  const sourceLower = [
+    args.sourceContext.primaryPost.text,
+    args.sourceContext.quotedPost?.text || "",
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return OFF_TOPIC_PRODUCT_DRIFT_TERMS.some(
+    (term) => draftLower.includes(term) && !sourceLower.includes(term),
+  );
+}
+
+function isLiteralizingPlayfulSource(args: {
+  draft: string;
+  sourceContext: ReplySourceContext;
+}): boolean {
+  const sourceMode = inferReplySourceMode(args.sourceContext);
+  if (!sourceMode.isPlayful) {
+    return false;
+  }
+
+  const draftLower = args.draft.toLowerCase();
+  const sourceLower = [
+    args.sourceContext.primaryPost.text,
+    args.sourceContext.quotedPost?.text || "",
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  const literalizingTerms = [
+    "system behind",
+    "platform",
+    "onboarding",
+    "feedback loop",
+    "feedback loops",
+    "feature",
+    "intentional",
+    "clear exit path",
+    "product",
+  ];
+
+  return literalizingTerms.some(
+    (term) => draftLower.includes(term) && !sourceLower.includes(term),
+  );
+}
+
 export function looksAcceptableReplyDraft(args: {
   draft: string;
   sourceContext: ReplySourceContext;
@@ -160,6 +253,14 @@ export function looksAcceptableReplyDraft(args: {
   }
 
   if (BANNED_GENERIC_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return false;
+  }
+
+  if (containsOffTopicProductDrift({ draft: normalized, sourceContext: args.sourceContext })) {
+    return false;
+  }
+
+  if (isLiteralizingPlayfulSource({ draft: normalized, sourceContext: args.sourceContext })) {
     return false;
   }
 

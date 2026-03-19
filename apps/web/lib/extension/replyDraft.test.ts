@@ -73,6 +73,28 @@ const lowercaseStyleCard: VoiceStyleCard = {
 
 const creatorAgentContext = {
   creatorProfile: {
+    identity: {
+      username: "shernanjavier",
+    },
+    voice: {
+      primaryCasing: "lowercase",
+      averageLengthBand: "medium",
+      lowercaseSharePercent: 96,
+      questionPostRate: 8,
+      multiLinePostRate: 12,
+      emojiPostRate: 0,
+      dominantContentType: "observation",
+      dominantHookPattern: "statement",
+      styleNotes: ["casual", "direct", "not polished"],
+    },
+    styleCard: {
+      preferredOpeners: ["yo", "yeah", "lwk"],
+      preferredClosers: ["thats it", "idk"],
+      signaturePhrases: ["lwk", "thats kind of it"],
+      punctuationGuidelines: ["prefer lowercase", "keep punctuation light"],
+      emojiPolicy: "off",
+      forbiddenPhrases: ["interesting angle", "would love to see"],
+    },
     examples: {
       replyVoiceAnchors: [
         { text: "yeah that ux is rough. the lag makes the whole thing feel heavier than it is." },
@@ -334,10 +356,14 @@ test("reply draft prompt prioritizes lane-matched anchors and anti-pattern guida
   assert.equal(systemPrompt.includes("DELIVERY BIAS (draft):"), true);
   assert.equal(systemPrompt.includes("FORMAT BIAS (draft):"), true);
   assert.equal(systemPrompt.includes("NEGATIVE GUIDANCE:"), true);
+  assert.equal(systemPrompt.includes("CREATOR REPLY STYLE:"), true);
+  assert.equal(systemPrompt.includes("this creator skews casual and internet-native"), true);
+  assert.equal(systemPrompt.includes("Do not unpack it into product advice, system design, or strategy analysis."), true);
   assert.equal(systemPrompt.includes("VOICE / SHAPE LAYER:"), true);
   assert.equal(systemPrompt.includes("avoid polished pm-speak and assistant phrasing"), true);
   assert.equal(systemPrompt.includes("stay literal to the post"), true);
   assert.equal(systemPrompt.includes("avoid cheap signal"), true);
+  assert.equal(systemPrompt.includes("Forbidden phrases: interesting angle | would love to see"), true);
   assert.equal(
     systemPrompt.indexOf("yeah that ux is rough. the lag makes the whole thing feel heavier than it is.") <
       systemPrompt.indexOf("good products feel obvious in use, not just in screenshots."),
@@ -417,6 +443,42 @@ test("reply draft prompt keeps quote-tweet context visible before quoted context
     ),
     true,
   );
+});
+
+test("reply draft prompt treats playful analogy posts like riffs instead of product analysis", () => {
+  const generation = buildReplyDraftGenerationContext({
+    request: {
+      tweetId: "tweet_9",
+      tweetText: 'waterloo should market themselves like hinge, like "designed to be dropped out of"',
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/9",
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+    },
+    strategy,
+  });
+
+  const systemPrompt = buildReplyDraftSystemPrompt({
+    request: {
+      tweetId: "tweet_9",
+      tweetText: 'waterloo should market themselves like hinge, like "designed to be dropped out of"',
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/9",
+      stage: "0_to_1k",
+      tone: "builder",
+      goal: "followers",
+    },
+    strategy,
+    styleCard: lowercaseStyleCard,
+    creatorAgentContext,
+    generation,
+  });
+
+  assert.equal(systemPrompt.includes("This source uses a playful analogy. Continue the analogy or joke"), true);
+  assert.equal(systemPrompt.includes("This post is playful / joke-shaped."), true);
+  assert.equal(systemPrompt.includes("For this reply, do not explain the joke. Add to the joke."), true);
+  assert.equal(systemPrompt.includes("Use creator profile hints as background voice calibration only."), true);
 });
 
 test("reply draft stream cleanup strips labels, markdown, hashtags, and emoji wrappers", () => {
@@ -514,5 +576,41 @@ test("looksAcceptableReplyDraft rejects product-marketing phrasing", () => {
   });
 
   assert.equal(acceptable, true);
+  assert.equal(rejected, false);
+});
+
+test("looksAcceptableReplyDraft rejects off-topic product drift on casual sources", () => {
+  const rejected = looksAcceptableReplyDraft({
+    draft:
+      'interesting angle. if waterloo framed the platform as "designed to be dropped out of," the onboarding and feedback loops would need to be rock solid.',
+    sourceContext: {
+      primaryPost: {
+        id: "tweet_13",
+        url: "https://x.com/creator/status/13",
+        text: 'waterloo should market themselves like hinge, like "designed to be dropped out of"',
+        authorHandle: "creator",
+        postType: "original",
+      },
+    },
+  });
+
+  assert.equal(rejected, false);
+});
+
+test("looksAcceptableReplyDraft rejects literalizing a playful analogy into product talk", () => {
+  const rejected = looksAcceptableReplyDraft({
+    draft:
+      'the system behind waterloo feels like a dating app. if you can\'t swipe left you\'re stuck. need a clear exit path.',
+    sourceContext: {
+      primaryPost: {
+        id: "tweet_14",
+        url: "https://x.com/creator/status/14",
+        text: 'waterloo should market themselves like hinge, like "designed to be dropped out of"',
+        authorHandle: "creator",
+        postType: "original",
+      },
+    },
+  });
+
   assert.equal(rejected, false);
 });

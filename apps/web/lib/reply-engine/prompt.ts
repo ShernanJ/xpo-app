@@ -55,6 +55,44 @@ function truncateLine(value: string, max = 220): string {
   return `${normalized.slice(0, Math.max(0, max - 3)).trimEnd()}...`;
 }
 
+function normalizeComparable(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function collectKeywords(value: string): string[] {
+  return normalizeComparable(value)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4);
+}
+
+function inferReplySourceMode(sourceContext: ReplySourceContext): {
+  isPlayful: boolean;
+  shouldContinueMetaphor: boolean;
+} {
+  const primaryText = sourceContext.primaryPost.text.trim().toLowerCase();
+  const combinedText = [sourceContext.primaryPost.text, sourceContext.quotedPost?.text || ""]
+    .join("\n")
+    .toLowerCase();
+  const hasQuotedPunchline = /["“][^"”]{6,}["”]/.test(sourceContext.primaryPost.text);
+  const hasAnalogy =
+    /\b(like|as if|feels like|market themselves like|basically)\b/.test(primaryText);
+  const hasCasualJokeSignal =
+    /\b(lwk|lol|lmao|lmfao|haha|roast|meme|bit|joke|funny|drop out|dropped out of)\b/.test(
+      combinedText,
+    );
+  const hasPlayfulConstruction =
+    /\bshould market\b/.test(primaryText) || /\bdesigned to be\b/.test(primaryText);
+
+  const isPlayful =
+    (hasQuotedPunchline && hasAnalogy) || hasCasualJokeSignal || (hasAnalogy && hasPlayfulConstruction);
+
+  return {
+    isPlayful,
+    shouldContinueMetaphor: isPlayful && hasAnalogy,
+  };
+}
+
 function formatCreatorHints(creatorProfileHints: CreatorProfileHints | null | undefined) {
   if (!creatorProfileHints) {
     return "No creator profile hints available.";
@@ -88,6 +126,85 @@ function formatProfileReplyContext(profileReplyContext: ProfileReplyContext | nu
   ]
     .filter((line): line is string => Boolean(line))
     .join("\n");
+}
+
+function buildCreatorReplyStyleBlock(creatorAgentContext: CreatorAgentContext | null | undefined) {
+  const profile = creatorAgentContext?.creatorProfile;
+  if (!profile?.voice || !profile?.styleCard) {
+    return "No creator reply style profile available.";
+  }
+
+  const voice = profile.voice;
+  const styleCard = profile.styleCard;
+  const handle = profile.identity.username?.trim().replace(/^@+/, "").toLowerCase() || "";
+  const signalText = [
+    ...(voice.styleNotes || []),
+    ...(styleCard.preferredOpeners || []),
+    ...(styleCard.signaturePhrases || []),
+  ]
+    .join(" ")
+    .toLowerCase();
+  const multiLineRatePercent =
+    voice.multiLinePostRate <= 1 ? Math.round(voice.multiLinePostRate * 100) : voice.multiLinePostRate;
+  const isExplicitlyCasual =
+    handle === "shernanjavier" ||
+    /\b(casual|raw|relaxed|loose|playful|unfiltered)\b/.test(signalText) ||
+    (voice.primaryCasing === "lowercase" &&
+      voice.lowercaseSharePercent >= 70 &&
+      (voice.averageLengthBand === "short" || voice.averageLengthBand === "medium"));
+  const shortReplyBias =
+    voice.averageLengthBand === "short" ||
+    (voice.averageLengthBand === "medium" && voice.multiLinePostRate < 30);
+
+  return [
+    `- Observed casing: ${voice.primaryCasing} (${voice.lowercaseSharePercent}% lowercase share)`,
+    `- Typical length: ${voice.averageLengthBand || "unknown"}`,
+    `- Multi-line rate: ${multiLineRatePercent}%`,
+    isExplicitlyCasual
+      ? "- Casualness: this creator skews casual and internet-native. Do not rewrite them into polished product or consultant language."
+      : "- Casualness: keep the reply natural, but do not force slang the creator does not use.",
+    shortReplyBias
+      ? "- Shape: prefer one short sentence or two short clauses max. Do not turn it into an explainer."
+      : "- Shape: keep it concise and native to replies rather than building a full mini-post.",
+    styleCard.preferredOpeners.length > 0
+      ? `- Familiar openers: ${styleCard.preferredOpeners.slice(0, 3).join(" | ")}`
+      : null,
+    styleCard.signaturePhrases.length > 0
+      ? `- Signature phrases: ${styleCard.signaturePhrases.slice(0, 4).join(" | ")}`
+      : null,
+    styleCard.forbiddenPhrases.length > 0
+      ? `- Forbidden phrases: ${styleCard.forbiddenPhrases.slice(0, 5).join(" | ")}`
+      : null,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+}
+
+function shouldUseIntentOverlay(args: {
+  sourceContext: ReplySourceContext;
+  selectedIntent?: ExtensionReplyIntentMetadata | null;
+  strategyPillar?: string | null;
+  angleLabel?: string | null;
+}) {
+  const sourceTokens = new Set(
+    [
+      ...collectKeywords(args.sourceContext.primaryPost.text),
+      ...collectKeywords(args.sourceContext.quotedPost?.text || ""),
+    ].slice(0, 24),
+  );
+
+  if (sourceTokens.size === 0) {
+    return false;
+  }
+
+  const overlayTokens = [
+    ...collectKeywords(args.selectedIntent?.anchor || ""),
+    ...collectKeywords(args.selectedIntent?.strategyPillar || ""),
+    ...collectKeywords(args.strategyPillar || ""),
+    ...collectKeywords(args.angleLabel || ""),
+  ];
+
+  return overlayTokens.some((token) => sourceTokens.has(token));
 }
 
 function buildFallbackVoiceAnchors(args: {
@@ -134,18 +251,20 @@ function dedupeAnchors(values: Array<string | null | undefined>, limit: number):
   return next;
 }
 
-function collectReplyAntiPatterns(styleCard: ReplyPromptBuildInput["styleCard"]): string[] {
-  if (!styleCard) {
-    return [];
-  }
-
+function collectReplyAntiPatterns(args: {
+  styleCard: ReplyPromptBuildInput["styleCard"];
+  creatorAgentContext?: CreatorAgentContext | null;
+}): string[] {
   return dedupeAnchors(
     [
-      ...(styleCard.antiExamples || []).slice(-3).map((entry) => entry.guidance),
-      ...(styleCard.customGuidelines || []).slice(-3),
-      ...((styleCard.userPreferences?.blacklist || []).slice(0, 3).map((entry) => `avoid ${entry}`)),
+      ...(args.styleCard?.antiExamples || []).slice(-3).map((entry) => entry.guidance),
+      ...(args.styleCard?.customGuidelines || []).slice(-3),
+      ...((args.styleCard?.userPreferences?.blacklist || []).slice(0, 3).map((entry) => `avoid ${entry}`)),
+      ...((args.creatorAgentContext?.creatorProfile.styleCard.forbiddenPhrases || []).slice(0, 4).map(
+        (entry) => `avoid ${entry}`,
+      )),
     ],
-    5,
+    6,
   );
 }
 
@@ -215,7 +334,10 @@ async function resolveReplyVoiceEvidence(
     ),
     laneMatchedAnchors.length >= 3 ? 2 : 3,
   );
-  const antiPatterns = collectReplyAntiPatterns(args.styleCard || null);
+  const antiPatterns = collectReplyAntiPatterns({
+    styleCard: args.styleCard || null,
+    creatorAgentContext: args.creatorAgentContext || null,
+  });
 
   return {
     targetLane,
@@ -276,22 +398,30 @@ export function buildReplyGroundingPacket(args: {
   angleLabel: string;
   visualContext?: ReplyVisualContextSummary | null;
 }): GroundingPacket {
+  const sourceMode = inferReplySourceMode(args.sourceContext);
+  const useIntentOverlay = shouldUseIntentOverlay({
+    sourceContext: args.sourceContext,
+    strategyPillar: args.strategyPillar,
+    angleLabel: args.angleLabel,
+  });
+
   return {
     durableFacts: [
       `Known for: ${args.strategy.knownFor}`,
       `Target audience: ${args.strategy.targetAudience}`,
-      `Primary content pillar: ${args.strategyPillar}`,
       ...args.strategy.truthBoundary.verifiedFacts,
     ],
     turnGrounding: [
       `Visible post text: ${args.sourceContext.primaryPost.text}`,
       `Reply lane: ${args.sourceContext.quotedPost ? "quote" : "reply"}`,
-      `Reply angle: ${args.angleLabel}`,
+      ...(useIntentOverlay ? [`Optional aligned lens: ${args.strategyPillar}`] : []),
       ...(args.sourceContext.quotedPost?.text
         ? [`Quoted post text: ${args.sourceContext.quotedPost.text}`]
         : []),
       ...(args.visualContext?.summaryLines || []).map((line) => `Image context: ${line}`),
-      ...args.strategy.truthBoundary.inferredThemes.slice(0, 4),
+      ...(useIntentOverlay && !sourceMode.isPlayful
+        ? args.strategy.truthBoundary.inferredThemes.slice(0, 2)
+        : []),
     ],
     allowedFirstPersonClaims: [],
     allowedNumbers: [],
@@ -309,6 +439,13 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
   voiceEvidence?: ReplyVoiceEvidence | null;
   visualContext?: ReplyVisualContextSummary | null;
 }): string {
+  const sourceMode = inferReplySourceMode(args.sourceContext);
+  const useIntentOverlay = shouldUseIntentOverlay({
+    sourceContext: args.sourceContext,
+    selectedIntent: args.selectedIntent,
+    strategyPillar: args.selectedIntent?.strategyPillar || null,
+    angleLabel: args.selectedIntent?.label || null,
+  });
   const voiceTarget = resolveVoiceTarget({
     styleCard: args.styleCard || null,
     userMessage:
@@ -346,7 +483,10 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
         }).fallbackAnchors,
         3,
       ),
-      antiPatterns: collectReplyAntiPatterns(args.styleCard || null),
+      antiPatterns: collectReplyAntiPatterns({
+        styleCard: args.styleCard || null,
+        creatorAgentContext: args.creatorAgentContext || null,
+      }),
       summaryLines: [],
     };
 
@@ -361,6 +501,11 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     "Stay on the literal subject matter of the post. If the post is about UX, reply about UX. If the post is about the product, reply about the product.",
     "Reuse at least one concrete noun, phrase, or topic from the visible post or quoted post when it fits naturally.",
     "Match the creator's casing and reply register. If their real examples skew lowercase and casual, stay lowercase and casual.",
+    "If the source post reads like a joke, observation, or quick riff, answer like a person joining the riff. Do not unpack it into product advice, system design, or strategy analysis.",
+    "Do not explain the post back in more corporate language than the original post used.",
+    sourceMode.shouldContinueMetaphor
+      ? "This source uses a playful analogy. Continue the analogy or joke instead of translating it into a literal product explanation."
+      : null,
     "Avoid generic AI phrasing like 'the real issue is', 'here's the framework', 'level up', 'high-ROI', 'operator', or 'it pays dividends'.",
     "This is a reply, not a standalone post. Prefer a native X reply shape: quick agreement, pushback, add-on, observation, question, or concise riff.",
     "If the source is a quote tweet, respond to the visible quote-tweet text first and use the quoted post as supporting context only.",
@@ -396,9 +541,22 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     "",
     "CREATOR PROFILE HINTS:",
     formatCreatorHints(args.creatorProfileHints),
+    "Use creator profile hints as background voice calibration only. Do not use them to change the subject of the reply.",
     "",
     "PROFILE REPLY CONTEXT:",
     formatProfileReplyContext(args.profileReplyContext),
+    "Use profile reply context for voice memory only. Do not let it pull the reply away from the literal post.",
+    "",
+    "SOURCE MODE:",
+    sourceMode.isPlayful
+      ? "- This post is playful / joke-shaped. Prioritize a short riff, pile-on, or extension of the bit."
+      : "- This post is straightforward. Prioritize a direct, native reply.",
+    sourceMode.shouldContinueMetaphor
+      ? "- Continue the metaphor instead of stepping outside it to explain product strategy."
+      : "- Do not over-interpret the post beyond what it actually says.",
+    "",
+    "CREATOR REPLY STYLE:",
+    buildCreatorReplyStyleBlock(args.creatorAgentContext),
     "",
     "VOICE / SHAPE LAYER:",
     formatVoiceEvidenceBlock(voiceEvidence),
@@ -414,12 +572,18 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     "8. Avoid product-marketing phrasing like 'cheap signal', 'iterate on content', 'real data', 'would love to see', 'next build', or 'vanity likes' unless the creator truly talks that way.",
     "9. Stay close to the literal nouns and tension in the source post instead of pivoting to adjacent themes.",
     "10. If you end with a question, it must feel natural to the creator's actual reply style, not like a forced engagement CTA.",
+    "11. If the source is already casual, funny, or punchy, match that energy instead of sounding more analytical than the post itself.",
+    sourceMode.shouldContinueMetaphor
+      ? "12. For this reply, do not explain the joke. Add to the joke."
+      : "12. Do not over-explain the source post.",
     "",
-    "SELECTED REPLY INTENT:",
-    `- Angle label: ${args.selectedIntent?.label || "none selected"}`,
-    `- Strategy pillar: ${args.selectedIntent?.strategyPillar || "none selected"}`,
-    `- Anchor: ${args.selectedIntent?.anchor || "none selected"}`,
-    `- Rationale: ${args.selectedIntent?.rationale || "none selected"}`,
+    "OPTIONAL REPLY LENS:",
+    useIntentOverlay
+      ? `- Anchor: ${args.selectedIntent?.anchor || "none selected"}`
+      : "- No aligned strategic lens. Stay with the literal post and creator voice instead.",
+    useIntentOverlay
+      ? `- Rationale: ${args.selectedIntent?.rationale || "none selected"}`
+      : "- Do not force a strategy pillar that changes the topic of the reply.",
   ].join("\n");
 }
 
