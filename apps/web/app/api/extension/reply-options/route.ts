@@ -16,6 +16,7 @@ import {
 import {
   buildExtensionReplyOptions,
   prepareExtensionReplyOptionsPolicy,
+  verifyExtensionReplyOptionsResponse,
 } from "../../../../lib/extension/replyOptions.ts";
 import { getReplyInsightsForUser } from "../../../../lib/extension/replyOpportunities.ts";
 import type {
@@ -198,8 +199,14 @@ export async function POST(request: NextRequest) {
       sourceContext,
       visualContext,
     });
+    const verified = await verifyExtensionReplyOptionsResponse({
+      response,
+      sourceContext,
+      visualContext,
+      preflightResult,
+    });
 
-    if (!assertExtensionReplyOptionsResponseShape(response)) {
+    if (!assertExtensionReplyOptionsResponseShape(verified.response)) {
       logExtensionRouteFailure({
         route: "reply-options",
         userId: auth.user.id,
@@ -214,14 +221,14 @@ export async function POST(request: NextRequest) {
     const nextNotes = mergeStoredOpportunityNotes(record, {
       analytics: {
         lastLoggedEvent: "generated",
-        generatedReplyIds: response.options.map((option) => option.id),
-        generatedReplyLabels: response.options.map((option) => option.label),
-        generatedReplyIntents: response.options
+        generatedReplyIds: verified.response.options.map((option) => option.id),
+        generatedReplyLabels: verified.response.options.map((option) => option.label),
+        generatedReplyIntents: verified.response.options
           .map((option) => option.intent)
           .filter(
             (
               intent,
-            ): intent is NonNullable<(typeof response.options)[number]["intent"]> => Boolean(intent),
+            ): intent is NonNullable<(typeof verified.response.options)[number]["intent"]> => Boolean(intent),
           )
           .map((intent) => ({
             label: intent.label,
@@ -235,7 +242,7 @@ export async function POST(request: NextRequest) {
     await prisma.replyOpportunity.update({
       where: { id: record.id },
       data: {
-        generatedOptions: response.options as unknown as Prisma.InputJsonArray,
+        generatedOptions: verified.response.options as unknown as Prisma.InputJsonArray,
         generatedAngleLabel: persistedOpportunity.suggestedAngle,
         state: "generated",
         generatedAt: new Date(),
@@ -250,7 +257,7 @@ export async function POST(request: NextRequest) {
       properties: {
         opportunityId: record.id,
         postId: record.tweetId,
-        optionCount: response.options.length,
+        optionCount: verified.response.options.length,
         verdict: persistedOpportunity.verdict,
         suggestedAngle: persistedOpportunity.suggestedAngle,
       },
@@ -263,7 +270,7 @@ export async function POST(request: NextRequest) {
       }),
     );
 
-    return NextResponse.json(response);
+    return NextResponse.json(verified.response);
   } catch (error) {
     logExtensionRouteFailure({
       route: "reply-options",

@@ -13,6 +13,7 @@ import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrate
 
 import { analyzeReplySourceVisualContext } from "./context.ts";
 import { retrieveReplyGoldenExamples } from "./goldenExamples.ts";
+import { resolveSourceInterpretation } from "./interpretation.ts";
 import { resolveReplyConstraintPolicy } from "./policy.ts";
 import { buildReplyDraftPreflightFallback, classifyReplyDraftMode } from "./preflight.ts";
 import { inferReplySourceMode, resolveReplyToneDirection } from "./tone.ts";
@@ -464,6 +465,12 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     sourceContext: args.sourceContext,
     strategy: args.strategy,
     preflightResult: args.preflightResult,
+    visualContext: args.visualContext || null,
+  });
+  const interpretation = resolveSourceInterpretation({
+    sourceContext: args.sourceContext,
+    preflightResult: args.preflightResult || null,
+    visualContext: args.visualContext || null,
   });
   const useIntentOverlay =
     policy.allowStrategyLens &&
@@ -581,10 +588,25 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     formatProfileReplyContext(args.profileReplyContext),
     "Use profile reply context for voice memory only. Do not let it pull the reply away from the literal post.",
     "",
+    "SOURCE INTERPRETATION:",
+    `- Literality: ${interpretation.literality} (${interpretation.literality_confidence}% confidence)`,
+    `- Humor mode: ${interpretation.humor_mode}`,
+    `- Post frame: ${interpretation.post_frame}`,
+    `- Target: ${interpretation.target}`,
+    `- Image artifact type: ${interpretation.image_artifact_type}`,
+    `- Allowed reply moves: ${interpretation.allowed_reply_moves.join(" | ")}`,
+    `- Disallowed reply moves: ${interpretation.disallowed_reply_moves.join(" | ")}`,
+    "",
     "SOURCE MODE:",
     sourceMode.isPlayful
       ? "- This post is playful / joke-shaped. Prioritize a short riff, pile-on, or extension of the bit."
       : "- This post is straightforward. Prioritize a direct, native reply.",
+    interpretation.literality !== "literal"
+      ? "- Treat the source as non-literal or partially non-literal. Do not answer it like a sincere roadmap request."
+      : "- The source reads as literal. Direct critique or add-on is allowed when it stays grounded.",
+    interpretation.post_frame === "mockup"
+      ? "- The post is presenting a mockup/parody artifact. React to what it is mocking or implying, not to an imaginary feature backlog."
+      : null,
     policy.imageRole === "punchline"
       ? "- The image is carrying the punchline. Treat it as source material, not decoration."
       : policy.imageRole === "proof"
@@ -605,6 +627,12 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     !policy.allowAdvice
       ? "- Do not give unsolicited self-improvement, productivity, or behavioral advice."
       : "- Advice is only useful if it feels naturally invited by the source post.",
+    !policy.allowAdjacentIdeation
+      ? "- Do not invent adjacent features, adjacent premises, or 'it would be better if...' follow-ons that the post did not ask for."
+      : "- If you add a next step, it must stay inside the post's actual frame.",
+    !policy.allowLiteralProductBrainstorm
+      ? "- Do not treat satire, parody, mockups, or cursed UI ideas like a sincere product spec."
+      : null,
     policy.shouldReferenceImageText
       ? "- Readable in-image text is first-class source material here. Reuse it naturally if it sharpens the reply."
       : "- Do not force a mention of image text unless it clearly matters.",
@@ -649,6 +677,12 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     policy.imageRole === "punchline"
       ? "15. Avoid performative joke constructions like 'more like...', big wink-nod phrasing, or turning the OCR into a caption."
       : "15. Keep the phrasing native and unforced.",
+    !policy.allowAdjacentIdeation
+      ? "16. Do not brainstorm adjacent features or alternative product ideas unless the post explicitly invites that move."
+      : "16. If you propose a next layer, it must still answer the visible post rather than replacing it.",
+    !policy.allowLiteralProductBrainstorm
+      ? "17. If the post is satire, parody, or a mockup, react to the target of the joke instead of treating it as sincere product ideation."
+      : "17. When the post is sincere, grounded critique or add-on is allowed.",
     "",
     "OPTIONAL REPLY LENS:",
     useIntentOverlay
@@ -697,6 +731,15 @@ export function buildReplyDraftUserPrompt(args: Pick<
           `Classifier reply mode: ${args.preflightResult.recommended_reply_mode}`,
           `Classifier post intent: ${args.preflightResult.post_intent}`,
           `Classifier image role: ${args.preflightResult.image_role}`,
+          args.preflightResult.interpretation
+            ? `Classifier literality: ${args.preflightResult.interpretation.literality}`
+            : null,
+          args.preflightResult.interpretation
+            ? `Classifier humor mode: ${args.preflightResult.interpretation.humor_mode}`
+            : null,
+          args.preflightResult.interpretation
+            ? `Classifier target: ${args.preflightResult.interpretation.target}`
+            : null,
           args.preflightResult.image_reply_anchor
             ? `Classifier image anchor: ${args.preflightResult.image_reply_anchor}`
             : null,
@@ -734,8 +777,13 @@ export async function prepareReplyPromptPacket(
       sourceText: args.sourceContext.primaryPost.text,
       quotedText: args.sourceContext.quotedPost?.text || null,
       imageSummaryLines: resolvedVisualContext?.summaryLines || [],
-      visualContext: resolvedVisualContext,
-    }));
+        visualContext: resolvedVisualContext,
+      }));
+  const interpretation = resolveSourceInterpretation({
+    sourceContext: args.sourceContext,
+    preflightResult,
+    visualContext: resolvedVisualContext,
+  });
   const goldenExamples =
     args.goldenExamples ||
     (args.retrievalContext?.userId && args.retrievalContext.xHandle
@@ -793,6 +841,7 @@ export async function prepareReplyPromptPacket(
     groundingPacket: args.groundingPacket,
     voiceTarget,
     visualContext: resolvedVisualContext,
+    interpretation,
     voiceEvidence,
     styleCard: args.styleCard || null,
     maxCharacterLimit,

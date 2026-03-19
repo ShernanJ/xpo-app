@@ -49,7 +49,11 @@ export function inferReplySourceMode(args: {
 
   const isPlayful =
     args.preflightResult.recommended_reply_mode === "joke_riff" ||
-    args.preflightResult.source_shape === "joke_setup";
+    args.preflightResult.source_shape === "joke_setup" ||
+    args.preflightResult.interpretation?.humor_mode === "playful" ||
+    args.preflightResult.interpretation?.humor_mode === "satire" ||
+    args.preflightResult.interpretation?.humor_mode === "parody" ||
+    args.preflightResult.interpretation?.humor_mode === "absurdist";
   return {
     isPlayful,
     shouldContinueMetaphor: isPlayful && hasAnalogy,

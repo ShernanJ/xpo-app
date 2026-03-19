@@ -26,8 +26,11 @@ import {
   buildReplySourceContextFromOpportunityCandidate,
   classifyReplyDraftMode,
   resolveReplyConstraintPolicy,
+  resolveSourceInterpretation,
+  verifyReplyClaims,
 } from "../reply-engine/index.ts";
 import type {
+  ClaimVerificationResult,
   ReplySourceContext,
   ReplyVisualContextSummary,
 } from "../reply-engine/types.ts";
@@ -313,8 +316,17 @@ export function buildExtensionReplyOptions(args: {
     visualContext: args.visualContext || null,
     preflightResult: args.preflightResult || null,
   });
+  const interpretation = resolveSourceInterpretation({
+    sourceContext,
+    preflightResult: args.preflightResult || null,
+    visualContext: args.visualContext || null,
+  });
+  const useLiteralReactionMode =
+    policy.treatAsLowSignalCasual ||
+    interpretation.literality !== "literal" ||
+    interpretation.post_frame === "mockup";
 
-  const fallback = policy.treatAsLowSignalCasual
+  const fallback = useLiteralReactionMode
     ? buildCasualReplyText({
         sourceText: args.post.text,
         variant: "relatable",
@@ -398,7 +410,7 @@ export function buildExtensionReplyOptions(args: {
     })
     .filter((option): option is NonNullable<typeof option> => Boolean(option))
     .slice(0, 3);
-  const options = policy.treatAsLowSignalCasual ? casualOptions : strategicOptions;
+  const options = useLiteralReactionMode ? casualOptions : strategicOptions;
   const fallbackOption = applyVoiceCase(
     sanitizeReplyText({
       candidate: fallback,
@@ -419,8 +431,11 @@ export function buildExtensionReplyOptions(args: {
     options: options.length > 0 ? options : [{ id: "nuance-1", label: "nuance", text: fallbackOption }],
     warnings: [
       ...warnings,
-      ...(policy.treatAsLowSignalCasual
+      ...(useLiteralReactionMode
         ? ["Source reads as a casual/off-niche observation, so options stay literal on purpose."]
+        : []),
+      ...(interpretation.humor_mode === "satire" || interpretation.humor_mode === "parody"
+        ? [`Source reads as ${interpretation.humor_mode}; options should react to ${interpretation.target}.`]
         : []),
       ...(args.visualContext?.imageRole === "punchline"
         ? ["Image is carrying the punchline, so options are anchored to the visual bit."]
@@ -428,12 +443,59 @@ export function buildExtensionReplyOptions(args: {
     ],
     groundingNotes: [
       ...groundingNotes,
-      ...(policy.treatAsLowSignalCasual
+      ...(useLiteralReactionMode
         ? ["Literal casual riff mode is active; no strategy or business overlay was applied."]
+        : []),
+      ...(!policy.allowAdjacentIdeation
+        ? ["Adjacent feature ideation is blocked for this source interpretation."]
         : []),
       ...(policy.shouldReferenceImageText
         ? ["Readable image text can be used as source grounding when it sharpens the reply."]
         : []),
     ],
+  };
+}
+
+export async function verifyExtensionReplyOptionsResponse(args: {
+  response: ExtensionReplyOptionsResponse;
+  sourceContext: ReplySourceContext;
+  visualContext?: ReplyVisualContextSummary | null;
+  preflightResult?: ReplyDraftPreflightResult | null;
+}): Promise<{
+  response: ExtensionReplyOptionsResponse;
+  claimVerification: ClaimVerificationResult[];
+}> {
+  const claimVerification = await Promise.all(
+    args.response.options.map((option) =>
+      verifyReplyClaims({
+        draft: option.text,
+        sourceContext: args.sourceContext,
+        visualContext: args.visualContext || null,
+        preflightResult: args.preflightResult || null,
+      }),
+    ),
+  );
+  const seen = new Set<string>();
+  const options = args.response.options
+    .map((option, index) => ({
+      ...option,
+      text: normalizeWhitespace(claimVerification[index]?.draft || option.text),
+    }))
+    .filter((option) => {
+      const key = normalizeComparable(option.text);
+      if (!key || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 3);
+
+  return {
+    response: {
+      ...args.response,
+      options: options.length > 0 ? options : args.response.options.slice(0, 1),
+    },
+    claimVerification,
   };
 }

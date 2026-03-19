@@ -31,11 +31,65 @@ export type ReplyDraftImageSceneType =
   | "mixed"
   | "unknown";
 
+export type ReplyImageArtifactType =
+  | "real_screenshot"
+  | "mockup"
+  | "parody_ui"
+  | "meme"
+  | "photo"
+  | "mixed"
+  | "unknown";
+
 export type ReplyDraftSourceShape =
   | "strategic_take"
   | "casual_observation"
   | "joke_setup"
   | "emotional_update";
+
+export type ReplySourceLiterality = "literal" | "non_literal" | "mixed" | "uncertain";
+
+export type ReplyHumorMode =
+  | "none"
+  | "playful"
+  | "sarcasm"
+  | "satire"
+  | "parody"
+  | "absurdist";
+
+export type ReplyPostFrame =
+  | "proposal"
+  | "reaction"
+  | "mockup"
+  | "critique"
+  | "observation"
+  | "question"
+  | "announcement"
+  | "vent";
+
+export type ReplyAllowedMove =
+  | "react"
+  | "amplify"
+  | "pile_on"
+  | "critique"
+  | "clarify"
+  | "propose";
+
+export type ReplyDisallowedMove =
+  | "adjacent_ideation"
+  | "literal_product_brainstorm"
+  | "unsupported_external_claim";
+
+export interface SourceInterpretation {
+  literality: ReplySourceLiterality;
+  humor_mode: ReplyHumorMode;
+  post_frame: ReplyPostFrame;
+  target: string;
+  image_artifact_type: ReplyImageArtifactType;
+  allowed_reply_moves: ReplyAllowedMove[];
+  disallowed_reply_moves: ReplyDisallowedMove[];
+  literality_confidence: number;
+  satire_confidence: number;
+}
 
 export interface ExtensionReplyQuotedPost {
   tweetId?: string | null;
@@ -77,6 +131,7 @@ export interface ReplyDraftPreflightResult {
   image_role: ReplyDraftImageRole;
   image_reply_anchor: string;
   should_reference_image_text: boolean;
+  interpretation?: SourceInterpretation;
 }
 
 export interface ExtensionObservedReplyMetrics {

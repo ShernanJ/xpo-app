@@ -13,9 +13,11 @@ import type {
   ExtensionReplyIntentMetadata,
   ExtensionReplyMode,
   ExtensionReplyTone,
+  ReplyImageArtifactType,
   ReplyDraftImageRole,
   ReplyDraftImageSceneType,
   ReplyDraftPreflightResult,
+  SourceInterpretation,
 } from "../extension/types.ts";
 import type { CreatorAgentContext } from "../onboarding/strategy/agentContext.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
@@ -66,8 +68,12 @@ export interface ReplyVisualContextSummary {
   lightingAndMood: string;
   readableText: string;
   keyDetails: string[];
+  brandSignals: string[];
+  absurdityMarkers: string[];
+  artifactTargetHint: string;
   imageCount: number;
   sceneType: ReplyDraftImageSceneType;
+  imageArtifactType: ReplyImageArtifactType;
   imageRole: ReplyDraftImageRole;
   imageReplyAnchor: string;
   shouldReferenceImageText: boolean;
@@ -82,10 +88,53 @@ export interface ReplyVisualContextSummary {
     lightingAndMood: string;
     readableText: string;
     keyDetails: string[];
+    brandSignals: string[];
+    absurdityMarkers: string[];
+    artifactTargetHint: string;
+    imageArtifactType: ReplyImageArtifactType;
     jokeAnchor: string;
     replyRelevance: string;
   }>;
   summaryLines: string[];
+}
+
+export type ReplyExternalClaimType =
+  | "product_capability"
+  | "policy_or_rule"
+  | "market_or_company_fact"
+  | "person_or_role_fact"
+  | "numeric_or_current_state";
+
+export type ReplyClaimEvidenceSource = "source_local" | "cache" | "live_web" | "heuristic";
+
+export type ReplyClaimVerificationOutcome =
+  | "not_needed"
+  | "supported"
+  | "contradicted"
+  | "unverified"
+  | "rewritten"
+  | "rejected";
+
+export interface ReplyExtractedClaim {
+  text: string;
+  type: ReplyExternalClaimType;
+  query: string;
+  needsVerification: boolean;
+  outcome?: Exclude<ReplyClaimVerificationOutcome, "not_needed" | "rewritten" | "rejected">;
+}
+
+export interface ReplyClaimEvidence {
+  source: ReplyClaimEvidenceSource;
+  summary: string;
+  url?: string | null;
+}
+
+export interface ClaimVerificationResult {
+  outcome: ReplyClaimVerificationOutcome;
+  draft: string;
+  claims: ReplyExtractedClaim[];
+  evidence: ReplyClaimEvidence[];
+  usedLiveLookup: boolean;
 }
 
 export interface ReplyGoldenExample {
@@ -135,6 +184,7 @@ export interface PreparedReplyPromptPacket {
   groundingPacket: GroundingPacket;
   voiceTarget: VoiceTarget;
   visualContext: ReplyVisualContextSummary | null;
+  interpretation: SourceInterpretation;
   voiceEvidence: ReplyVoiceEvidence;
   styleCard: VoiceStyleCard | null;
   maxCharacterLimit: number;
@@ -149,4 +199,6 @@ export interface GeneratedReplyDraftResult {
   sourceContext: ReplySourceContext;
   groundingPacket: GroundingPacket;
   visualContext: ReplyVisualContextSummary | null;
+  interpretation?: SourceInterpretation;
+  claimVerification?: ClaimVerificationResult | null;
 }

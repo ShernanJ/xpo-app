@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { fetchJsonFromGroq } from "../agent-v2/agents/llm.ts";
 import type {
+  ReplyImageArtifactType,
   ReplyDraftImageRole,
   ReplyDraftImageSceneType,
 } from "../extension/types.ts";
@@ -16,9 +17,10 @@ const DEFAULT_REPLY_IMAGE_VISION_MODEL =
 const REPLY_IMAGE_ANALYSIS_SYSTEM_PROMPT = [
   "Analyze this image for X reply drafting.",
   "Return only strict JSON with these exact keys:",
-  "scene_type, image_role, readable_text, primary_subject, setting, lighting_and_mood, key_details, joke_anchor, reply_relevance.",
+  "scene_type, image_role, image_artifact_type, readable_text, primary_subject, setting, lighting_and_mood, key_details, brand_signals, absurdity_markers, artifact_target_hint, joke_anchor, reply_relevance.",
   "scene_type must be one of screenshot, meme, product_ui, photo, mixed, unknown.",
   "image_role must be one of none, punchline, proof, reaction, context, decorative.",
+  "image_artifact_type must be one of real_screenshot, mockup, parody_ui, meme, photo, mixed, unknown.",
   "Prioritize readable on-image text and interface text over generic object description when this is a screenshot or meme.",
   "Use image_role=punchline when the joke or bit clearly lands because of the image itself.",
   "Use image_role=proof when the image mainly acts as evidence, receipt, dashboard, or supporting proof.",
@@ -30,11 +32,15 @@ const REPLY_IMAGE_ANALYSIS_SYSTEM_PROMPT = [
 export interface ReplyImageVisualContext {
   scene_type: ReplyDraftImageSceneType;
   image_role: ReplyDraftImageRole;
+  image_artifact_type: ReplyImageArtifactType;
   readable_text: string;
   primary_subject: string;
   setting: string;
   lighting_and_mood: string;
   key_details: string[];
+  brand_signals: string[];
+  absurdity_markers: string[];
+  artifact_target_hint: string;
   joke_anchor: string;
   reply_relevance: string;
 }
@@ -42,17 +48,29 @@ export interface ReplyImageVisualContext {
 export const ReplyImageVisualContextSchema: z.ZodType<ReplyImageVisualContext> = z.object({
   scene_type: z.enum(["screenshot", "meme", "product_ui", "photo", "mixed", "unknown"]),
   image_role: z.enum(["none", "punchline", "proof", "reaction", "context", "decorative"]),
+  image_artifact_type: z.enum([
+    "real_screenshot",
+    "mockup",
+    "parody_ui",
+    "meme",
+    "photo",
+    "mixed",
+    "unknown",
+  ]),
   readable_text: z.string().trim(),
   primary_subject: z.string().trim().min(1),
   setting: z.string().trim().min(1),
   lighting_and_mood: z.string().trim().min(1),
   key_details: z.array(z.string().trim().min(1)).max(12),
+  brand_signals: z.array(z.string().trim().min(1)).max(8),
+  absurdity_markers: z.array(z.string().trim().min(1)).max(8),
+  artifact_target_hint: z.string().trim().max(200),
   joke_anchor: z.string().trim(),
   reply_relevance: z.string().trim().min(1).max(160),
 });
 
-function normalizeWhitespace(value: string): string {
-  return value.trim().replace(/\s+/g, " ");
+function normalizeWhitespace(value: string | null | undefined): string {
+  return (value || "").trim().replace(/\s+/g, " ");
 }
 
 function truncate(value: string, max = 160): string {
@@ -168,8 +186,15 @@ function inferImageRoleFromText(args: {
     /\b(posts? aren'?t loading right now|try again|something went wrong|error|404|failed to load)\b/.test(
       visualCombined,
     );
+  const looksLikeParodyUi =
+    /\b(pro max plus|unlock x premium|see who(?:'s| is) viewing you|who viewed your profile|bookmarked your tweets|premium)\b/.test(
+      combined,
+    ) || /\b(?:\$|usd)\s*\d{3,}\s*\/\s*(?:month|mo)\b/.test(combined);
 
-  if ((args.sceneType === "screenshot" || args.sceneType === "product_ui") && (uiFailureText || (args.readableText && sourceIsPlayful))) {
+  if (
+    (args.sceneType === "screenshot" || args.sceneType === "product_ui") &&
+    (uiFailureText || looksLikeParodyUi || (args.readableText && sourceIsPlayful))
+  ) {
     return "punchline";
   }
 
@@ -219,6 +244,115 @@ function inferPrimarySubject(args: {
     default:
       return truncate(args.text || "image", 72);
   }
+}
+
+function collectBrandSignals(value: string): string[] {
+  const normalized = normalizeWhitespace(value).toLowerCase();
+  const next: string[] = [];
+
+  if (/\bx premium\b|\bx\b/.test(normalized)) {
+    next.push("x");
+  }
+  if (/\btwitter\b/.test(normalized)) {
+    next.push("twitter");
+  }
+  if (/\blinkedin\b/.test(normalized)) {
+    next.push("linkedin");
+  }
+  if (/\bpremium\b/.test(normalized)) {
+    next.push("premium");
+  }
+  if (/\bbookmarks?\b/.test(normalized)) {
+    next.push("bookmarks");
+  }
+  if (/\bprofile views?\b|\bwho viewed your profile\b/.test(normalized)) {
+    next.push("profile views");
+  }
+
+  return next.slice(0, 6);
+}
+
+function collectAbsurdityMarkers(value: string): string[] {
+  const normalized = normalizeWhitespace(value);
+  const next: string[] = [];
+
+  if (/\bpro max plus\b/i.test(normalized)) {
+    next.push("exaggerated tier naming");
+  }
+  if (/\bunlock\b/i.test(normalized) && /\bpremium\b/i.test(normalized)) {
+    next.push("upsell prompt");
+  }
+  if (/\b(?:\$|usd)\s*\d{3,}\s*\/\s*(?:month|mo)\b/i.test(normalized)) {
+    next.push("absurd pricing");
+  }
+  if (/\bwho viewed your profile\b/i.test(normalized)) {
+    next.push("surveillance feature framing");
+  }
+  if (/\bbookmarked your tweets\b/i.test(normalized)) {
+    next.push("bookmark visibility joke");
+  }
+
+  return next.slice(0, 6);
+}
+
+function inferImageArtifactType(args: {
+  sceneType: ReplyDraftImageSceneType;
+  text: string;
+  readableText: string;
+  keyDetails: string[];
+  absurdityMarkers?: string[];
+}): ReplyImageArtifactType {
+  const combined = normalizeWhitespace(
+    [args.text, args.readableText, ...args.keyDetails, ...(args.absurdityMarkers || [])].join(" "),
+  ).toLowerCase();
+
+  if (args.sceneType === "meme") {
+    return "meme";
+  }
+  if (args.sceneType === "photo") {
+    return "photo";
+  }
+  if (args.sceneType === "mixed") {
+    return "mixed";
+  }
+  if (args.sceneType === "screenshot" || args.sceneType === "product_ui") {
+    if ((args.absurdityMarkers || []).length > 0 || /\b(parody|fake ui|mock premium|pro max plus)\b/.test(combined)) {
+      return "parody_ui";
+    }
+    if (/\b(mockup|concept|idea)\b/.test(combined)) {
+      return "mockup";
+    }
+    return "real_screenshot";
+  }
+
+  return "unknown";
+}
+
+function inferArtifactTargetHint(args: {
+  readableText: string;
+  jokeAnchor: string;
+  text: string;
+  absurdityMarkers: string[];
+  imageArtifactType: ReplyImageArtifactType;
+}): string {
+  const combined = normalizeWhitespace(
+    [args.readableText, args.jokeAnchor, args.text, ...args.absurdityMarkers].join(" "),
+  ).toLowerCase();
+
+  if (
+    args.imageArtifactType === "parody_ui" &&
+    /\b(viewed your profile|bookmarked your tweets|premium)\b/.test(combined)
+  ) {
+    return "premium social-surveillance UX";
+  }
+  if (/\b(posts? aren'?t loading right now|try again|something went wrong|failed to load)\b/.test(combined)) {
+    return "app failure / loading banner";
+  }
+  if (args.imageArtifactType === "mockup") {
+    return "concept ui in the screenshot";
+  }
+
+  return "";
 }
 
 function collectAnchorTokens(value: string) {
@@ -290,6 +424,10 @@ export function normalizeReplyImageVisualContext(args: {
   let lightingAndMood = normalizeWhitespace(args.visualContext.lighting_and_mood);
   let jokeAnchor = normalizeWhitespace(args.visualContext.joke_anchor);
   let keyDetails = compact(args.visualContext.key_details, 12);
+  let brandSignals = compact(args.visualContext.brand_signals || [], 8);
+  let absurdityMarkers = compact(args.visualContext.absurdity_markers || [], 8);
+  let artifactTargetHint = normalizeWhitespace(args.visualContext.artifact_target_hint);
+  let imageArtifactType = args.visualContext.image_artifact_type;
   const sourceTextLower = normalizeWhitespace([args.sourceText, args.quotedText || ""].join(" ")).toLowerCase();
   const anchorLooksLikeUiText = looksLikeUiText(jokeAnchor);
   const detailLooksLikeUi =
@@ -336,6 +474,34 @@ export function normalizeReplyImageVisualContext(args: {
     ]);
   }
 
+  brandSignals = compact([
+    ...brandSignals,
+    ...collectBrandSignals([args.sourceText, args.quotedText || "", readableText, jokeAnchor, ...keyDetails].join(" ")),
+  ], 8);
+  absurdityMarkers = compact([
+    ...absurdityMarkers,
+    ...collectAbsurdityMarkers([args.sourceText, args.quotedText || "", readableText, jokeAnchor, ...keyDetails].join(" ")),
+  ], 8);
+  imageArtifactType =
+    imageArtifactType && imageArtifactType !== "unknown"
+      ? imageArtifactType
+      : inferImageArtifactType({
+          sceneType,
+          text: [args.sourceText, args.quotedText || "", jokeAnchor].join(" "),
+          readableText,
+          keyDetails,
+          absurdityMarkers,
+        });
+  artifactTargetHint =
+    artifactTargetHint ||
+    inferArtifactTargetHint({
+      readableText,
+      jokeAnchor,
+      text: [args.sourceText, args.quotedText || "", ...keyDetails].join(" "),
+      absurdityMarkers,
+      imageArtifactType,
+    });
+
   if (shouldPreferReadableTextAsAnchor({ jokeAnchor, readableText })) {
     jokeAnchor = truncate(readableText, 120);
   }
@@ -352,11 +518,15 @@ export function normalizeReplyImageVisualContext(args: {
     ...args.visualContext,
     scene_type: sceneType,
     image_role: imageRole,
+    image_artifact_type: imageArtifactType,
     readable_text: readableText,
     primary_subject: primarySubject,
     setting: setting || "image context available",
     lighting_and_mood: lightingAndMood || "neutral",
     key_details: keyDetails,
+    brand_signals: brandSignals,
+    absurdity_markers: absurdityMarkers,
+    artifact_target_hint: artifactTargetHint,
     joke_anchor: jokeAnchor,
     reply_relevance:
       args.visualContext.reply_relevance ||
@@ -393,10 +563,27 @@ function buildFallbackReplyImageVisualContext(args: {
     ...quotedSnippets.slice(0, 2),
   ]);
   const jokeAnchor = truncate(readableText || quotedSnippets[0] || fallbackText, 120);
+  const brandSignals = collectBrandSignals([args.sourceText, args.quotedText || "", fallbackText].join(" "));
+  const absurdityMarkers = collectAbsurdityMarkers([args.sourceText, args.quotedText || "", fallbackText].join(" "));
+  const imageArtifactType = inferImageArtifactType({
+    sceneType,
+    text: [args.sourceText, args.quotedText || "", fallbackText].join(" "),
+    readableText,
+    keyDetails,
+    absurdityMarkers,
+  });
+  const artifactTargetHint = inferArtifactTargetHint({
+    readableText,
+    jokeAnchor,
+    text: [args.sourceText, args.quotedText || "", fallbackText].join(" "),
+    absurdityMarkers,
+    imageArtifactType,
+  });
 
   return {
     scene_type: sceneType,
     image_role: imageRole,
+    image_artifact_type: imageArtifactType,
     readable_text: readableText,
     primary_subject: inferPrimarySubject({
       sceneType,
@@ -418,6 +605,9 @@ function buildFallbackReplyImageVisualContext(args: {
             ? "reactive"
             : "neutral",
     key_details: keyDetails,
+    brand_signals: brandSignals,
+    absurdity_markers: absurdityMarkers,
+    artifact_target_hint: artifactTargetHint,
     joke_anchor: jokeAnchor,
     reply_relevance:
       imageRole === "punchline" || imageRole === "proof"
@@ -477,7 +667,7 @@ export async function analyzeReplyImageVisualContext(args: {
     temperature: 0,
     max_tokens: 1024,
     jsonRepairInstruction:
-      "Return ONLY valid JSON with keys scene_type, image_role, readable_text, primary_subject, setting, lighting_and_mood, key_details, joke_anchor, reply_relevance.",
+      "Return ONLY valid JSON with keys scene_type, image_role, image_artifact_type, readable_text, primary_subject, setting, lighting_and_mood, key_details, brand_signals, absurdity_markers, artifact_target_hint, joke_anchor, reply_relevance.",
     messages: [
       {
         role: "system",

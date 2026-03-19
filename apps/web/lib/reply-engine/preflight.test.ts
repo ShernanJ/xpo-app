@@ -127,3 +127,44 @@ test("classifyReplyDraftMode uses proof screenshots as evidence instead of jokes
   assert.equal(result.image_role, "proof");
   assert.equal(result.should_reference_image_text, true);
 });
+
+test("classifyReplyDraftMode treats parody premium mockups as non-literal satire", async () => {
+  const visualContext = await analyzeReplySourceVisualContext({
+    primaryPost: {
+      id: "tweet_9",
+      url: "https://x.com/elkelk/status/9",
+      text: "Idea: X Premium Pro Max Plus where you can see who's viewed your profile and bookmarked your tweets",
+      authorHandle: "elkelk",
+      postType: "original",
+    },
+    quotedPost: null,
+    media: {
+      images: [
+        {
+          altText:
+            'Fake premium UI screenshot showing "Unlock X Premium", "See Who\'s Viewing You!", and "$800 / month".',
+        },
+      ],
+      hasVideo: false,
+      hasGif: false,
+      hasLink: false,
+    },
+    conversation: null,
+  });
+  const result = await classifyReplyDraftMode({
+    sourceText:
+      "Idea: X Premium Pro Max Plus where you can see who's viewed your profile and bookmarked your tweets",
+    imageSummaryLines: visualContext?.summaryLines || [],
+    visualContext,
+  });
+
+  assert.equal(result.recommended_reply_mode, "joke_riff");
+  assert.equal(result.interpretation?.literality, "non_literal");
+  assert.match(result.interpretation?.humor_mode || "", /satire|parody/i);
+  assert.equal(result.interpretation?.post_frame, "mockup");
+  assert.equal(result.interpretation?.image_artifact_type, "parody_ui");
+  assert.equal(
+    result.interpretation?.disallowed_reply_moves.includes("literal_product_brainstorm"),
+    true,
+  );
+});

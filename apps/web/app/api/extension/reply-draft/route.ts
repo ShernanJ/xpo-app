@@ -22,8 +22,10 @@ import {
   buildReplySourceContextFromExtensionRequest,
   classifyReplyDraftMode,
   DEFAULT_REPLY_PREFLIGHT_MODEL,
+  draftContainsPotentialExternalClaims,
   generateReplyDraftText,
   looksAcceptableReplyDraft,
+  verifyReplyClaims,
 } from "@/lib/reply-engine/index";
 import { parseExtensionReplyDraftRequest } from "./route.logic";
 
@@ -234,6 +236,7 @@ export async function POST(request: NextRequest) {
           const shouldReleaseBufferedStream =
             bufferedCandidate.length >= 48 &&
             (/[.?!]/.test(bufferedCandidate) || bufferedCandidate.length >= 96) &&
+            !draftContainsPotentialExternalClaims(bufferedCandidate) &&
             looksAcceptableReplyDraft({
               draft: bufferedCandidate,
               sourceContext: promptPacket.sourceContext,
@@ -252,8 +255,10 @@ export async function POST(request: NextRequest) {
           styleCard: promptPacket.styleCard,
           maxCharacterLimit: promptPacket.maxCharacterLimit,
         });
+        const finalDraftHasClaims = draftContainsPotentialExternalClaims(finalDraft);
         const streamAccepted =
           Boolean(finalDraft) &&
+          !finalDraftHasClaims &&
           looksAcceptableReplyDraft({
             draft: finalDraft,
             sourceContext: promptPacket.sourceContext,
@@ -265,11 +270,52 @@ export async function POST(request: NextRequest) {
               draft: finalDraft,
               model: DEFAULT_REPLY_DRAFT_MODEL,
             }
-          : await generateReplyDraftText({
-              promptPacket,
-              model: DEFAULT_REPLY_DRAFT_MODEL,
-              fallbackModel: FALLBACK_REPLY_DRAFT_MODEL,
-            });
+          : await (!hasReleasedContent &&
+            finalDraft &&
+            looksAcceptableReplyDraft({
+              draft: finalDraft,
+              sourceContext: promptPacket.sourceContext,
+              preflightResult: promptPacket.preflightResult,
+              visualContext: promptPacket.visualContext,
+            })
+              ? (async () => {
+                  const claimVerification = await verifyReplyClaims({
+                    draft: finalDraft,
+                    sourceContext: promptPacket.sourceContext,
+                    visualContext: promptPacket.visualContext,
+                    preflightResult: promptPacket.preflightResult,
+                  });
+                  const rewrittenDraft = finalizeReplyDraftText(claimVerification.draft, {
+                    styleCard: promptPacket.styleCard,
+                    maxCharacterLimit: promptPacket.maxCharacterLimit,
+                  });
+                  if (
+                    rewrittenDraft &&
+                    looksAcceptableReplyDraft({
+                      draft: rewrittenDraft,
+                      sourceContext: promptPacket.sourceContext,
+                      preflightResult: promptPacket.preflightResult,
+                      visualContext: promptPacket.visualContext,
+                    })
+                  ) {
+                    return {
+                      draft: rewrittenDraft,
+                      model: DEFAULT_REPLY_DRAFT_MODEL,
+                      claimVerification,
+                    };
+                  }
+
+                  return generateReplyDraftText({
+                    promptPacket,
+                    model: DEFAULT_REPLY_DRAFT_MODEL,
+                    fallbackModel: FALLBACK_REPLY_DRAFT_MODEL,
+                  });
+                })()
+              : generateReplyDraftText({
+                  promptPacket,
+                  model: DEFAULT_REPLY_DRAFT_MODEL,
+                  fallbackModel: FALLBACK_REPLY_DRAFT_MODEL,
+                }));
 
         if (streamAccepted) {
           if (!hasReleasedContent && pendingBuffer) {

@@ -472,3 +472,31 @@ test("scoreOpportunityCandidate gives screenshot punchlines a lighter genericity
   );
   assert.equal(withImage.opportunity.score >= withoutImage.opportunity.score, true);
 });
+
+test("scoreOpportunityCandidate treats parody premium mockups as critique-ready instead of literal product takes", () => {
+  const scored = scoreCandidate(
+    makeCandidate({
+      postId: "parody_ui",
+      text: "Idea: X Premium Pro Max Plus where you can see who's viewed your profile and bookmarked your tweets",
+      author: {
+        handle: "elkelk",
+        followerCount: 12000,
+      },
+      media: {
+        hasMedia: true,
+        hasImage: true,
+        images: [
+          {
+            altText:
+              'Fake premium UI screenshot showing "Unlock X Premium", "See Who\'s Viewing You!", and "$800 / month".',
+          },
+        ],
+      },
+    }),
+  );
+
+  assert.equal(["reply", "watch"].includes(scored.opportunity.verdict), true);
+  assert.equal(scored.opportunity.suggestedAngle, "sharpen");
+  assert.equal(scored.opportunity.scoringBreakdown.genericity_risk <= 35, true);
+  assert.equal(scored.opportunity.scoringBreakdown.off_niche_risk <= 60, true);
+});

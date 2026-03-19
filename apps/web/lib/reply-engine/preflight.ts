@@ -3,11 +3,50 @@ import { z } from "zod";
 import { fetchJsonFromGroq } from "../agent-v2/agents/llm.ts";
 import type { ExtensionReplyMode, ReplyDraftPreflightResult } from "../extension/types.ts";
 
-import { inferHeuristicReplySourceShape } from "./policy.ts";
+import {
+  buildHeuristicSourceInterpretation,
+  inferHeuristicReplySourceShape,
+  resolveSourceInterpretation,
+} from "./interpretation.ts";
 import type { ReplyVisualContextSummary } from "./types.ts";
 
 export const DEFAULT_REPLY_PREFLIGHT_MODEL =
   process.env.GROQ_REPLY_PREFLIGHT_MODEL?.trim() || "llama-3.1-8b-instant";
+
+const SourceInterpretationSchema = z.object({
+  literality: z.enum(["literal", "non_literal", "mixed", "uncertain"]),
+  humor_mode: z.enum(["none", "playful", "sarcasm", "satire", "parody", "absurdist"]),
+  post_frame: z.enum([
+    "proposal",
+    "reaction",
+    "mockup",
+    "critique",
+    "observation",
+    "question",
+    "announcement",
+    "vent",
+  ]),
+  target: z.string().trim().min(1).max(200),
+  image_artifact_type: z.enum([
+    "real_screenshot",
+    "mockup",
+    "parody_ui",
+    "meme",
+    "photo",
+    "mixed",
+    "unknown",
+  ]),
+  allowed_reply_moves: z
+    .array(z.enum(["react", "amplify", "pile_on", "critique", "clarify", "propose"]))
+    .max(6),
+  disallowed_reply_moves: z
+    .array(
+      z.enum(["adjacent_ideation", "literal_product_brainstorm", "unsupported_external_claim"]),
+    )
+    .max(6),
+  literality_confidence: z.number().min(0).max(100),
+  satire_confidence: z.number().min(0).max(100),
+});
 
 export const ReplyDraftPreflightSchema: z.ZodType<ReplyDraftPreflightResult> = z.object({
   op_tone: z.string().trim().min(1).max(160),
@@ -28,6 +67,7 @@ export const ReplyDraftPreflightSchema: z.ZodType<ReplyDraftPreflightResult> = z
   image_role: z.enum(["none", "punchline", "proof", "reaction", "context", "decorative"]),
   image_reply_anchor: z.string().trim().max(240),
   should_reference_image_text: z.boolean(),
+  interpretation: SourceInterpretationSchema.optional(),
 });
 
 function buildClassifierPrompt(args: {
@@ -41,6 +81,7 @@ function buildClassifierPrompt(args: {
     "Return only valid JSON matching the requested schema.",
     "CRITICAL: If the post is sarcasm, a meme, shitposting, or internet slang, you MUST classify it as 'joke_riff'.",
     "CRITICAL: If the image carries the joke, punchline, or visible proof, reflect that in image_role and image_reply_anchor.",
+    "CRITICAL: Decide whether the source is literal, non-literal, satirical, sarcastic, playful, or parody/mockup-driven before choosing the reply mode.",
     "",
     `Visible post text: ${args.sourceText.trim()}`,
     args.quotedText?.trim() ? `Quoted post text: ${args.quotedText.trim()}` : "Quoted post text: none",
@@ -71,6 +112,7 @@ function buildClassifierPrompt(args: {
     "- image_role: none | punchline | proof | reaction | context | decorative",
     "- image_reply_anchor: the shortest useful image-led phrase or OCR snippet for a reply to anchor on",
     "- should_reference_image_text: true when readable in-image text should be treated as first-class source material",
+    "- interpretation: a nested object with keys literality, humor_mode, post_frame, target, image_artifact_type, allowed_reply_moves, disallowed_reply_moves, literality_confidence, satire_confidence",
   ].join("\n");
 }
 
@@ -83,6 +125,7 @@ export function buildReplyDraftPreflightFallback(): ReplyDraftPreflightResult {
     image_role: "none",
     image_reply_anchor: "",
     should_reference_image_text: false,
+    interpretation: buildHeuristicSourceInterpretation({ sourceText: "" }),
   };
 }
 
@@ -106,6 +149,11 @@ function buildHeuristicPreflight(args: {
   const shouldReferenceImageText =
     args.visualContext?.shouldReferenceImageText ||
     Boolean(args.visualContext?.readableText && imageRole !== "decorative" && imageRole !== "none");
+  const interpretation = buildHeuristicSourceInterpretation({
+    sourceText: args.sourceText,
+    quotedText: args.quotedText || null,
+    visualContext: args.visualContext || null,
+  });
 
   if (/\b(sorry|grief|hard|hurt|feel for|sending love|brutal)\b/.test(combined)) {
     return {
@@ -116,6 +164,26 @@ function buildHeuristicPreflight(args: {
       image_role: imageRole,
       image_reply_anchor: imageReplyAnchor,
       should_reference_image_text: shouldReferenceImageText,
+      interpretation,
+    };
+  }
+
+  if (
+    interpretation.humor_mode === "satire" ||
+    interpretation.humor_mode === "parody" ||
+    interpretation.post_frame === "mockup" ||
+    interpretation.image_artifact_type === "parody_ui" ||
+    interpretation.image_artifact_type === "mockup"
+  ) {
+    return {
+      op_tone: "playful",
+      post_intent: "react to the satire or parody target instead of treating it literally",
+      recommended_reply_mode: "joke_riff",
+      source_shape: "joke_setup",
+      image_role: imageRole === "none" ? "punchline" : imageRole,
+      image_reply_anchor: imageReplyAnchor,
+      should_reference_image_text: shouldReferenceImageText,
+      interpretation,
     };
   }
 
@@ -128,6 +196,7 @@ function buildHeuristicPreflight(args: {
       image_role: imageRole,
       image_reply_anchor: imageReplyAnchor,
       should_reference_image_text: shouldReferenceImageText,
+      interpretation,
     };
   }
 
@@ -140,6 +209,7 @@ function buildHeuristicPreflight(args: {
       image_role: imageRole,
       image_reply_anchor: imageReplyAnchor,
       should_reference_image_text: shouldReferenceImageText,
+      interpretation,
     };
   }
 
@@ -152,6 +222,7 @@ function buildHeuristicPreflight(args: {
       image_role: imageRole === "none" ? "punchline" : imageRole,
       image_reply_anchor: imageReplyAnchor,
       should_reference_image_text: shouldReferenceImageText,
+      interpretation,
     };
   }
 
@@ -164,6 +235,7 @@ function buildHeuristicPreflight(args: {
       image_role: imageRole,
       image_reply_anchor: imageReplyAnchor,
       should_reference_image_text: shouldReferenceImageText,
+      interpretation,
     };
   }
 
@@ -176,6 +248,7 @@ function buildHeuristicPreflight(args: {
       image_role: imageRole,
       image_reply_anchor: imageReplyAnchor,
       should_reference_image_text: shouldReferenceImageText,
+      interpretation,
     };
   }
 
@@ -184,6 +257,7 @@ function buildHeuristicPreflight(args: {
     image_role: imageRole,
     image_reply_anchor: imageReplyAnchor,
     should_reference_image_text: shouldReferenceImageText,
+    interpretation,
   };
 }
 
@@ -208,7 +282,7 @@ export async function classifyReplyDraftMode(args: {
     temperature: 0,
     max_tokens: 160,
     jsonRepairInstruction:
-      "Return ONLY valid JSON with keys op_tone, post_intent, recommended_reply_mode, source_shape, image_role, image_reply_anchor, should_reference_image_text.",
+      "Return ONLY valid JSON with keys op_tone, post_intent, recommended_reply_mode, source_shape, image_role, image_reply_anchor, should_reference_image_text, interpretation.",
     messages: [
       {
         role: "system",
@@ -231,7 +305,15 @@ export async function classifyReplyDraftMode(args: {
     return buildHeuristicPreflight(args);
   }
 
-  return parsed.data;
+  return {
+    ...parsed.data,
+    interpretation: resolveSourceInterpretation({
+      sourceText: args.sourceText,
+      quotedText: args.quotedText || null,
+      preflightResult: parsed.data,
+      visualContext: args.visualContext || null,
+    }),
+  };
 }
 
 export function normalizeReplyMode(value: unknown): ExtensionReplyMode | null {

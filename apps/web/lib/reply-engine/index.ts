@@ -1,15 +1,19 @@
 import Groq from "groq-sdk";
 
 import { finalizeReplyDraftText, looksAcceptableReplyDraft } from "./finalize.ts";
+import { verifyReplyClaims } from "./claimVerification.ts";
+import { resolveSourceInterpretation } from "./interpretation.ts";
 import type {
   GeneratedReplyDraftResult,
   PreparedReplyPromptPacket,
 } from "./types.ts";
 
+export * from "./claimVerification.ts";
 export * from "./context.ts";
 export * from "./finalize.ts";
 export * from "./goldenExamples.ts";
 export * from "./imageAnalysis.ts";
+export * from "./interpretation.ts";
 export * from "./policy.ts";
 export * from "./preflight.ts";
 export * from "./prompt.ts";
@@ -137,14 +141,40 @@ export async function generateReplyDraftText(args: {
         visualContext: args.promptPacket.visualContext,
       })
     ) {
-      return {
+      const claimVerification = await verifyReplyClaims({
         draft: candidate,
-        model,
-        voiceTarget: args.promptPacket.voiceTarget,
         sourceContext: args.promptPacket.sourceContext,
-        groundingPacket: args.promptPacket.groundingPacket,
         visualContext: args.promptPacket.visualContext,
-      };
+        preflightResult: args.promptPacket.preflightResult,
+      });
+      const resolvedDraft = finalizeReplyDraftText(claimVerification.draft, {
+        styleCard: args.promptPacket.styleCard,
+        maxCharacterLimit: args.promptPacket.maxCharacterLimit,
+      });
+      if (
+        resolvedDraft &&
+        looksAcceptableReplyDraft({
+          draft: resolvedDraft,
+          sourceContext: args.promptPacket.sourceContext,
+          preflightResult: args.promptPacket.preflightResult,
+          visualContext: args.promptPacket.visualContext,
+        })
+      ) {
+        return {
+          draft: resolvedDraft,
+          model,
+          voiceTarget: args.promptPacket.voiceTarget,
+          sourceContext: args.promptPacket.sourceContext,
+          groundingPacket: args.promptPacket.groundingPacket,
+          visualContext: args.promptPacket.visualContext,
+          interpretation: resolveSourceInterpretation({
+            sourceContext: args.promptPacket.sourceContext,
+            preflightResult: args.promptPacket.preflightResult,
+            visualContext: args.promptPacket.visualContext,
+          }),
+          claimVerification,
+        };
+      }
     }
 
     const retriedCandidate = finalizeReplyDraftText(
@@ -174,14 +204,40 @@ export async function generateReplyDraftText(args: {
         visualContext: args.promptPacket.visualContext,
       })
     ) {
-      return {
+      const claimVerification = await verifyReplyClaims({
         draft: retriedCandidate,
-        model,
-        voiceTarget: args.promptPacket.voiceTarget,
         sourceContext: args.promptPacket.sourceContext,
-        groundingPacket: args.promptPacket.groundingPacket,
         visualContext: args.promptPacket.visualContext,
-      };
+        preflightResult: args.promptPacket.preflightResult,
+      });
+      const resolvedDraft = finalizeReplyDraftText(claimVerification.draft, {
+        styleCard: args.promptPacket.styleCard,
+        maxCharacterLimit: args.promptPacket.maxCharacterLimit,
+      });
+      if (
+        resolvedDraft &&
+        looksAcceptableReplyDraft({
+          draft: resolvedDraft,
+          sourceContext: args.promptPacket.sourceContext,
+          preflightResult: args.promptPacket.preflightResult,
+          visualContext: args.promptPacket.visualContext,
+        })
+      ) {
+        return {
+          draft: resolvedDraft,
+          model,
+          voiceTarget: args.promptPacket.voiceTarget,
+          sourceContext: args.promptPacket.sourceContext,
+          groundingPacket: args.promptPacket.groundingPacket,
+          visualContext: args.promptPacket.visualContext,
+          interpretation: resolveSourceInterpretation({
+            sourceContext: args.promptPacket.sourceContext,
+            preflightResult: args.promptPacket.preflightResult,
+            visualContext: args.promptPacket.visualContext,
+          }),
+          claimVerification,
+        };
+      }
     }
   }
 

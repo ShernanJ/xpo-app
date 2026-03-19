@@ -2,10 +2,15 @@ import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrate
 import type {
   ReplyDraftImageRole,
   ReplyDraftPreflightResult,
-  ReplyDraftSourceShape,
+  ReplyDisallowedMove,
+  SourceInterpretation,
 } from "../extension/types.ts";
 
 import type { ReplySourceContext, ReplyVisualContextSummary } from "./types.ts";
+import {
+  inferHeuristicReplySourceShape,
+  resolveSourceInterpretation,
+} from "./interpretation.ts";
 
 const STOPWORDS = new Set([
   "a",
@@ -45,27 +50,6 @@ const STOPWORDS = new Set([
   "with",
 ]);
 
-const EMOTIONAL_UPDATE_PATTERNS = [
-  /\b(sorry|grief|grieving|hard|hurt|hurting|heartbroken|processing|sending love|brutal)\b/i,
-  /\b(i'?m|im|i am)\s+(sad|upset|exhausted|wrecked|broken)\b/i,
-];
-const CASUAL_OBSERVATION_PATTERNS = [
-  /\b(?:i\s+)?just\s+(?:had|ate|drank|ordered|bought|finished|saw|watched|spent|woke up|slept|realized|forgot)\b/i,
-  /\b(?:i\s+)?(?:had|ate|drank|ordered|bought|finished|forgot|missed|skipped)\b/i,
-  /\b(?:today|tonight|this morning|this afternoon)\b/i,
-  /#(?:fuckit|idc|whatever|yolo|lmao|lol)\b/i,
-];
-const JOKE_SIGNAL_PATTERNS = [
-  /\b(lwk|lol|lmao|lmfao|haha|shitpost(?:ing)?|sarcasm|sarcastic|meme|joke|funny|bit|vibes)\b/i,
-  /\bshould market\b/i,
-  /\bdesigned to be\b/i,
-];
-const ANALOGY_PATTERNS = /\b(like|as if|feels like|basically)\b/i;
-const PLAYFUL_SELF_OWN_PATTERNS = [
-  /\bmy (?:startup|launch|go[-\s]?to[-\s]?market|gtm|growth) strategy is just\b/i,
-  /\b(?:drinking|running on|powered by|surviving on)\b[^.\n]{0,40}\b(red ?bull|coffee|caffeine)\b[^.\n]{0,40}\b(hoping|vibes|a dream)\b/i,
-  /\bjust [^.\n]{0,48}\b(hoping|vibes|a dream)\b/i,
-];
 const BUSINESS_DOMAIN_PATTERNS = [
   /\b(startup|founder|founders|product|products|software|saas|ux|ui|design|designers|growth|marketing|audience|operator|operators|workflow|workflows|system|systems|process|processes|positioning|reply|replies|content|launch|gtm|roadmap|feature|features|build|builder|builders|ship|shipping|strategy|strategies|funnel|funnels)\b/i,
 ];
@@ -119,7 +103,8 @@ export const DISALLOWED_ADVICE_DRIFT_PATTERNS = [
 ];
 
 export interface ReplyConstraintPolicy {
-  sourceShape: ReplyDraftSourceShape;
+  sourceShape: ReplyDraftPreflightResult["source_shape"];
+  interpretation: SourceInterpretation;
   imageRole: ReplyDraftImageRole;
   imageReplyAnchor: string | null;
   shouldReferenceImageText: boolean;
@@ -127,6 +112,10 @@ export interface ReplyConstraintPolicy {
   allowStrategyLens: boolean;
   allowBusinessInference: boolean;
   allowAdvice: boolean;
+  allowPropose: boolean;
+  allowAdjacentIdeation: boolean;
+  allowLiteralProductBrainstorm: boolean;
+  disallowedReplyMoves: ReplyDisallowedMove[];
   preferShortRiff: boolean;
   treatAsLowSignalCasual: boolean;
   lexicalOverlapScore: number;
@@ -203,86 +192,6 @@ function computeLexicalOverlapScore(args: {
   return matches / Math.max(1, Math.min(sourceTokens.size, strategyTokens.size));
 }
 
-function isEmotionalUpdate(text: string) {
-  return EMOTIONAL_UPDATE_PATTERNS.some((pattern) => pattern.test(text));
-}
-
-function isCasualObservation(text: string) {
-  return CASUAL_OBSERVATION_PATTERNS.some((pattern) => pattern.test(text));
-}
-
-function isJokeSetup(text: string) {
-  return (
-    JOKE_SIGNAL_PATTERNS.some((pattern) => pattern.test(text)) ||
-    PLAYFUL_SELF_OWN_PATTERNS.some((pattern) => pattern.test(text)) ||
-    ANALOGY_PATTERNS.test(text)
-  );
-}
-
-export function inferHeuristicReplySourceShape(args: {
-  sourceContext?: ReplySourceContext | null;
-  sourceText?: string | null;
-  quotedText?: string | null;
-  imageSummaryLines?: string[] | null;
-  visualContext?: ReplyVisualContextSummary | null;
-}): ReplyDraftSourceShape {
-  const visibleText =
-    args.sourceContext?.primaryPost.text ||
-    args.sourceText ||
-    "";
-  const combined = [
-    collectCombinedSourceText({
-      sourceContext: args.sourceContext,
-      sourceText: args.sourceText,
-      quotedText: args.quotedText,
-      visualContext: args.visualContext || null,
-    }),
-    ...(args.imageSummaryLines || []),
-  ]
-    .join("\n")
-    .trim();
-
-  if (isEmotionalUpdate(combined)) {
-    return "emotional_update";
-  }
-
-  const hasBusinessSignal = hasBusinessDomainSignal(combined);
-  const hasImageMaterial = Boolean(
-    args.visualContext ||
-      (args.imageSummaryLines?.length || 0) > 0 ||
-      (args.sourceContext?.media?.images.length || 0) > 0,
-  );
-  const shortCaption = collectKeywords(visibleText).length <= 4;
-  const playfulShortCaption =
-    /\b(perfect|insane|wild|crazy|absurd|pull|lmao|lol|lmfao)\b/i.test(visibleText);
-
-  if (args.visualContext?.imageRole === "punchline") {
-    return "joke_setup";
-  }
-  if (args.visualContext?.imageRole === "proof") {
-    return hasBusinessSignal ? "strategic_take" : "casual_observation";
-  }
-  if (hasImageMaterial && shortCaption && !hasBusinessSignal && playfulShortCaption) {
-    return "joke_setup";
-  }
-  if (hasImageMaterial && shortCaption && !hasBusinessSignal) {
-    return "casual_observation";
-  }
-  if (isCasualObservation(combined) && !hasBusinessSignal) {
-    return "casual_observation";
-  }
-
-  if (isJokeSetup(combined)) {
-    return "joke_setup";
-  }
-
-  if (isCasualObservation(combined)) {
-    return "casual_observation";
-  }
-
-  return "strategic_take";
-}
-
 export function resolveReplyConstraintPolicy(args: {
   sourceContext?: ReplySourceContext | null;
   sourceText?: string | null;
@@ -300,6 +209,13 @@ export function resolveReplyConstraintPolicy(args: {
   const lexicalOverlap = computeLexicalOverlapScore({
     sourceText,
     strategy: args.strategy || null,
+  });
+  const interpretation = resolveSourceInterpretation({
+    sourceContext: args.sourceContext || null,
+    sourceText: args.sourceText || null,
+    quotedText: args.quotedText || null,
+    preflightResult: args.preflightResult || null,
+    visualContext: args.visualContext || null,
   });
   const sourceShape =
     args.preflightResult?.source_shape ||
@@ -328,11 +244,18 @@ export function resolveReplyConstraintPolicy(args: {
     imageRole === "punchline" ||
     imageRole === "proof" ||
     imageRole === "context";
+  const allowPropose = interpretation.allowed_reply_moves.includes("propose");
+  const allowAdjacentIdeation = !interpretation.disallowed_reply_moves.includes("adjacent_ideation");
+  const allowLiteralProductBrainstorm = !interpretation.disallowed_reply_moves.includes(
+    "literal_product_brainstorm",
+  );
+  const disallowedReplyMoves = interpretation.disallowed_reply_moves;
 
   switch (sourceShape) {
     case "emotional_update":
       return {
         sourceShape,
+        interpretation,
         imageRole,
         imageReplyAnchor,
         shouldReferenceImageText,
@@ -340,6 +263,10 @@ export function resolveReplyConstraintPolicy(args: {
         allowStrategyLens: false,
         allowBusinessInference: sourceHasBusinessSignal && !lowOverlap,
         allowAdvice: sourceWantsAdvice,
+        allowPropose,
+        allowAdjacentIdeation,
+        allowLiteralProductBrainstorm,
+        disallowedReplyMoves,
         preferShortRiff: false,
         treatAsLowSignalCasual: !sourceHasBusinessSignal,
         lexicalOverlapScore,
@@ -347,6 +274,7 @@ export function resolveReplyConstraintPolicy(args: {
     case "casual_observation":
       return {
         sourceShape,
+        interpretation,
         imageRole,
         imageReplyAnchor,
         shouldReferenceImageText,
@@ -354,6 +282,10 @@ export function resolveReplyConstraintPolicy(args: {
         allowStrategyLens: false,
         allowBusinessInference: false,
         allowAdvice: sourceWantsAdvice,
+        allowPropose,
+        allowAdjacentIdeation,
+        allowLiteralProductBrainstorm,
+        disallowedReplyMoves,
         preferShortRiff: true,
         treatAsLowSignalCasual: lowOverlap || !sourceHasBusinessSignal,
         lexicalOverlapScore,
@@ -361,6 +293,7 @@ export function resolveReplyConstraintPolicy(args: {
     case "joke_setup":
       return {
         sourceShape,
+        interpretation,
         imageRole,
         imageReplyAnchor,
         shouldReferenceImageText,
@@ -368,6 +301,10 @@ export function resolveReplyConstraintPolicy(args: {
         allowStrategyLens: false,
         allowBusinessInference: false,
         allowAdvice: sourceWantsAdvice && sourceHasBusinessSignal && !lowOverlap,
+        allowPropose,
+        allowAdjacentIdeation,
+        allowLiteralProductBrainstorm,
+        disallowedReplyMoves,
         preferShortRiff: true,
         treatAsLowSignalCasual: lowOverlap || !sourceHasBusinessSignal,
         lexicalOverlapScore,
@@ -376,6 +313,7 @@ export function resolveReplyConstraintPolicy(args: {
     default:
       return {
         sourceShape: "strategic_take",
+        interpretation,
         imageRole,
         imageReplyAnchor,
         shouldReferenceImageText,
@@ -383,6 +321,10 @@ export function resolveReplyConstraintPolicy(args: {
         allowStrategyLens: sourceHasBusinessSignal || lexicalOverlap >= 0.12,
         allowBusinessInference: sourceHasBusinessSignal || lexicalOverlap >= 0.12,
         allowAdvice: sourceWantsAdvice || (sourceHasBusinessSignal && lexicalOverlap >= 0.08),
+        allowPropose,
+        allowAdjacentIdeation,
+        allowLiteralProductBrainstorm,
+        disallowedReplyMoves,
         preferShortRiff: args.preflightResult?.recommended_reply_mode === "joke_riff",
         treatAsLowSignalCasual: false,
         lexicalOverlapScore,
@@ -419,6 +361,33 @@ export function violatesReplyConstraintPolicy(args: {
       if (pattern.test(draftText) && !pattern.test(sourceText)) {
         return true;
       }
+    }
+  }
+
+  if (!args.policy.allowAdjacentIdeation) {
+    const adjacentIdeationPatterns = [
+      /\bit(?:'d| would)\s+be\s+(?:better|more valuable)\s+if\b/i,
+      /\bthey\s+should\s+also\b/i,
+      /\bnot\s+just\b[^.?!]{0,80}\bbut\b/i,
+      /\balso\s+(?:see|show|add|include)\b/i,
+      /\bwould\s+be\s+useful\s+if\b/i,
+    ];
+    if (adjacentIdeationPatterns.some((pattern) => pattern.test(args.draft))) {
+      return true;
+    }
+  }
+
+  if (!args.policy.allowLiteralProductBrainstorm) {
+    const literalBrainstormPatterns = [
+      /\bfeature request\b/i,
+      /\broadmap\b/i,
+      /\bthey should add\b/i,
+      /\bwould love if\b/i,
+      /\bproduct idea\b/i,
+      /\bthis should ship\b/i,
+    ];
+    if (literalBrainstormPatterns.some((pattern) => pattern.test(args.draft))) {
+      return true;
     }
   }
 

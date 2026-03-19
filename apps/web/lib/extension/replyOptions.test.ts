@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildExtensionReplyOptions,
   prepareExtensionReplyOptionsPolicy,
+  verifyExtensionReplyOptionsResponse,
 } from "./replyOptions.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 
@@ -633,6 +634,75 @@ test("image-led joke posts stay anchored to the screenshot instead of business d
     response.options.every(
       (option) => !/\b(cheap traffic hack|real win|repeatable onboarding|workflow|startup|product)\b/i.test(option.text),
     ),
+    true,
+  );
+});
+
+test("verifyExtensionReplyOptionsResponse rewrites unsupported adjacent ideation on parody mockups", async () => {
+  const post = {
+    postId: "post_8",
+    author: {
+      id: "author_8",
+      handle: "elkelk",
+      name: "Eli",
+      verified: true,
+      followerCount: 12000,
+    },
+    text: "Idea: X Premium Pro Max Plus where you can see who's viewed your profile and bookmarked your tweets",
+    url: "https://x.com/elkelk/status/8",
+    createdAtIso: "2026-03-17T19:04:00.000Z",
+    engagement: {
+      replyCount: 4,
+      repostCount: 3,
+      likeCount: 38,
+      quoteCount: 1,
+      viewCount: 390,
+    },
+    postType: "original" as const,
+    conversation: {
+      conversationId: "conv_8",
+      inReplyToPostId: null,
+      inReplyToHandle: null,
+    },
+    media: {
+      hasMedia: true,
+      hasImage: true,
+      hasVideo: false,
+      hasGif: false,
+      hasLink: false,
+      hasPoll: false,
+      images: [
+        {
+          altText:
+            'Fake premium UI screenshot showing "Unlock X Premium", "See Who\'s Viewing You!", and "$800 / month".',
+        },
+      ],
+    },
+    surface: "home" as const,
+    captureSource: "graphql" as const,
+    capturedAtIso: "2026-03-17T19:05:00.000Z",
+  };
+  const prepared = await prepareExtensionReplyOptionsPolicy({ post, strategy });
+  const verified = await verifyExtensionReplyOptionsResponse({
+    response: {
+      options: [
+        {
+          id: "nuance-1",
+          label: "nuance",
+          text: "that's an interesting idea, but it'd be more valuable if you could also see who's replied to your tweets.",
+        },
+      ],
+      warnings: [],
+      groundingNotes: [],
+    },
+    sourceContext: prepared.sourceContext,
+    visualContext: prepared.visualContext,
+    preflightResult: prepared.preflightResult,
+  });
+
+  assert.equal(prepared.preflightResult.interpretation?.literality, "non_literal");
+  assert.equal(
+    verified.response.options.every((option) => !/\b(replied to your tweets|more valuable if)\b/i.test(option.text)),
     true,
   );
 });

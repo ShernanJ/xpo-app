@@ -223,6 +223,19 @@ function buildReplyVisualSummaryFromImages(
     .map((image) => normalizeWhitespace(image.readableText))
     .filter(Boolean)
     .join(" | ");
+  const brandSignals = Array.from(
+    new Set(images.flatMap((image) => image.brandSignals.map((signal) => normalizeWhitespace(signal)).filter(Boolean))),
+  ).slice(0, 8);
+  const absurdityMarkers = Array.from(
+    new Set(
+      images.flatMap((image) => image.absurdityMarkers.map((marker) => normalizeWhitespace(marker)).filter(Boolean)),
+    ),
+  ).slice(0, 8);
+  const artifactTargetHint =
+    images.map((image) => normalizeWhitespace(image.artifactTargetHint)).find(Boolean) || "";
+  const imageArtifactType =
+    images.map((image) => image.imageArtifactType).find((type) => type && type !== "unknown") ||
+    (images.length > 1 ? "mixed" : "unknown");
   const imageReplyAnchor =
     images
       .map((image) => image.jokeAnchor.trim())
@@ -236,11 +249,17 @@ function buildReplyVisualSummaryFromImages(
     const prefix = images.length > 1 ? `Image ${index + 1}` : "Image";
     return [
       `${prefix} scene type: ${image.sceneType}`,
+      `${prefix} artifact type: ${image.imageArtifactType}`,
       `${prefix} role: ${image.imageRole}`,
       `${prefix} primary subject: ${image.primarySubject}`,
       `${prefix} setting: ${image.setting}`,
       `${prefix} mood: ${image.lightingAndMood}`,
       image.readableText ? `${prefix} readable text: ${image.readableText}` : null,
+      image.brandSignals.length > 0 ? `${prefix} brand signals: ${image.brandSignals.join(" | ")}` : null,
+      image.absurdityMarkers.length > 0
+        ? `${prefix} absurdity markers: ${image.absurdityMarkers.join(" | ")}`
+        : null,
+      image.artifactTargetHint ? `${prefix} artifact target: ${image.artifactTargetHint}` : null,
       image.jokeAnchor ? `${prefix} reply anchor: ${image.jokeAnchor}` : null,
       image.keyDetails.length > 0
         ? `${prefix} key details: ${image.keyDetails.slice(0, 4).join(" | ")}`
@@ -257,8 +276,12 @@ function buildReplyVisualSummaryFromImages(
     keyDetails: Array.from(
       new Set(images.flatMap((image) => image.keyDetails.map((detail) => detail.trim()).filter(Boolean))),
     ).slice(0, 12),
+    brandSignals,
+    absurdityMarkers,
+    artifactTargetHint,
     imageCount: images.length,
     sceneType: mergeSceneTypes(images),
+    imageArtifactType,
     imageRole,
     imageReplyAnchor,
     shouldReferenceImageText: Boolean(
@@ -296,6 +319,10 @@ export function deriveHeuristicReplySourceVisualContext(
         lightingAndMood: fallback.lighting_and_mood,
         readableText: fallback.readable_text,
         keyDetails: fallback.key_details,
+        brandSignals: fallback.brand_signals,
+        absurdityMarkers: fallback.absurdity_markers,
+        artifactTargetHint: fallback.artifact_target_hint,
+        imageArtifactType: fallback.image_artifact_type,
         jokeAnchor: fallback.joke_anchor,
         replyRelevance: fallback.reply_relevance,
       };
@@ -331,6 +358,10 @@ export async function analyzeReplySourceVisualContext(
         lightingAndMood: result.visualContext.lighting_and_mood,
         readableText: result.visualContext.readable_text,
         keyDetails: result.visualContext.key_details,
+        brandSignals: result.visualContext.brand_signals,
+        absurdityMarkers: result.visualContext.absurdity_markers,
+        artifactTargetHint: result.visualContext.artifact_target_hint,
+        imageArtifactType: result.visualContext.image_artifact_type,
         jokeAnchor: result.visualContext.joke_anchor,
         replyRelevance: result.visualContext.reply_relevance,
       };

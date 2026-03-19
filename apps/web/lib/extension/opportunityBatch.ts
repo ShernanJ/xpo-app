@@ -5,6 +5,7 @@ import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrate
 import {
   buildReplySourceContextFromOpportunityCandidate,
   deriveHeuristicReplySourceVisualContext,
+  resolveSourceInterpretation,
   resolveReplyConstraintPolicy,
 } from "../reply-engine/index.ts";
 import type {
@@ -908,6 +909,10 @@ export function scoreOpportunityCandidate(args: {
     strategy: args.strategy,
     visualContext,
   });
+  const interpretation = resolveSourceInterpretation({
+    sourceContext,
+    visualContext,
+  });
   const strategyPillar = pickStrategyPillar({
     candidate: args.candidate,
     strategy: args.strategy,
@@ -972,7 +977,27 @@ export function scoreOpportunityCandidate(args: {
     followConversionPotential = roundScore(followConversionPotential - (imageLedJoke ? 8 : 18));
   }
 
-  const baseSuggestedAngle = constraintPolicy.treatAsLowSignalCasual
+  if (
+    interpretation.literality !== "literal" &&
+    (interpretation.humor_mode === "satire" ||
+      interpretation.humor_mode === "parody" ||
+      interpretation.post_frame === "mockup")
+  ) {
+    conversationQuality = roundScore(conversationQuality + 10);
+    genericityRisk = roundScore(genericityRisk - 14);
+    offNicheRisk = roundScore(offNicheRisk - 8);
+    profileClickPotential = roundScore(profileClickPotential + 6);
+    followConversionPotential = roundScore(followConversionPotential + 4);
+    imageAwareNote =
+      imageAwareNote ||
+      `Interpretation boost applied because the source reads as ${interpretation.humor_mode || "non-literal"} around ${interpretation.target}.`;
+  }
+
+  const baseSuggestedAngle =
+    interpretation.literality !== "literal" &&
+    (interpretation.humor_mode === "satire" || interpretation.humor_mode === "parody")
+      ? ("sharpen" as const)
+      : constraintPolicy.treatAsLowSignalCasual
     ? ("nuance" as const)
     : pickSuggestedAngle({
         candidate: args.candidate,
