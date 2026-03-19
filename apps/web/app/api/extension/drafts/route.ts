@@ -10,9 +10,12 @@ import { normalizeWorkspaceHandle } from "../../../../lib/workspaceHandle.ts";
 import { assertExtensionDraftsResponseShape } from "./route.logic.ts";
 import { handleExtensionDraftsGet } from "./route.handler.ts";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   const requestedHandle = normalizeWorkspaceHandle(
-    request.nextUrl.searchParams.get("handle"),
+    request.nextUrl.searchParams.get("xHandle") ??
+      request.nextUrl.searchParams.get("handle"),
   );
 
   return handleExtensionDraftsGet(request, {
@@ -23,8 +26,8 @@ export async function GET(request: NextRequest) {
         await listContentItemsForWorkspace({
           userId,
           xHandle,
-          status: "DRAFT",
           take: 100,
+          sortBy: "createdAt",
         })
       ).map((draft) => {
         const serialized = serializeContentItem(draft);

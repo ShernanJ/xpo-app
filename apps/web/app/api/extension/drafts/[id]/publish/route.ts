@@ -3,7 +3,7 @@ import { NextRequest } from "next/server.js";
 import { authenticateExtensionRequest } from "../../../../../../lib/extension/auth.ts";
 import {
   findContentItemForWorkspace,
-  updateContentItemById,
+  updateContentItemForWorkspace,
 } from "../../../../../../lib/content/contentHub.ts";
 import { resolveExtensionHandleForRequest } from "../../../../../../lib/extension/handles.ts";
 import { parseExtensionDraftPublishRequest } from "../../route.logic.ts";
@@ -28,20 +28,23 @@ export async function POST(
         draft
           ? {
               id: draft.id,
+              status: draft.status,
               publishedTweetId: draft.publishedTweetId,
             }
           : null,
       ),
-    publishDraft: async ({ id: draftId, publishedTweetId }) => {
-      await updateContentItemById({
+    publishDraft: async ({ id: draftId, userId, xHandle, publishedTweetId }) =>
+      updateContentItemForWorkspace({
         id: draftId,
+        userId,
+        xHandle,
+        requireIndexedMessage: true,
         data: {
           status: "PUBLISHED",
           reviewStatus: "posted",
           postedAt: new Date(),
           ...(publishedTweetId ? { publishedTweetId } : {}),
         },
-      });
-    },
+      }),
   });
 }

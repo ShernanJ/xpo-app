@@ -737,6 +737,28 @@ export async function updateContentItemById(args: {
   return item as DraftCandidateWithFolder;
 }
 
+export async function updateContentItemForWorkspace(args: {
+  id: string;
+  userId: string;
+  xHandle?: string | null;
+  data: Prisma.DraftCandidateUncheckedUpdateInput;
+  requireIndexedMessage?: boolean;
+}) {
+  const result = await prisma.draftCandidate.updateMany({
+    where: {
+      id: args.id,
+      ...buildContentWhere({
+        userId: args.userId,
+        xHandle: args.xHandle,
+        requireIndexedMessage: args.requireIndexedMessage,
+      }),
+    },
+    data: args.data,
+  });
+
+  return result.count > 0;
+}
+
 export async function updateIndexedContentTitlesForThread(args: {
   threadId: string;
   userId: string;

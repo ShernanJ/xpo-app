@@ -11,6 +11,7 @@ interface DraftPublishRequest {
 
 interface PublishableDraftRecord {
   id: string;
+  status: string;
   publishedTweetId: string | null;
 }
 
@@ -42,8 +43,10 @@ interface ExtensionDraftPublishHandlerDeps {
   }): Promise<PublishableDraftRecord | null>;
   publishDraft(args: {
     id: string;
+    userId: string;
+    xHandle: string;
     publishedTweetId?: string | null;
-  }): Promise<void>;
+  }): Promise<boolean>;
 }
 
 function jsonError(status: number, field: string, message: string) {
@@ -93,11 +96,19 @@ export async function handleExtensionDraftPublishPost(
   if (!draft) {
     return jsonError(404, "id", "Draft not found.");
   }
+  if (draft.status !== "DRAFT") {
+    return jsonError(409, "status", "Only draft items can be published.");
+  }
 
-  await deps.publishDraft({
+  const published = await deps.publishDraft({
     id: draft.id,
+    userId: auth.user.id,
+    xHandle: handleResolution.xHandle,
     publishedTweetId: parsed.data.publishedTweetId ?? draft.publishedTweetId,
   });
+  if (!published) {
+    return jsonError(404, "id", "Draft not found.");
+  }
 
   return Response.json({ ok: true });
 }
