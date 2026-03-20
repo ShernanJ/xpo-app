@@ -85,13 +85,6 @@ type LoadCreatorWorkspaceSnapshotSerializedArgs = {
   refreshPinnedProfile: boolean;
 };
 
-function resolveAllowMockFallback(): boolean {
-  return (
-    process.env.ONBOARDING_ALLOW_MOCK_FALLBACK?.trim() === "1" ||
-    process.env.NODE_ENV !== "production"
-  );
-}
-
 function normalizeStoredRun(
   storedRun: StoredOnboardingRun | CreatorWorkspaceSnapshotStoredRun | null | undefined,
 ): CreatorWorkspaceSnapshotStoredRun | null {
@@ -152,14 +145,12 @@ async function loadCreatorWorkspaceSnapshotImpl(
   }
 
   const storedOnboardingResult = storedRun.result as OnboardingResult;
-  const allowMockFallback =
-    args.allowMockFallback === true ? true : resolveAllowMockFallback();
-  if (!allowMockFallback && storedOnboardingResult.source === "mock") {
+  if (storedOnboardingResult.source === "mock") {
     return {
       ok: false,
       code: "ONBOARDING_SOURCE_INVALID",
       message:
-        "This account was set up with fallback data. Re-run onboarding after configuring scrape credentials.",
+        "This account was set up with mock fallback data. Re-run onboarding after fixing the real scrape path.",
     };
   }
 

@@ -656,7 +656,10 @@ export function parseUserTweetsGraphqlPayload(params: {
     posts = sortAndLimitPosts(fallbackPostsById);
   }
 
-  if (posts.length === 0) {
+  const hasRecognizedUserTimelinePayload =
+    payloadUserNode !== null && getTimelineFromPayload(params.payload) !== null;
+
+  if (posts.length === 0 && !hasRecognizedUserTimelinePayload) {
     throw new Error(
       "No timeline tweets were parsed from payload. Confirm this is a UserTweets GraphQL response.",
     );

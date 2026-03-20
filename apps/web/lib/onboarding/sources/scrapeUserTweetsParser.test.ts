@@ -332,3 +332,19 @@ test("parseUserTweetsGraphqlPayload dedupes duplicate timeline tweet ids across 
     ["444", "555"],
   );
 });
+
+test("parseUserTweetsGraphqlPayload returns a real zero-post result for accounts with no tweets", () => {
+  const payload = createPayload([]);
+
+  const parsed = parseUserTweetsGraphqlPayload({
+    payload,
+    account: "stan",
+  });
+
+  assert.equal(parsed.profile.username, "stan");
+  assert.equal(parsed.profile.name, "Stan");
+  assert.equal(parsed.posts.length, 0);
+  assert.equal(parsed.replyPosts.length, 0);
+  assert.equal(parsed.quotePosts.length, 0);
+  assert.equal(parsed.pinnedPost, null);
+});

@@ -143,10 +143,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const allowMockFallback =
-    process.env.ONBOARDING_ALLOW_MOCK_FALLBACK?.trim() === "1" ||
-    process.env.NODE_ENV !== "production";
-  if (!allowMockFallback && result.source === "mock") {
+  if (result.source === "mock") {
     const warningDetail = result.warnings?.[0] ?? null;
     return NextResponse.json(
       {
@@ -157,7 +154,7 @@ export async function POST(request: Request) {
             field: "account",
             message:
               warningDetail ??
-              "Onboarding scrape could not fetch real profile data. Check scraping env vars in Vercel and retry.",
+              "Onboarding scrape could not fetch real profile data. Mock fallback is disabled; fix the scrape path and retry.",
           },
         ],
       },

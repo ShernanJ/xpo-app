@@ -211,6 +211,103 @@ describe("loadCreatorWorkspaceSnapshot", () => {
     expect(mocks.readLatestOnboardingRunByHandle).toHaveBeenCalledTimes(2);
   });
 
+  test("rejects legacy mock onboarding runs instead of loading fallback workspace data", async () => {
+    mocks.readLatestOnboardingRunByHandle.mockResolvedValue({
+      runId: "or_mock",
+      persistedAt: "2026-03-20T00:00:00.000Z",
+      userId: "user_1",
+      input: {
+        account: "stan",
+        goal: "followers",
+        timeBudgetMinutes: 30,
+        tone: {
+          casing: "lowercase",
+          risk: "safe",
+        },
+      },
+      result: {
+        account: "stan",
+        source: "mock",
+        generatedAt: "2026-03-20T00:00:00.000Z",
+        profile: {
+          username: "stan",
+          name: "Stan",
+          bio: "builder",
+          avatarUrl: null,
+          headerImageUrl: null,
+          isVerified: false,
+          followersCount: 1200,
+          followingCount: 140,
+          createdAt: "2020-01-01T00:00:00.000Z",
+        },
+        pinnedPost: null,
+        recentPosts: [],
+        recentReplyPosts: [],
+        recentQuotePosts: [],
+        recentPostSampleCount: 0,
+        replyPostSampleCount: 0,
+        quotePostSampleCount: 0,
+        capturedPostCount: 0,
+        capturedReplyPostCount: 0,
+        capturedQuotePostCount: 0,
+        totalCapturedActivityCount: 0,
+        analysisConfidence: {
+          sampleSize: 0,
+          score: 20,
+          band: "very_low",
+          minimumViableReached: false,
+          recommendedDepthReached: false,
+          backgroundBackfillRecommended: true,
+          targetPostCount: 80,
+          message: "thin sample",
+        },
+        baseline: {
+          averageEngagement: 0,
+          medianEngagement: 0,
+          engagementRate: 0,
+          postingCadencePerWeek: 0,
+          averagePostLength: 0,
+        },
+        growthStage: "1k-10k",
+        contentDistribution: [],
+        hookPatterns: [],
+        bestFormats: [],
+        underperformingFormats: [],
+        strategyState: {
+          growthStage: "1k-10k",
+          goal: "followers",
+          postingCadenceCapacity: "1_per_day",
+          replyBudgetPerDay: "5_15",
+          transformationMode: "preserve",
+          transformationModeSource: "default",
+          recommendedPostsPerWeek: 5,
+          weights: {
+            distribution: 0.35,
+            authority: 0.55,
+            leverage: 0.1,
+          },
+          rationale: "keep compounding",
+        },
+        warnings: ["mock fallback"],
+      },
+      metadata: {
+        userAgent: null,
+      },
+    });
+
+    const result = await loadCreatorWorkspaceSnapshot({
+      userId: "user_1",
+      xHandle: "stan",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: "ONBOARDING_SOURCE_INVALID",
+      message:
+        "This account was set up with mock fallback data. Re-run onboarding after fixing the real scrape path.",
+    });
+  });
+
   test("queues a pinned-profile refresh instead of live scraping in deferred mode", async () => {
     const onboarding = {
       account: "stan",

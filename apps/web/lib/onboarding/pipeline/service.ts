@@ -233,6 +233,14 @@ export async function runOnboarding(input: OnboardingInput): Promise<OnboardingR
     capturedQuotePostCount,
     warnings,
   } = dataSource;
+
+  if (source === "mock") {
+    throw new Error(
+      warnings[0] ??
+        "Mock onboarding data is disabled. Configure a real scrape source and retry.",
+    );
+  }
+
   const analysisConfidence = buildAnalysisConfidence(posts.length);
 
   const baseline = computeEngagementBaseline(posts, profile.followersCount);

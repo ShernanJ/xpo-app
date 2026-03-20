@@ -123,9 +123,11 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     console.error("Scraping onboarding failed:", error);
+    const message =
+      error instanceof Error ? error.message : "Failed to run onboarding loop.";
     return NextResponse.json(
-      { ok: false, errors: [{ field: "server", message: "Failed to run onboarding loop." }] },
-      { status: 500 }
+      { ok: false, errors: [{ field: "server", message }] },
+      { status: 502 }
     );
   }
 }

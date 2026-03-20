@@ -195,7 +195,10 @@ function ChatPageContent() {
     threadMenuRef,
     accountMenuRef,
     toolsMenuRef,
-  } = useWorkspaceChromeState({ accountName });
+  } = useWorkspaceChromeState({
+    accountName,
+    sessionUserId: session?.user?.id ?? null,
+  });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [activeThreadTurn, setActiveThreadTurn] = useState<ChatActiveTurn | null>(null);

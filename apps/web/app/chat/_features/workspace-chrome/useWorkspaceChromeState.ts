@@ -13,12 +13,13 @@ interface CreatorHandlesResponse {
 
 interface UseWorkspaceChromeStateOptions {
   accountName: string | null;
+  sessionUserId?: string | null;
 }
 
 export function useWorkspaceChromeState(
   options: UseWorkspaceChromeStateOptions,
 ) {
-  const { accountName } = options;
+  const { accountName, sessionUserId = null } = options;
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [menuOpenThreadId, setMenuOpenThreadId] = useState<string | null>(null);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
@@ -101,26 +102,36 @@ export function useWorkspaceChromeState(
   }, [accountMenuOpen, closeAccountMenu, openAccountMenu]);
 
   useEffect(() => {
-    if (!accountName) {
+    if (!sessionUserId || !accountName) {
+      setAvailableHandles([]);
       return;
     }
 
     let isMounted = true;
+    setAvailableHandles([]);
     fetch("/api/creator/profile/handles")
       .then((res) => res.json())
       .then((data: CreatorHandlesResponse) => {
         if (!isMounted || !data.ok || !data.data?.handles) {
+          if (isMounted) {
+            setAvailableHandles([]);
+          }
           return;
         }
 
         setAvailableHandles(data.data.handles);
       })
-      .catch((err) => console.error("Failed to load available handles:", err));
+      .catch((err) => {
+        console.error("Failed to load available handles:", err);
+        if (isMounted) {
+          setAvailableHandles([]);
+        }
+      });
 
     return () => {
       isMounted = false;
     };
-  }, [accountName]);
+  }, [accountName, sessionUserId]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {

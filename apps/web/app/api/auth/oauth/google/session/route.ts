@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 import { GOOGLE_OAUTH_STATE_COOKIE_NAME } from "@/lib/auth/oauth";
 import { createSessionToken, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from "@/lib/auth/session";
-import { ensureAppUserForAuthIdentity } from "@/lib/auth/serverSession";
+import { AuthIdentityConflictError, ensureAppUserForAuthIdentity } from "@/lib/auth/serverSession";
 import { getSupabaseUserFromAccessToken } from "@/lib/auth/supabase";
 import {
   capturePostHogServerEvent,
@@ -160,6 +160,30 @@ export async function POST(request: Request) {
 
     return response;
   } catch (error) {
+    if (error instanceof AuthIdentityConflictError) {
+      await capturePostHogServerException({
+        request,
+        distinctId: cookieState || null,
+        error,
+        properties: {
+          route: "/api/auth/oauth/google/session",
+          code: error.code,
+          existing_email: error.existingEmail,
+          incoming_email: error.incomingEmail,
+        },
+      });
+      const response = NextResponse.json(
+        {
+          ok: false,
+          code: error.code,
+          error: error.message,
+        },
+        { status: 409 },
+      );
+      clearGoogleOauthStateCookie(response);
+      return response;
+    }
+
     await capturePostHogServerException({
       request,
       distinctId: cookieState || null,

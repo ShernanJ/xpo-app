@@ -12,6 +12,27 @@ const APP_SESSION_USER_SELECT = {
   activeXHandle: true,
 } as const;
 
+export class AuthIdentityConflictError extends Error {
+  readonly code = "AUTH_IDENTITY_CONFLICT";
+  readonly userId: string;
+  readonly existingEmail: string;
+  readonly incomingEmail: string;
+
+  constructor(args: {
+    userId: string;
+    existingEmail: string;
+    incomingEmail: string;
+  }) {
+    super(
+      "This sign-in is linked to a different Xpo account. Please use the original email for this account or contact support.",
+    );
+    this.name = "AuthIdentityConflictError";
+    this.userId = args.userId;
+    this.existingEmail = args.existingEmail;
+    this.incomingEmail = args.incomingEmail;
+  }
+}
+
 function asAppSession(user: {
   id: string;
   name: string | null;
@@ -69,12 +90,20 @@ export async function ensureAppUserForAuthIdentity(params: {
       return existingUserById;
     }
 
-    return prisma.user.update({
-      where: { id: params.userId },
-      data: {
-        email: normalizedEmail,
-      },
-      select: APP_SESSION_USER_SELECT,
+    if (!existingUserById.email) {
+      return prisma.user.update({
+        where: { id: params.userId },
+        data: {
+          email: normalizedEmail,
+        },
+        select: APP_SESSION_USER_SELECT,
+      });
+    }
+
+    throw new AuthIdentityConflictError({
+      userId: params.userId,
+      existingEmail: existingUserById.email,
+      incomingEmail: normalizedEmail,
     });
   }
 

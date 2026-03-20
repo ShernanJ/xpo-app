@@ -457,12 +457,14 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     console.error("Failed to refresh profile scrape:", error);
+    const message =
+      error instanceof Error ? error.message : "Failed to refresh profile scrape.";
     return NextResponse.json(
       {
         ok: false,
-        errors: parseRequestError("account", "Failed to refresh profile scrape."),
+        errors: parseRequestError("account", message),
       },
-      { status: 500 },
+      { status: 502 },
     );
   }
 }

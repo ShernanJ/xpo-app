@@ -29,7 +29,7 @@ vi.mock("@/lib/auth/session", () => ({
   verifySessionToken: mocks.verifySessionToken,
 }));
 
-import { ensureAppUserForAuthIdentity } from "@/lib/auth/serverSession";
+import { AuthIdentityConflictError, ensureAppUserForAuthIdentity } from "@/lib/auth/serverSession";
 
 const existingUser = {
   id: "user_existing",
@@ -114,5 +114,19 @@ describe("ensureAppUserForAuthIdentity", () => {
         activeXHandle: true,
       },
     });
+  });
+
+  test("throws when an existing auth identity is already bound to a different email", async () => {
+    mocks.prismaUserFindUnique.mockResolvedValueOnce(existingUser);
+
+    await expect(
+      ensureAppUserForAuthIdentity({
+        userId: "user_existing",
+        email: "kiritoswaggerman@gmail.com",
+      }),
+    ).rejects.toBeInstanceOf(AuthIdentityConflictError);
+
+    expect(mocks.prismaUserUpdate).not.toHaveBeenCalled();
+    expect(mocks.prismaUserCreate).not.toHaveBeenCalled();
   });
 });

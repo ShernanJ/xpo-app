@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createSessionToken, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from "@/lib/auth/session";
-import { ensureAppUserForAuthIdentity } from "@/lib/auth/serverSession";
+import { AuthIdentityConflictError, ensureAppUserForAuthIdentity } from "@/lib/auth/serverSession";
 import { verifySupabaseEmailCode } from "@/lib/auth/supabase";
 import {
   capturePostHogServerEvent,
@@ -141,6 +141,29 @@ export async function POST(request: Request) {
     });
     return response;
   } catch (error) {
+    if (error instanceof AuthIdentityConflictError) {
+      await capturePostHogServerException({
+        request,
+        distinctId: `email:${email}`,
+        error,
+        properties: {
+          email_domain: resolveEmailDomain(email),
+          route: "/api/auth/email-code/verify",
+          code: error.code,
+          existing_email: error.existingEmail,
+          incoming_email: error.incomingEmail,
+        },
+      });
+      return buildErrorResponse({
+        status: 409,
+        field: "auth",
+        message: error.message,
+        extras: {
+          code: error.code,
+        },
+      });
+    }
+
     await capturePostHogServerException({
       request,
       distinctId: `email:${email}`,

@@ -227,4 +227,34 @@ describe("POST /api/onboarding/run", () => {
     expect(payload.runId).toBe("or_123");
     expect(payload.data.account).toBe("stan");
   });
+
+  test("rejects mock onboarding results instead of finalizing them", async () => {
+    const result = {
+      ...createOnboardingResult(),
+      source: "mock" as const,
+      warnings: ["Live scrape bootstrap failed for @stan: timeline parse failed"],
+    };
+    mocks.shouldQueueOnboardingLiveScrape.mockResolvedValue(false);
+    mocks.runOnboarding.mockResolvedValue(result);
+
+    const response = await POST(
+      new Request("http://localhost/api/onboarding/run", {
+        method: "POST",
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(payload).toEqual({
+      ok: false,
+      code: "SCRAPE_UNAVAILABLE",
+      errors: [
+        {
+          field: "account",
+          message: "Live scrape bootstrap failed for @stan: timeline parse failed",
+        },
+      ],
+    });
+    expect(mocks.finalizeOnboardingRunForUser).not.toHaveBeenCalled();
+  });
 });
