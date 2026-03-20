@@ -57,6 +57,7 @@ export interface DraftPromotionRequestBody {
   groundingMode?: DraftArtifact["groundingMode"];
   groundingExplanation?: DraftArtifact["groundingExplanation"];
   threadFramingStyle?: DraftArtifact["threadFramingStyle"];
+  replySourcePreview?: DraftArtifact["replySourcePreview"];
   revisionChainId: string;
   basedOn: {
     messageId: string;
@@ -120,6 +121,7 @@ function buildDraftArtifactWithLimit(params: {
   groundingMode?: DraftArtifact["groundingMode"];
   groundingExplanation?: DraftArtifact["groundingExplanation"];
   threadFramingStyle?: DraftArtifact["threadFramingStyle"];
+  replySourcePreview?: DraftArtifact["replySourcePreview"];
 }): DraftArtifact {
   const artifact = buildDraftArtifact({
     id: params.id,
@@ -139,6 +141,9 @@ function buildDraftArtifactWithLimit(params: {
     ...(params.groundingExplanation ? { groundingExplanation: params.groundingExplanation } : {}),
     ...(params.threadFramingStyle
       ? { threadFramingStyle: params.threadFramingStyle }
+      : {}),
+    ...(params.replySourcePreview !== undefined
+      ? { replySourcePreview: params.replySourcePreview ?? null }
       : {}),
   });
 
@@ -290,6 +295,9 @@ export function prepareDraftPromotionRequest(args: {
       ...(args.selectedDraftArtifact?.threadFramingStyle
         ? { threadFramingStyle: args.selectedDraftArtifact.threadFramingStyle }
         : {}),
+      ...(args.selectedDraftArtifact?.replySourcePreview !== undefined
+        ? { replySourcePreview: args.selectedDraftArtifact.replySourcePreview ?? null }
+        : {}),
       revisionChainId,
       basedOn: {
         messageId: args.selectedDraftMessage.id,
@@ -363,6 +371,9 @@ export function resolveDraftVersionRevertUpdate<TBundle extends DraftBundleLike>
       : {}),
     ...(sourceArtifact?.threadFramingStyle
       ? { threadFramingStyle: sourceArtifact.threadFramingStyle }
+      : {}),
+    ...(sourceArtifact?.replySourcePreview !== undefined
+      ? { replySourcePreview: sourceArtifact.replySourcePreview ?? null }
       : {}),
   });
   const nextDraftVersions = replaceDraftVersionEntry({

@@ -8,6 +8,8 @@ import {
 import { getChatRenderMode } from "@/lib/ui/chatRenderMode";
 import type { ChatMediaAttachmentRef } from "@/lib/chat/chatMedia";
 import { ChatMediaAttachments } from "../shared/ChatMediaAttachments";
+import type { ReplySourcePreview } from "@/lib/reply-engine/replySourcePreview";
+import { ReplySourcePreviewCard } from "../reply/ReplySourcePreviewCard";
 
 interface MessageContentProps {
   role: "assistant" | "user";
@@ -17,6 +19,7 @@ interface MessageContentProps {
   typedLength: number;
   assistantTypingBubble: React.ReactNode;
   mediaAttachments?: ChatMediaAttachmentRef[];
+  replySourcePreview?: ReplySourcePreview | null;
 }
 
 export function MessageContent(props: MessageContentProps) {
@@ -28,6 +31,7 @@ export function MessageContent(props: MessageContentProps) {
     typedLength,
     assistantTypingBubble,
     mediaAttachments,
+    replySourcePreview,
   } =
     props;
 
@@ -73,6 +77,10 @@ export function MessageContent(props: MessageContentProps) {
   }
 
   if (role === "user") {
+    if (replySourcePreview) {
+      return <ReplySourcePreviewCard preview={replySourcePreview} showExternalCta />;
+    }
+
     const hasText = content.trim().length > 0;
     return (
       <>

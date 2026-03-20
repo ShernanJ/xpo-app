@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getServerSession } from "@/lib/auth/serverSession";
 import {
+  type ContentHubContentType,
   findContentItemForWorkspace,
   findFolderForUser,
   serializeContentItem,
@@ -21,6 +22,10 @@ interface ContentPatchRequest extends Record<string, unknown> {
 }
 
 const VALID_CONTENT_STATUSES = new Set(["DRAFT", "PUBLISHED", "ARCHIVED"]);
+const VALID_CONTENT_TYPES = new Set<ContentHubContentType>([
+  "posts_threads",
+  "replies",
+]);
 
 export async function GET(
   request: NextRequest,
@@ -42,11 +47,26 @@ export async function GET(
     return workspaceHandle.response;
   }
 
+  const contentType =
+    (request.nextUrl.searchParams.get("contentType")?.trim().toLowerCase() as
+      | ContentHubContentType
+      | null) || "posts_threads";
+  if (!VALID_CONTENT_TYPES.has(contentType)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        errors: [{ field: "contentType", message: "Invalid content type filter." }],
+      },
+      { status: 400 },
+    );
+  }
+
   const { id } = await params;
   const item = await findContentItemForWorkspace({
     id,
     userId: session.user.id,
     xHandle: workspaceHandle.xHandle,
+    contentType,
   });
   if (!item) {
     return NextResponse.json(
@@ -113,11 +133,26 @@ export async function PATCH(
     return workspaceHandle.response;
   }
 
+  const contentType =
+    (request.nextUrl.searchParams.get("contentType")?.trim().toLowerCase() as
+      | ContentHubContentType
+      | null) || "posts_threads";
+  if (!VALID_CONTENT_TYPES.has(contentType)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        errors: [{ field: "contentType", message: "Invalid content type filter." }],
+      },
+      { status: 400 },
+    );
+  }
+
   const { id } = await params;
   const item = await findContentItemForWorkspace({
     id,
     userId: session.user.id,
     xHandle: workspaceHandle.xHandle,
+    contentType,
   });
   if (!item) {
     return NextResponse.json(

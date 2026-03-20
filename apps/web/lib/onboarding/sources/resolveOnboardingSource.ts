@@ -7,7 +7,7 @@ import {
   resolveXApiDataSource,
 } from "./xApiSource";
 
-function getConfiguredOnboardingMode(): OnboardingMode {
+export function getConfiguredOnboardingMode(): OnboardingMode {
   const raw = (
     process.env.ONBOARDING_MODE ??
     process.env.ONBOARDING_DATA_SOURCE ??

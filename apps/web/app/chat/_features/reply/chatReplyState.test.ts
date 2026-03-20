@@ -250,6 +250,25 @@ test("resolveNextDraftEditorSelection keeps json and stream rules distinct", () 
   assert.equal(missingStreamDraft, null);
 });
 
+test("resolveNextDraftEditorSelection auto-opens reply drafts without an existing selected draft context", () => {
+  const jsonSelection = resolveNextDraftEditorSelection({
+    result: {
+      messageId: "assistant-reply-1",
+      draftVersions: [{ id: "reply-version-1" }],
+      revisionChainId: "reply-chain-1",
+      outputShape: "reply_candidate",
+    },
+    selectedDraftContext: null,
+    mode: "json",
+  });
+
+  assert.deepEqual(jsonSelection, {
+    messageId: "assistant-reply-1",
+    versionId: "reply-version-1",
+    revisionChainId: "reply-chain-1",
+  });
+});
+
 test("resolveAssistantReplySuccessState plans assistant message, selection, memory, and thread updates", () => {
   const successState = resolveAssistantReplySuccessState({
     result: {

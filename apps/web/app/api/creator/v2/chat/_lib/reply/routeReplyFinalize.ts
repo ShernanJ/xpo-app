@@ -1,3 +1,5 @@
+import { Prisma } from "../../../../../../../lib/generated/prisma/client";
+import { prisma } from "../../../../../../../lib/db";
 import type { V2ConversationMemory } from "../../../../../../../lib/agent-v2/contracts/chat.ts";
 import type { NormalizedChatTurnDiagnostics } from "../../../../../../../lib/agent-v2/contracts/turnContract.ts";
 import { buildReplyMemorySnapshot } from "../../../../../../../lib/agent-v2/capabilities/reply/replyTurnPlanner.ts";
@@ -24,6 +26,7 @@ export interface FinalizeReplyTurnArgs {
   userId: string;
   activeHandle: string | null;
   turnId?: string | null;
+  userMessageId?: string | null;
   loadBilling: () => Promise<unknown>;
   recordProductEvent: (args: {
     userId: string;
@@ -78,10 +81,27 @@ export async function finalizeReplyTurnWithDeps(
     threadTitle: args.storedThreadTitle || args.defaultThreadTitle,
     replyArtifacts: args.preparedTurn.plannedTurn.replyArtifacts || null,
     replyParse: args.preparedTurn.plannedTurn.replyParse || null,
+    replySourcePreview: args.preparedTurn.plannedTurn.replySourcePreview || null,
   });
 
   let createdAssistantMessageId: string | undefined;
+  let responseUserMessage:
+    | {
+        id: string;
+        replySourcePreview?: NonNullable<
+          FinalizeReplyTurnArgs["preparedTurn"]["plannedTurn"]["replySourcePreview"]
+        > | null;
+      }
+    | null = null;
   if (args.storedThreadId) {
+    const activeDraftVersion =
+      mappedData.activeDraftVersionId && mappedData.draftVersions?.length
+        ? mappedData.draftVersions.find(
+            (version) => version.id === mappedData.activeDraftVersionId,
+          ) ?? mappedData.draftVersions[mappedData.draftVersions.length - 1] ?? null
+        : null;
+    const activeDraftArtifact =
+      activeDraftVersion?.artifact ?? mappedData.draftArtifacts[0] ?? null;
     const persistenceResult = await deps.persistAssistantTurn({
       threadId: args.storedThreadId,
       assistantMessageData: mappedData,
@@ -90,6 +110,35 @@ export async function finalizeReplyTurnWithDeps(
         userId: args.userId,
         xHandle: args.activeHandle,
       },
+      draftCandidateCreates: activeDraftArtifact
+        ? [
+            {
+              title: activeDraftArtifact.title || "Reply",
+              artifact: activeDraftArtifact,
+              voiceTarget: activeDraftArtifact.voiceTarget ?? null,
+              noveltyNotes: activeDraftArtifact.noveltyNotes ?? [],
+              draftVersionId: mappedData.activeDraftVersionId ?? null,
+              basedOnVersionId:
+                activeDraftVersion?.basedOnVersionId ??
+                mappedData.previousVersionSnapshot?.versionId ??
+                null,
+              revisionChainId: mappedData.revisionChainId ?? null,
+            },
+          ]
+        : [],
+      draftCandidateContext: activeDraftArtifact
+        ? {
+            userId: args.userId,
+            xHandle: args.activeHandle,
+            runId: null,
+            sourcePrompt:
+              args.preparedTurn.plannedTurn.replyArtifacts?.sourceText ||
+              args.preparedTurn.plannedTurn.reply ||
+              "",
+            sourcePlaybook: "chat_reply",
+            outputShape: mappedData.outputShape,
+          }
+        : undefined,
       buildMemoryUpdate: (assistantMessageId) => ({
         preferredSurfaceMode: "structured",
         activeReplyContext: args.preparedTurn.plannedTurn.activeReplyContext,
@@ -111,6 +160,41 @@ export async function finalizeReplyTurnWithDeps(
       ...mappedData,
       threadTitle: persistenceResult.updatedThreadTitle || args.defaultThreadTitle,
     };
+
+    if (args.userMessageId && args.preparedTurn.plannedTurn.replySourcePreview) {
+      const currentUserMessage = await prisma.chatMessage.findUnique({
+        where: { id: args.userMessageId },
+        select: {
+          data: true,
+          threadId: true,
+        },
+      });
+
+      if (currentUserMessage?.threadId === args.storedThreadId) {
+        const existingData =
+          currentUserMessage.data &&
+          typeof currentUserMessage.data === "object" &&
+          !Array.isArray(currentUserMessage.data)
+            ? (currentUserMessage.data as Prisma.JsonObject)
+            : {};
+
+        await prisma.chatMessage.update({
+          where: { id: args.userMessageId },
+          data: {
+            data: {
+              ...existingData,
+              replySourcePreview:
+                args.preparedTurn.plannedTurn.replySourcePreview as unknown as Prisma.JsonValue,
+            },
+          },
+        });
+
+        responseUserMessage = {
+          id: args.userMessageId,
+          replySourcePreview: args.preparedTurn.plannedTurn.replySourcePreview,
+        };
+      }
+    }
   }
 
   if (args.onAssistantTurnPersisted) {
@@ -139,6 +223,7 @@ export async function finalizeReplyTurnWithDeps(
   return await deps.buildChatSuccessResponse({
     mappedData,
     createdAssistantMessageId,
+    userMessage: responseUserMessage,
     turnId: args.turnId ?? null,
     newThreadId: !args.requestedThreadId && args.storedThreadId ? args.storedThreadId : undefined,
     routingTrace: args.shouldIncludeRoutingTrace

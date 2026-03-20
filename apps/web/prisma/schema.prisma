@@ -109,6 +109,18 @@ enum OnboardingBackfillJobStatus {
   failed
 }
 
+enum OnboardingScrapeJobStatus {
+  pending
+  processing
+  completed
+  failed
+}
+
+enum OnboardingScrapeJobKind {
+  onboarding_run
+  profile_refresh
+}
+
 model User {
   // Mirrors Supabase auth.users.id
   id            String   @id
@@ -139,6 +151,7 @@ model User {
   creditLedgerEntries      CreditLedgerEntry[]
   lifetimeSlotReservations LifetimeSlotReservation[]
   chatTurnControls         ChatTurnControl[]
+  onboardingScrapeJobs     OnboardingScrapeJob[]
 }
 
 model OnboardingRun {
@@ -335,6 +348,34 @@ model OnboardingBackfillJob {
 
   @@index([status, updatedAt])
   @@index([account, status, updatedAt])
+  @@index([leaseExpiresAt, status])
+}
+
+model OnboardingScrapeJob {
+  id               String                   @id @default(cuid())
+  dedupeKey        String                   @unique
+  userId           String
+  account          String
+  kind             OnboardingScrapeJobKind
+  status           OnboardingScrapeJobStatus @default(pending)
+  requestInput     Json?
+  attempts         Int                      @default(0)
+  leaseOwner       String?
+  leaseExpiresAt   DateTime?
+  heartbeatAt      DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  failedAt         DateTime?
+  lastError        String?
+  resultPayload    Json?
+  completedRunId   String?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, updatedAt])
+  @@index([account, kind, status, updatedAt])
   @@index([leaseExpiresAt, status])
 }
 

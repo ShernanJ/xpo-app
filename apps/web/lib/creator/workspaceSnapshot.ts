@@ -10,8 +10,9 @@ import { buildCreatorGenerationContract } from "../onboarding/contracts/generati
 import type { CreatorGenerationContract } from "../onboarding/contracts/generationContract";
 import {
   hydrateOnboardingProfileForAnalysis,
-  hydrateOnboardingProfileForAnalysisWithPinnedRefresh,
 } from "../onboarding/profile/profileHydration";
+import { shouldDeferLiveScrapesToWorker } from "../onboarding/pipeline/liveScrapePolicy";
+import { enqueueProfileRefreshJobIfNeeded } from "../onboarding/pipeline/scrapeJob";
 import {
   readLatestOnboardingRunByHandle,
   type StoredOnboardingRun,
@@ -170,9 +171,17 @@ async function loadCreatorWorkspaceSnapshotImpl(
     onboarding: storedOnboardingResult,
     overrides: strategyOverrides,
   });
-  const onboarding = await (args.refreshPinnedProfile
-    ? hydrateOnboardingProfileForAnalysisWithPinnedRefresh(overriddenOnboarding)
-    : hydrateOnboardingProfileForAnalysis(overriddenOnboarding));
+  const shouldDeferPinnedRefresh =
+    args.refreshPinnedProfile === true && shouldDeferLiveScrapesToWorker();
+  if (shouldDeferPinnedRefresh) {
+    await enqueueProfileRefreshJobIfNeeded({
+      account: args.xHandle,
+      userId: args.userId,
+    }).catch((error) =>
+      console.error("Failed to queue pinned profile refresh:", error),
+    );
+  }
+  const onboarding = await hydrateOnboardingProfileForAnalysis(overriddenOnboarding);
 
   const persistedVoiceProfile = await prisma.voiceProfile.findFirst({
     where: {

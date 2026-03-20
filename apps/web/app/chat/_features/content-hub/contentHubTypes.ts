@@ -4,6 +4,7 @@ import type { DraftArtifactDetails } from "@/lib/onboarding/shared/draftArtifact
 
 export type ContentStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
 export type ContentHubViewMode = "date" | "status" | "group";
+export type ContentHubContentType = "posts_threads" | "replies";
 
 export interface ContentHubAuthorIdentity {
   displayName: string;

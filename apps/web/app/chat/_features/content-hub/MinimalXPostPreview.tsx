@@ -12,6 +12,7 @@ import type {
   ContentItemSummaryRecord,
 } from "./contentHubTypes";
 import { NO_GROUP_LABEL, formatContentTimestamp } from "./contentHubViewState";
+import { ReplySourcePreviewCard } from "../reply/ReplySourcePreviewCard";
 
 interface MinimalXPostPreviewProps {
   item: ContentItemSummaryRecord | ContentItemRecord;
@@ -60,6 +61,8 @@ export function MinimalXPostPreview(props: MinimalXPostPreviewProps) {
   const groupLabel = item.folder?.name ?? NO_GROUP_LABEL;
   const [copiedPostId, setCopiedPostId] = useState<string | null>(null);
   const copyResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const replySourcePreview = item.artifact?.replySourcePreview ?? null;
+  const isReplyDraft = item.artifact?.kind === "reply_candidate" && Boolean(replySourcePreview);
 
   useEffect(() => {
     return () => {
@@ -91,6 +94,51 @@ export function MinimalXPostPreview(props: MinimalXPostPreviewProps) {
   }
 
   if (variant === "compact") {
+    if (isReplyDraft && replySourcePreview) {
+      return (
+        <article className="aspect-square rounded-[1.35rem] border border-emerald-500/12 bg-black/40 p-3">
+          <div className="flex h-full flex-col">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-[10px] font-bold uppercase text-white">
+                  {renderAvatar(identity)}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-[10px] font-medium text-zinc-300">
+                    @{identity.username}
+                  </p>
+                  <p className="text-[9px] uppercase tracking-[0.18em] text-emerald-300/75">
+                    Reply
+                  </p>
+                </div>
+              </div>
+              <span className="max-w-[48%] shrink-0 truncate rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-medium text-zinc-400">
+                {groupLabel}
+              </span>
+            </div>
+
+            <div className="mt-3 min-h-0 flex-1 overflow-hidden">
+              <p
+                className="whitespace-pre-wrap text-[13px] leading-5 text-zinc-100"
+                style={COMPACT_BODY_CLAMP_STYLE}
+              >
+                {fallbackContent}
+              </p>
+            </div>
+
+            <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.04] px-2.5 py-2">
+              <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-zinc-400">
+                Replying to
+              </p>
+              <p className="mt-1 truncate text-sm font-semibold text-white">
+                @{replySourcePreview.author.username || "source"}
+              </p>
+            </div>
+          </div>
+        </article>
+      );
+    }
+
     const compactContent = previewPosts[0]?.content ?? preview.primaryText ?? fallbackContent;
     const threadLabel =
       previewThreadPostCount === 2
@@ -147,6 +195,70 @@ export function MinimalXPostPreview(props: MinimalXPostPreviewProps) {
             </p>
           </div>
 
+        </div>
+      </article>
+    );
+  }
+
+  if (isReplyDraft && replySourcePreview) {
+    return (
+      <article className="rounded-[1.5rem] border border-emerald-500/12 bg-black/40 p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold uppercase text-white">
+            {renderAvatar(identity)}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="truncate text-sm font-semibold text-white">
+                {identity.displayName}
+              </span>
+              {isVerifiedAccount ? (
+                <Image
+                  src="/x-verified.svg"
+                  alt="Verified account"
+                  width={16}
+                  height={16}
+                  className="h-4 w-4 shrink-0"
+                />
+              ) : null}
+              <span className="truncate text-xs text-zinc-500">@{identity.username}</span>
+              <span className="text-xs text-zinc-600">·</span>
+              <span className="text-xs text-zinc-500">
+                {item.postedAt ? formatContentTimestamp(item.postedAt) : "Just now"}
+              </span>
+            </div>
+
+            <p className="mt-2 text-[13px] leading-5 text-zinc-500">
+              Replying to{" "}
+              {replySourcePreview.sourceUrl && replySourcePreview.author.username ? (
+                <a
+                  href={replySourcePreview.sourceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-[#1d9bf0] transition hover:text-[#63b3ff]"
+                >
+                  @{replySourcePreview.author.username}
+                </a>
+              ) : (
+                <span className="font-medium text-[#1d9bf0]">
+                  @{replySourcePreview.author.username || "source"}
+                </span>
+              )}
+            </p>
+            <p className="mt-3 whitespace-pre-wrap text-[15px] leading-7 text-zinc-100">
+              {fallbackContent}
+            </p>
+
+            <div className="mt-4">
+              <ReplySourcePreviewCard
+                preview={replySourcePreview}
+                tone="reply"
+                size="compact"
+                showExternalCta
+              />
+            </div>
+          </div>
         </div>
       </article>
     );

@@ -29,6 +29,7 @@ import { buildChatWorkspaceUrl } from "@/lib/workspaceHandle";
 
 import type {
   ContentHubAuthorIdentity,
+  ContentHubContentType,
   ContentHubViewMode,
   ContentItemSummaryRecord,
   ContentStatus,
@@ -90,7 +91,11 @@ const VIEW_MODE_OPTIONS: Array<{
   { value: "group", label: "Group", icon: Folder },
 ];
 
-function formatGroupItemCount(count: number) {
+function formatGroupItemCount(count: number, contentType: ContentHubContentType) {
+  if (contentType === "replies") {
+    return count === 1 ? "1 reply" : `${count} replies`;
+  }
+
   return count === 1 ? "1 post/thread" : `${count} posts/threads`;
 }
 
@@ -231,6 +236,8 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
     selectedItemSummary,
     selectedItemId,
     selectItem,
+    contentType,
+    setContentType,
     viewMode,
     setViewMode,
     searchQuery,
@@ -269,6 +276,11 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
     [filteredItems, sortedFolders],
   );
   const activeItem = selectedItem ?? selectedItemSummary;
+  const isReplyTab = contentType === "replies";
+  const contentCollectionLabel = isReplyTab ? "Replies" : "Posts & Threads";
+  const contentCollectionDescription = isReplyTab
+    ? "Browse saved reply drafts and their source tweets."
+    : "Browse current posts and threads from your chat drafts.";
   const isPreviewPaneVisibleOnMobile =
     mobilePane === "preview" && Boolean(selectedItemSummary);
   const mobileDialogPane =
@@ -449,6 +461,30 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
     </div>
   );
 
+  const contentTypeToggle = (
+    <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1">
+      {(
+        [
+          { value: "posts_threads", label: "Posts & Threads" },
+          { value: "replies", label: "Replies" },
+        ] as const
+      ).map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => setContentType(option.value)}
+          className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+            contentType === option.value
+              ? "bg-white text-black"
+              : "text-zinc-400 hover:text-white"
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+
   function renderBackButton() {
     return (
       <button
@@ -473,7 +509,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
         ]
           .filter(Boolean)
           .join(" ")}
-        aria-label="Close posts and threads"
+        aria-label={isReplyTab ? "Close replies" : "Close posts and threads"}
       >
         <X className="h-4 w-4" />
       </button>
@@ -486,16 +522,22 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
         <div className="flex min-w-0 items-center gap-2">
           {isPreviewPaneVisibleOnMobile ? renderBackButton() : null}
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-white">Posts &amp; Threads</p>
+            <p className="truncate text-sm font-semibold text-white">
+              {contentCollectionLabel}
+            </p>
             <p className="text-[11px] text-zinc-500">
               {isPreviewPaneVisibleOnMobile
                 ? "Preview your selected draft"
-                : "Browse and organize drafts"}
+                : isReplyTab
+                  ? "Browse and organize reply drafts"
+                  : "Browse and organize drafts"}
             </p>
           </div>
         </div>
         {renderCloseButton("inline-flex")}
       </div>
+
+      <div className="mt-3 md:hidden">{contentTypeToggle}</div>
 
       <div className="mt-3 flex items-center gap-3 md:mt-0">
         <div className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2">
@@ -504,11 +546,12 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
             ref={searchInputRef}
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Search posts & threads"
+            placeholder={isReplyTab ? "Search replies" : "Search posts & threads"}
             className="w-full bg-transparent text-[16px] leading-6 text-zinc-200 outline-none sm:text-sm sm:leading-normal placeholder:text-zinc-500"
           />
         </div>
 
+        <div className="hidden md:flex">{contentTypeToggle}</div>
         <div className="hidden md:flex">{viewModeToggle}</div>
 
         {renderCloseButton("hidden md:inline-flex")}
@@ -523,8 +566,8 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
       <SplitDialog
         open={open}
         onOpenChange={onOpenChange}
-        title="Posts & Threads"
-        description="Browse current posts and threads from your chat drafts."
+        title={contentCollectionLabel}
+        description={contentCollectionDescription}
         headerSlot={headerSlot}
         mobilePane={mobileDialogPane}
         initialFocusRef={searchInputRef}
@@ -551,17 +594,23 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
 
               {!initialHandle ? (
                 <div className="flex h-full items-center justify-center rounded-[1.25rem] border border-dashed border-white/10 px-6 text-center text-sm text-zinc-500">
-                  Connect an active X handle first to browse posts and threads.
+                  {isReplyTab
+                    ? "Connect an active X handle first to browse replies."
+                    : "Connect an active X handle first to browse posts and threads."}
                 </div>
               ) : isLoading ? (
                 <div className="flex h-full items-center justify-center rounded-[1.25rem] border border-white/10 bg-white/[0.03] px-6 text-sm text-zinc-500">
-                  Loading posts and threads...
+                  {isReplyTab ? "Loading replies..." : "Loading posts and threads..."}
                 </div>
               ) : filteredItems.length === 0 ? (
                 <div className="flex h-full items-center justify-center rounded-[1.25rem] border border-dashed border-white/10 px-6 text-center text-sm text-zinc-500">
                   {searchQuery.trim()
-                    ? "No posts or threads matched your search."
-                    : "No posts or threads have been generated for this workspace yet."}
+                    ? isReplyTab
+                      ? "No replies matched your search."
+                      : "No posts or threads matched your search."
+                    : isReplyTab
+                      ? "No replies have been generated for this workspace yet."
+                      : "No posts or threads have been generated for this workspace yet."}
                 </div>
               ) : viewMode === "date" ? (
                 renderSectionedList(dateGroups)
@@ -604,7 +653,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
                           {group.items.length === 0 ? (
                             <div className="rounded-2xl border border-dashed border-white/10 px-3 py-6 text-center text-xs text-zinc-600">
-                              Drop a post here
+                              {isReplyTab ? "Drop a reply here" : "Drop a post here"}
                             </div>
                           ) : (
                             group.items.map((item) => (
@@ -801,7 +850,9 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
               </>
             ) : (
               <div className="flex h-full items-center justify-center px-8 text-center text-sm text-zinc-500">
-                Select a post or thread to preview and organize it.
+                {isReplyTab
+                  ? "Select a reply to preview and organize it."
+                  : "Select a post or thread to preview and organize it."}
               </div>
             )}
           </div>
@@ -811,7 +862,9 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
       <ContentHubInlineDialog
         open={isCreateGroupDialogOpen}
         title="Add Group"
-        description="Create a new group and keep your posts and threads easier to organize."
+        description={`Create a new group and keep your ${
+          isReplyTab ? "replies" : "posts and threads"
+        } easier to organize.`}
         onClose={closeCreateGroupDialog}
         initialFocusRef={createGroupInputRef}
         layerClassName="z-[115]"
@@ -869,7 +922,9 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
       <ContentHubInlineDialog
         open={isManageGroupsDialogOpen}
         title="Manage Groups"
-        description="Rename, add, or delete groups. Deleting a group moves its posts and threads to No Group."
+        description={`Rename, add, or delete groups. Deleting a group moves its ${
+          isReplyTab ? "replies" : "posts and threads"
+        } to No Group.`}
         onClose={closeManageGroupsDialog}
       >
         <div className="space-y-4 px-5 py-4">
@@ -900,7 +955,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
 
           {sortedFolders.length === 0 ? (
             <div className="rounded-[1.25rem] border border-dashed border-white/10 px-5 py-8 text-center text-sm text-zinc-500">
-              No groups yet. Create one to organize your posts and threads.
+              No groups yet. Create one to organize your {isReplyTab ? "replies" : "posts and threads"}.
             </div>
           ) : (
             <div className="space-y-3">
@@ -932,7 +987,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                           </p>
                         )}
                         <p className="mt-1 text-xs text-zinc-500">
-                          {formatGroupItemCount(folder.itemCount)}
+                          {formatGroupItemCount(folder.itemCount, contentType)}
                         </p>
                       </div>
 
@@ -988,8 +1043,7 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                     {isDeleteConfirming ? (
                       <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-3 py-3">
                         <p className="text-sm text-amber-100">
-                          Delete this group? {formatGroupItemCount(folder.itemCount)} will move
-                          to {NO_GROUP_LABEL}.
+                          Delete this group? {formatGroupItemCount(folder.itemCount, contentType)} will move to {NO_GROUP_LABEL}.
                         </p>
                         <div className="mt-3 flex justify-end gap-2">
                           <button

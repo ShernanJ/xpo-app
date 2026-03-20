@@ -2,6 +2,7 @@ import type { SelectedAngleFormatHint } from "../../../../lib/agent-v2/contracts
 import type { ChatStreamEvent, ChatStreamProgressEventData } from "../../../../lib/chat/chatStream.ts";
 import { sanitizeChatStreamProgressEventData } from "../../../../lib/chat/chatStream.ts";
 import type { ChatMediaAttachmentRef, ImageTurnContext } from "../../../../lib/chat/chatMedia.ts";
+import type { ReplySourcePreview } from "../../../../lib/reply-engine/replySourcePreview.ts";
 
 export type ChatResultOutputShape =
   | "coach_question"
@@ -91,6 +92,10 @@ export interface ChatReplyResultLike<
   messageId?: string;
   threadTitle?: string;
   billing?: TBilling;
+  userMessage?: {
+    id: string;
+    replySourcePreview?: ReplySourcePreview | null;
+  } | null;
   memory?: TMemory | null;
 }
 
@@ -477,11 +482,14 @@ export function resolveNextDraftEditorSelection<
     draft?: string | null;
     draftVersions?: TDraftVersion[];
     revisionChainId?: string;
+    outputShape?: ChatResultOutputShape;
   };
   selectedDraftContext: DraftVersionSnapshotLike | null;
   mode: "json" | "stream";
 }): DraftDrawerSelectionLike | null {
-  if (!args.selectedDraftContext || !args.result.messageId) {
+  const isReplyDraft = args.result.outputShape === "reply_candidate";
+
+  if ((!args.selectedDraftContext && !isReplyDraft) || !args.result.messageId) {
     return null;
   }
 

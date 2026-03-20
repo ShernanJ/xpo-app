@@ -16,6 +16,7 @@ import type {
   DraftArtifactDetails,
 } from "@/lib/onboarding/draftArtifacts";
 import type { SelectedAngleFormatHint } from "@/lib/agent-v2/contracts/turnContract";
+import type { ReplySourcePreview } from "@/lib/reply-engine/replySourcePreview";
 
 import {
   AnimatedDraftText,
@@ -42,6 +43,8 @@ import {
 } from "../draft-queue/draftQueueViewState";
 import { isGeneratedResultOutputShape } from "../chat-page/chatPageViewState";
 import type { ProfileAnalysisArtifact } from "@/lib/chat/profileAnalysisArtifact";
+import { ReplySourcePreviewCard } from "../reply/ReplySourcePreviewCard";
+import { InlineReplyDraftPreviewCard } from "../reply/InlineReplyDraftPreviewCard";
 
 type QuickReplyLike = {
   kind: string;
@@ -58,6 +61,7 @@ type ReplyArtifactsLike =
       sourceText: string;
       sourceUrl: string | null;
       authorHandle: string | null;
+      replySourcePreview?: ReplySourcePreview | null;
       options: Array<{
         id: string;
         label: string;
@@ -71,6 +75,7 @@ type ReplyArtifactsLike =
       sourceText: string;
       sourceUrl: string | null;
       authorHandle: string | null;
+      replySourcePreview?: ReplySourcePreview | null;
       options: Array<{
         id: string;
         label: string;
@@ -112,6 +117,7 @@ interface MessageLike extends ChatMessageLike {
   whyThisWorks?: string[];
   watchOutFor?: string[];
   profileAnalysisArtifact?: ProfileAnalysisArtifact | null;
+  replySourcePreview?: ReplySourcePreview | null;
 }
 
 interface MessageArtifactSectionsProps {
@@ -471,7 +477,10 @@ export function AssistantResultFooter(props: {
   }
 
   const showFeedback = !message.isStreaming;
-  const showQuickReplies = isLatestMessage && shouldShowQuickReplies(message);
+  const showQuickReplies =
+    isLatestMessage &&
+    shouldShowQuickReplies(message) &&
+    message.outputShape !== "reply_candidate";
 
   if (!showFeedback && !showQuickReplies) {
     return null;
@@ -645,31 +654,54 @@ function ResultQuickReplyRail(props: {
   );
 }
 
+function resolveMessageReplySourcePreview(message: MessageLike): ReplySourcePreview | null {
+  const draftArtifactPreview =
+    message.draftArtifacts?.find((artifact) => artifact.replySourcePreview)?.replySourcePreview ??
+    null;
+
+  return (
+    draftArtifactPreview ??
+    message.replyArtifacts?.replySourcePreview ??
+    message.replySourcePreview ??
+    null
+  );
+}
+
 function ReplyArtifactSections(props: {
   message: MessageLike;
   canRunReplyActions: boolean;
   onReplyOptionSelect: (optionIndex: number) => void;
 }) {
   const { message, canRunReplyActions, onReplyOptionSelect } = props;
+  const replySourcePreview = resolveMessageReplySourcePreview(message);
 
   if (message.replyArtifacts?.kind === "reply_options") {
     return (
       <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
-        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">
-            Source Post
-          </p>
-          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-200">
-            {message.replyArtifacts.sourceText}
-          </p>
-          {message.replyArtifacts.authorHandle || message.replyArtifacts.sourceUrl ? (
-            <p className="mt-2 text-xs text-zinc-400">
-              {message.replyArtifacts.authorHandle
-                ? `@${message.replyArtifacts.authorHandle}`
-                : message.replyArtifacts.sourceUrl}
+        {replySourcePreview ? (
+          <ReplySourcePreviewCard
+            preview={replySourcePreview}
+            tone="reply"
+            size="compact"
+            showExternalCta
+          />
+        ) : (
+          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">
+              Source Post
             </p>
-          ) : null}
-        </div>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-200">
+              {message.replyArtifacts.sourceText}
+            </p>
+            {message.replyArtifacts.authorHandle || message.replyArtifacts.sourceUrl ? (
+              <p className="mt-2 text-xs text-zinc-400">
+                {message.replyArtifacts.authorHandle
+                  ? `@${message.replyArtifacts.authorHandle}`
+                  : message.replyArtifacts.sourceUrl}
+              </p>
+            ) : null}
+          </div>
+        )}
         <div className="grid gap-3 md:grid-cols-3">
           {message.replyArtifacts.options.map((option, optionIndex) => (
             <button
@@ -713,6 +745,10 @@ function ReplyArtifactSections(props: {
   }
 
   if (message.replyArtifacts?.kind === "reply_draft") {
+    if (replySourcePreview) {
+      return null;
+    }
+
     return (
       <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
         <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
@@ -828,6 +864,47 @@ function DraftArtifactSections(props: {
 
   if (!shouldShowDraftOutput(message) || message.outputShape === "coach_question") {
     return null;
+  }
+
+  if (message.outputShape === "reply_candidate") {
+    const normalizedBundle = normalizeDraftVersionBundle(message, composerCharacterLimit);
+    const activeDraftArtifact =
+      normalizedBundle?.activeVersion.artifact ?? message.draftArtifacts?.[0] ?? null;
+    const activeReplySourcePreview =
+      activeDraftArtifact?.replySourcePreview ?? resolveMessageReplySourcePreview(message);
+    const draftText =
+      normalizedBundle?.activeVersion.content ??
+      activeDraftArtifact?.content ??
+      message.draft ??
+      "";
+
+    if (activeReplySourcePreview && draftText.trim()) {
+      const draftRevealKey =
+        normalizedBundle?.activeVersion.id
+          ? `version:${normalizedBundle.activeVersion.id}`
+          : activeDraftArtifact?.id
+            ? buildDraftArtifactRevealKey(activeDraftArtifact.id)
+            : message.activeDraftVersionId
+              ? `version:${message.activeDraftVersionId}`
+              : message.id;
+
+      return (
+        <InlineReplyDraftPreviewCard
+          identity={contextIdentity}
+          isVerifiedAccount={isVerifiedAccount}
+          isMainChatLocked={isMainChatLocked}
+          draftText={draftText}
+          sourcePreview={activeReplySourcePreview}
+          isFocused={selectedDraftMessageId === message.id}
+          hasCopiedDraft={copiedPreviewDraftMessageId === message.id}
+          revealClassName={getRevealClassName(draftRevealKey)}
+          shouldAnimateLines={shouldAnimateRevealLines(draftRevealKey)}
+          onOpenDraftEditor={() => onOpenDraftEditor()}
+          onRequestRevision={(prompt) => onRequestDraftCardRevision(prompt)}
+          onCopy={() => onCopyPreviewDraft(message.id, draftText)}
+        />
+      );
+    }
   }
 
   if (message.draftBundle?.options?.length && message.draftBundle.options.length < 4) {

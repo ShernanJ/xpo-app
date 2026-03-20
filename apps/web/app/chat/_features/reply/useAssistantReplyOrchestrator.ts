@@ -73,6 +73,11 @@ interface AssistantReplySuccessEnvelope<TResult> {
   data: TResult;
 }
 
+interface PersistedUserMessageLike {
+  id: string;
+  replySourcePreview?: unknown | null;
+}
+
 interface AssistantReplyAcceptedEnvelope {
   ok: true;
   data: {
@@ -180,6 +185,7 @@ interface UseAssistantReplyOrchestratorOptions<
     threadId?: string;
     content: string;
     excludeFromHistory: boolean;
+    replySourcePreview?: unknown | null;
   }) => TMessage;
 }
 
@@ -316,6 +322,10 @@ export function useAssistantReplyOrchestrator<
         TBilling
       >,
       completedProgress?: AgentProgressRun | null,
+      userMessageReconciliation?: {
+        optimisticMessageId: string | null;
+        persistedUserMessage: PersistedUserMessageLike | null;
+      },
     ) => {
       startTransition(() => {
         if (replyPlan.nextBilling) {
@@ -323,12 +333,32 @@ export function useAssistantReplyOrchestrator<
         }
 
         setMessages((current) => {
+          const nextMessages =
+            userMessageReconciliation?.optimisticMessageId &&
+            userMessageReconciliation.persistedUserMessage?.id
+              ? current.map((message) =>
+                  message.id !== userMessageReconciliation.optimisticMessageId
+                    ? message
+                    : ({
+                        ...message,
+                        id: userMessageReconciliation.persistedUserMessage?.id,
+                        ...(userMessageReconciliation.persistedUserMessage
+                          ?.replySourcePreview !== undefined
+                          ? {
+                              replySourcePreview:
+                                userMessageReconciliation.persistedUserMessage
+                                  ?.replySourcePreview ?? null,
+                            }
+                          : {}),
+                      } as TMessage),
+                )
+              : current;
           const assistantMessage = replyPlan.buildAssistantMessage(
-            current.length,
+            nextMessages.length,
           ) as unknown as TMessage & { agentProgress?: AgentProgressRun | null };
 
           return [
-            ...current,
+            ...nextMessages,
             (completedProgress
               ? {
                   ...assistantMessage,
@@ -444,6 +474,7 @@ export function useAssistantReplyOrchestrator<
 
       const { trimmedPrompt, effectiveSelectedDraftContext } = preparedRequest;
       let history = historySeed;
+      let optimisticUserMessageId: string | null = null;
 
       capturePostHogEvent("xpo_chat_prompt_submitted", {
         append_user_message: requestOptions.appendUserMessage,
@@ -465,6 +496,7 @@ export function useAssistantReplyOrchestrator<
           content: requestOptions.displayUserMessage?.trim() || trimmedPrompt,
           excludeFromHistory: requestOptions.includeUserMessageInHistory === false,
         });
+        optimisticUserMessageId = userMessage.id;
 
         setMessages((current) => [...current, userMessage]);
         scrollThreadToBottom();
@@ -553,6 +585,25 @@ export function useAssistantReplyOrchestrator<
               ?.accepted === true &&
             (data as { data?: { accepted?: boolean; executionMode?: string } }).data
               ?.executionMode === "queued";
+          const persistedUserMessage =
+            data &&
+            typeof data === "object" &&
+            "data" in data &&
+            (
+              data as {
+                data?: {
+                  userMessage?: PersistedUserMessageLike | null;
+                };
+              }
+            ).data?.userMessage
+              ? (
+                  data as {
+                    data?: {
+                      userMessage?: PersistedUserMessageLike | null;
+                    };
+                  }
+                ).data?.userMessage ?? null
+              : null;
 
           if (
             !response.ok &&
@@ -628,7 +679,10 @@ export function useAssistantReplyOrchestrator<
             activeAgentProgressRef.current,
             "completed",
           );
-          applyAssistantReplyPlan(outcome.replyPlan, completedProgress);
+          applyAssistantReplyPlan(outcome.replyPlan, completedProgress, {
+            optimisticMessageId: optimisticUserMessageId,
+            persistedUserMessage,
+          });
           setStatusMessage?.(null);
           setActiveAgentProgressState(null);
           return;

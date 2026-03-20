@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import type {
+  ContentHubContentType,
   ContentHubMutationResponse,
   ContentHubViewMode,
   ContentItemDetailResponse,
@@ -194,6 +195,31 @@ function normalizeContentItemDetail(item: ContentItemRecord): ContentItemRecord 
   };
 }
 
+function buildContentRequestPath(args: {
+  itemId?: string;
+  cursor?: string | null;
+  take?: number;
+  contentType: ContentHubContentType;
+}) {
+  const params = new URLSearchParams();
+  if (args.contentType !== "posts_threads") {
+    params.set("contentType", args.contentType);
+  }
+  if (args.cursor) {
+    params.set("cursor", args.cursor);
+  }
+  if (args.take) {
+    params.set("take", String(args.take));
+  }
+
+  const basePath = args.itemId
+    ? `/api/creator/v2/content/${encodeURIComponent(args.itemId)}`
+    : "/api/creator/v2/content";
+
+  const query = params.toString();
+  return query ? `${basePath}?${query}` : basePath;
+}
+
 function toContentItemSummary(
   item: ContentItemSummaryRecord | ContentItemRecord,
 ): ContentItemSummaryRecord {
@@ -284,6 +310,7 @@ export function useContentHubState(options: UseContentHubStateOptions) {
   const [detailsById, setDetailsById] = useState<Record<string, ContentItemRecord>>({});
   const [folders, setFolders] = useState<FolderRecord[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [contentType, setContentType] = useState<ContentHubContentType>("posts_threads");
   const [viewMode, setViewMode] = useState<ContentHubViewMode>("date");
   const [searchQuery, setSearchQuery] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -311,7 +338,10 @@ export function useContentHubState(options: UseContentHubStateOptions) {
 
       try {
         const response = await fetchWorkspace(
-          `/api/creator/v2/content/${encodeURIComponent(itemId)}`,
+          buildContentRequestPath({
+            itemId,
+            contentType,
+          }),
           {
             method: "GET",
           },
@@ -346,7 +376,7 @@ export function useContentHubState(options: UseContentHubStateOptions) {
         });
       }
     },
-    [detailsById, fetchWorkspace, isDetailLoadingById],
+    [contentType, detailsById, fetchWorkspace, isDetailLoadingById],
   );
 
   const prefetchRemainingSummaryPages = useCallback(
@@ -362,7 +392,11 @@ export function useContentHubState(options: UseContentHubStateOptions) {
         const remaining = CONTENT_SUMMARY_PREFETCH_LIMIT - loadedCount;
         const take = Math.min(INITIAL_CONTENT_PAGE_SIZE, remaining);
         const response = await fetchWorkspace(
-          `/api/creator/v2/content?cursor=${encodeURIComponent(cursor)}&take=${take}`,
+          buildContentRequestPath({
+            cursor,
+            take,
+            contentType,
+          }),
           {
             method: "GET",
           },
@@ -396,7 +430,7 @@ export function useContentHubState(options: UseContentHubStateOptions) {
         cursor = payload.data.hasMore ? payload.data.nextCursor ?? null : null;
       }
     },
-    [fetchWorkspace],
+    [contentType, fetchWorkspace],
   );
 
   const loadContentHub = useCallback(async () => {
@@ -407,9 +441,14 @@ export function useContentHubState(options: UseContentHubStateOptions) {
 
     try {
       const [itemsResponse, foldersResponse] = await Promise.all([
-        fetchWorkspace("/api/creator/v2/content", {
+        fetchWorkspace(
+          buildContentRequestPath({
+            contentType,
+          }),
+          {
           method: "GET",
-        }),
+          },
+        ),
         fetchWorkspace("/api/creator/v2/folders", {
           method: "GET",
         }),
@@ -461,15 +500,19 @@ export function useContentHubState(options: UseContentHubStateOptions) {
       setItems([]);
       setDetailsById({});
       setFolders([]);
-      setErrorMessage(
-        error instanceof Error ? error.message : "Failed to load posts and threads.",
-      );
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : contentType === "replies"
+              ? "Failed to load replies."
+              : "Failed to load posts and threads.",
+        );
     } finally {
       if (activeLoadRequestIdRef.current === requestId) {
         setIsLoading(false);
       }
     }
-  }, [fetchWorkspace, prefetchRemainingSummaryPages]);
+  }, [contentType, fetchWorkspace, prefetchRemainingSummaryPages]);
 
   useEffect(() => {
     if (!open) {
@@ -562,7 +605,10 @@ export function useContentHubState(options: UseContentHubStateOptions) {
 
       try {
         const response = await fetchWorkspace(
-          `/api/creator/v2/content/${encodeURIComponent(itemId)}`,
+          buildContentRequestPath({
+            itemId,
+            contentType,
+          }),
           {
             method: "PATCH",
             headers: {
@@ -613,7 +659,7 @@ export function useContentHubState(options: UseContentHubStateOptions) {
         });
       }
     },
-    [clearMessages, detailsById, fetchWorkspace, folders, items],
+    [clearMessages, contentType, detailsById, fetchWorkspace, folders, items],
   );
 
   const createFolder = useCallback(
@@ -767,6 +813,12 @@ export function useContentHubState(options: UseContentHubStateOptions) {
     isSelectedItemLoading: Boolean(selectedItemId && !selectedItem && isDetailLoadingById[selectedItemId]),
     setSelectedItemId,
     selectItem,
+    contentType,
+    setContentType: (nextContentType: ContentHubContentType) => {
+      startTransition(() => {
+        setContentType(nextContentType);
+      });
+    },
     viewMode,
     setViewMode: (nextViewMode: ContentHubViewMode) => {
       startTransition(() => {

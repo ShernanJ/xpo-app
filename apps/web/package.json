@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && next build && node scripts/verify-output-file-tracing.mjs",
     "prestart": "prisma migrate deploy && node scripts/verify-required-db-tables.mjs",
     "start": "next start",
     "deploy:prepare": "pnpm exec prisma migrate deploy && node scripts/verify-required-db-tables.mjs",
@@ -34,7 +34,8 @@
     "worker:background": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/process-background-jobs.mjs",
     "replay:creator-transcript": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/replay-creator-transcript.mjs",
     "capture:user-tweets": "node scripts/capture-user-tweets-playwright.mjs",
-    "scrape:user-tweets:http": "node scripts/scrape-user-tweets-http.mjs"
+    "scrape:user-tweets:http": "node scripts/scrape-user-tweets-http.mjs",
+    "verify:output-file-tracing": "node scripts/verify-output-file-tracing.mjs"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",

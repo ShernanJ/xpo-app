@@ -1,4 +1,11 @@
 import type { ReplySourceContext, ReplySourceImage } from "../../../reply-engine/types.ts";
+import {
+  buildReplySourcePreviewAuthor,
+  buildReplySourcePreviewFromContext,
+  type ReplySourcePreview,
+  type ReplySourcePreviewAuthor,
+} from "../../../reply-engine/replySourcePreview.ts";
+import { normalizeXAvatarUrl } from "../../../onboarding/profile/avatarUrl.ts";
 
 import {
   isStandaloneXStatusUrl,
@@ -16,6 +23,7 @@ export interface ResolvedReplyRequestSource {
   sourceUrl: string;
   authorHandle: string | null;
   sourceContext: ReplySourceContext;
+  replySourcePreview: ReplySourcePreview;
 }
 
 interface ResolvedHtmlStatusDetails {
@@ -30,6 +38,22 @@ interface ResolvedSyndicationStatusDetails {
   sourceUrl: string;
   authorHandle: string | null;
   sourceContext: ReplySourceContext;
+  replySourcePreview: ReplySourcePreview;
+}
+
+interface ResolvedStatusAuthorDetails {
+  displayName: string | null;
+  username: string | null;
+  avatarUrl: string | null;
+  isVerified: boolean;
+}
+
+interface SyndicationProfileResponseItem {
+  screen_name?: string;
+  name?: string;
+  profile_image_url_https?: string;
+  profile_image_url?: string;
+  verified?: boolean;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -44,6 +68,10 @@ function asString(value: unknown): string | null {
 
 function asBoolean(value: unknown): boolean {
   return value === true;
+}
+
+function normalizeHandle(value: string | null | undefined): string | null {
+  return asString(value)?.replace(/^@+/, "").toLowerCase() || null;
 }
 
 function decodeHtmlEntities(value: string): string {
@@ -299,13 +327,290 @@ function readStatusId(value: Record<string, unknown>): string | null {
 }
 
 function readStatusHandle(value: Record<string, unknown>): string | null {
+  const userNode = readStatusUserNode(value);
+  const userCore = asRecord(userNode?.core);
+  const userLegacy = asRecord(userNode?.legacy);
   const user = asRecord(value.user);
   return (
-    asString(value.authorHandle)?.replace(/^@+/, "").toLowerCase() ||
-    asString(user?.screen_name)?.replace(/^@+/, "").toLowerCase() ||
-    asString(asRecord(value.author)?.screen_name)?.replace(/^@+/, "").toLowerCase() ||
+    normalizeHandle(asString(value.authorHandle)) ||
+    normalizeHandle(asString(userCore?.screen_name)) ||
+    normalizeHandle(asString(userLegacy?.screen_name)) ||
+    normalizeHandle(asString(user?.screen_name)) ||
+    normalizeHandle(asString(asRecord(value.author)?.screen_name)) ||
     null
   );
+}
+
+function readStatusUserNode(value: Record<string, unknown>): Record<string, unknown> | null {
+  const directUser = asRecord(value.user);
+  const directAuthor = asRecord(value.author);
+  const userResults = asRecord(value.user_results);
+  const authorResults = asRecord(value.author_results);
+  const core = asRecord(value.core);
+  const coreUserResults = asRecord(core?.user_results);
+  const coreAuthorResults = asRecord(core?.author_results);
+
+  const candidates = [
+    asRecord(userResults?.result),
+    asRecord(authorResults?.result),
+    asRecord(coreUserResults?.result),
+    asRecord(coreAuthorResults?.result),
+    directUser,
+    directAuthor,
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function normalizeStableMediaUrl(value: string | null): string | null {
+  const normalized = asString(value);
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.startsWith("data:")) {
+    return normalized;
+  }
+
+  try {
+    const url = new URL(normalized);
+    const hostname = url.hostname.toLowerCase();
+    if (hostname === "t.co") {
+      return null;
+    }
+
+    if (hostname === "pbs.twimg.com") {
+      const extensionMatch = url.pathname.match(/\.([a-z0-9]+)$/i);
+      if (extensionMatch?.[1] && !url.searchParams.has("format")) {
+        url.searchParams.set("format", extensionMatch[1].toLowerCase());
+      }
+      if (!url.searchParams.has("name")) {
+        url.searchParams.set("name", "large");
+      }
+      return url.toString();
+    }
+
+    return url.toString();
+  } catch {
+    return normalized;
+  }
+}
+
+async function resolveDirectMediaUrl(value: string | null): Promise<string | null> {
+  const normalized = normalizeStableMediaUrl(value);
+  if (!normalized || normalized.startsWith("data:")) {
+    return normalized;
+  }
+
+  try {
+    const response = await fetch(normalized, {
+      method: "HEAD",
+      redirect: "follow",
+      headers: {
+        accept: "image/*,*/*;q=0.8",
+        "user-agent": DEFAULT_X_WEB_USER_AGENT,
+      },
+      cache: "no-store",
+    });
+    if (response.ok) {
+      return response.url || normalized;
+    }
+  } catch {
+    // Fall back to the normalized URL below.
+  }
+
+  return normalized;
+}
+
+async function normalizeReplySourceImages(images: ReplySourceImage[]): Promise<ReplySourceImage[]> {
+  const normalized = await Promise.all(
+    images.map(async (image) => {
+      const imageUrl = await resolveDirectMediaUrl(image.imageUrl || null);
+      if (!imageUrl && !image.altText?.trim()) {
+        return null;
+      }
+
+      return {
+        ...image,
+        imageUrl,
+      };
+    }),
+  );
+
+  const deduped = new Map<string, ReplySourceImage>();
+  for (const image of normalized) {
+    if (!image) {
+      continue;
+    }
+
+    const key = `${image.imageUrl ?? ""}:${image.altText ?? ""}`;
+    if (!deduped.has(key)) {
+      deduped.set(key, image);
+    }
+  }
+
+  return Array.from(deduped.values()).slice(0, 4);
+}
+
+function readStatusAuthorDetails(value: Record<string, unknown>): ResolvedStatusAuthorDetails {
+  const user = asRecord(value.user);
+  const author = asRecord(value.author);
+  const userNode = readStatusUserNode(value);
+  const userCore = asRecord(userNode?.core);
+  const userLegacy = asRecord(userNode?.legacy);
+  const avatar = asRecord(userNode?.avatar);
+  const verification = asRecord(userNode?.verification);
+
+  return {
+    displayName:
+      asString(userCore?.name) ||
+      asString(userLegacy?.name) ||
+      asString(user?.name) ||
+      asString(author?.name) ||
+      asString(value.authorName) ||
+      null,
+    username:
+      normalizeHandle(asString(userCore?.screen_name)) ||
+      normalizeHandle(asString(userLegacy?.screen_name)) ||
+      normalizeHandle(asString(user?.screen_name)) ||
+      normalizeHandle(asString(author?.screen_name)) ||
+      normalizeHandle(asString(value.authorHandle)) ||
+      null,
+    avatarUrl:
+      normalizeXAvatarUrl(
+        asString(avatar?.image_url) ||
+          asString(userLegacy?.profile_image_url_https) ||
+          asString(userLegacy?.profile_image_url) ||
+          asString(user?.profile_image_url_https) ||
+          asString(user?.profile_image_url) ||
+          asString(author?.profile_image_url_https) ||
+          asString(author?.profile_image_url) ||
+          asString(value.authorAvatarUrl),
+      ) || null,
+    isVerified:
+      asBoolean(verification?.verified) ||
+      asBoolean(userNode?.is_blue_verified) ||
+      asBoolean(userLegacy?.verified) ||
+      asBoolean(user?.verified) ||
+      asBoolean(author?.verified) ||
+      asBoolean(value.authorVerified),
+  };
+}
+
+async function fetchSyndicationAuthorDetails(
+  handles: Array<string | null | undefined>,
+): Promise<Map<string, ResolvedStatusAuthorDetails>> {
+  const uniqueHandles = Array.from(
+    new Set(
+      handles
+        .map((handle) => normalizeHandle(handle))
+        .filter((handle): handle is string => Boolean(handle)),
+    ),
+  );
+
+  if (uniqueHandles.length === 0) {
+    return new Map();
+  }
+
+  try {
+    const url = new URL("https://cdn.syndication.twimg.com/widgets/followbutton/info.json");
+    url.searchParams.set("screen_names", uniqueHandles.join(","));
+
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        accept: "application/json,text/plain,*/*",
+        "user-agent": SYNDICATION_USER_AGENT,
+        referer: `https://x.com/${uniqueHandles[0]}`,
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return new Map();
+    }
+
+    const payload = (await response.json()) as unknown;
+    const items = Array.isArray(payload) ? (payload as SyndicationProfileResponseItem[]) : [];
+    const profiles = new Map<string, ResolvedStatusAuthorDetails>();
+
+    for (const item of items) {
+      const username = normalizeHandle(item.screen_name);
+      if (!username) {
+        continue;
+      }
+
+      profiles.set(username, {
+        displayName: asString(item.name),
+        username,
+        avatarUrl:
+          normalizeXAvatarUrl(item.profile_image_url_https || item.profile_image_url || null) ||
+          null,
+        isVerified: item.verified === true,
+      });
+    }
+
+    return profiles;
+  } catch {
+    return new Map();
+  }
+}
+
+function mergeReplySourcePreviewAuthor(args: {
+  base: ReplySourcePreviewAuthor;
+  supplemental?: ResolvedStatusAuthorDetails | null;
+}): ReplySourcePreviewAuthor {
+  const { base, supplemental = null } = args;
+
+  return buildReplySourcePreviewAuthor({
+    displayName: base.displayName || supplemental?.displayName || null,
+    username: base.username || supplemental?.username || null,
+    avatarUrl: base.avatarUrl || supplemental?.avatarUrl || null,
+    isVerified: base.isVerified || supplemental?.isVerified || false,
+  });
+}
+
+async function hydrateReplySourcePreviewAuthors(
+  preview: ReplySourcePreview,
+): Promise<ReplySourcePreview> {
+  const authorProfiles = await fetchSyndicationAuthorDetails([
+    preview.author.username,
+    preview.quotedPost?.author.username ?? null,
+  ]);
+
+  if (authorProfiles.size === 0) {
+    return preview;
+  }
+
+  const primaryAuthor = mergeReplySourcePreviewAuthor({
+    base: preview.author,
+    supplemental: preview.author.username
+      ? authorProfiles.get(preview.author.username)
+      : null,
+  });
+  const quotedPost = preview.quotedPost
+    ? {
+        ...preview.quotedPost,
+        author: mergeReplySourcePreviewAuthor({
+          base: preview.quotedPost.author,
+          supplemental: preview.quotedPost.author.username
+            ? authorProfiles.get(preview.quotedPost.author.username)
+            : null,
+        }),
+      }
+    : null;
+
+  return {
+    ...preview,
+    author: primaryAuthor,
+    quotedPost,
+  };
 }
 
 function normalizeImageAltText(value: string | null, originLabel: string): string | null {
@@ -356,7 +661,7 @@ function collectMediaImages(args: {
 
     if (imageUrl && type !== "video" && type !== "animated_gif") {
       images.push({
-        imageUrl,
+        imageUrl: normalizeStableMediaUrl(imageUrl),
         ...(altText ? { altText } : {}),
       });
     }
@@ -447,6 +752,8 @@ function resolveReplyRequestSourceFromSyndicationPayload(args: {
   const quotedText = quoted ? readStatusText(quoted) : null;
   const quotedAuthorHandle = quoted ? readStatusHandle(quoted) : null;
   const quotedId = quoted ? readStatusId(quoted) : null;
+  const primaryAuthor = readStatusAuthorDetails(root);
+  const quotedAuthor = quoted ? readStatusAuthorDetails(quoted) : null;
   const primaryImages = collectMediaImages({
     value: root,
     originLabel: "primary",
@@ -509,11 +816,64 @@ function resolveReplyRequestSourceFromSyndicationPayload(args: {
         : null,
   };
 
+  const replySourcePreview = buildReplySourcePreviewFromContext({
+    sourceContext,
+    primaryAuthor: buildReplySourcePreviewAuthor(primaryAuthor),
+    quotedAuthor: quotedAuthor ? buildReplySourcePreviewAuthor(quotedAuthor) : null,
+    primaryMedia: primaryImages,
+    quotedMedia: quotedImages,
+  });
+
   return {
     sourceText,
     sourceUrl,
     authorHandle,
     sourceContext,
+    replySourcePreview,
+  };
+}
+
+async function normalizeResolvedReplyRequestSource(args: {
+  sourceText: string;
+  sourceUrl: string;
+  authorHandle: string | null;
+  sourceContext: ReplySourceContext;
+  replySourcePreview: ReplySourcePreview;
+}): Promise<ResolvedReplyRequestSource> {
+  const images = await normalizeReplySourceImages(args.sourceContext.media?.images || []);
+  const nextSourceContext: ReplySourceContext = {
+    ...args.sourceContext,
+    media: args.sourceContext.media
+      ? {
+          ...args.sourceContext.media,
+          images,
+        }
+      : null,
+  };
+
+  const primaryImageCount = Math.min(
+    images.length,
+    args.replySourcePreview.media.filter((item) => item.type === "image").length,
+  );
+  const nextReplySourcePreview = buildReplySourcePreviewFromContext({
+    sourceContext: nextSourceContext,
+    primaryAuthor: args.replySourcePreview.author,
+    quotedAuthor: args.replySourcePreview.quotedPost?.author ?? null,
+    primaryMedia: images.slice(0, primaryImageCount),
+    quotedMedia: images.slice(primaryImageCount),
+  });
+  const hydratedReplySourcePreview = await hydrateReplySourcePreviewAuthors({
+    ...nextReplySourcePreview,
+    sourceUrl: args.replySourcePreview.sourceUrl || nextReplySourcePreview.sourceUrl,
+    postId: args.replySourcePreview.postId || nextReplySourcePreview.postId,
+  });
+
+  return {
+    sourceText: args.sourceText,
+    sourceUrl: args.sourceUrl,
+    authorHandle: args.authorHandle,
+    sourceContext: nextSourceContext,
+    replySourcePreview: hydratedReplySourcePreview,
   };
 }
 
@@ -640,12 +1000,13 @@ export async function resolveReplyRequestSourceFromStatusUrl(
     payload: syndicationPayload,
   });
   if (syndicationDetails) {
-    return {
+    return await normalizeResolvedReplyRequestSource({
       sourceText: syndicationDetails.sourceText,
       sourceUrl: syndicationDetails.sourceUrl,
       authorHandle: syndicationDetails.authorHandle,
       sourceContext: syndicationDetails.sourceContext,
-    };
+      replySourcePreview: syndicationDetails.replySourcePreview,
+    });
   }
 
   const response = await fetch(parsed.canonicalUrl, {
@@ -694,12 +1055,23 @@ export async function resolveReplyRequestSourceFromStatusUrl(
     conversation: null,
   };
 
-  return {
+  const replySourcePreview = buildReplySourcePreviewFromContext({
+    sourceContext,
+    primaryAuthor: buildReplySourcePreviewAuthor({
+      username: details.authorHandle,
+      displayName: details.authorHandle,
+    }),
+    primaryMedia: sourceContext.media?.images || [],
+    quotedMedia: [],
+  });
+
+  return await normalizeResolvedReplyRequestSource({
     sourceText: details.sourceText,
     sourceUrl: details.sourceUrl,
     authorHandle: details.authorHandle,
     sourceContext,
-  };
+    replySourcePreview,
+  });
 }
 
 export {

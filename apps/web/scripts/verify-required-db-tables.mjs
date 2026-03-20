@@ -13,6 +13,7 @@ const REQUIRED_TABLES = [
   "ChatTurnControl",
   "ConversationMemory",
   "OnboardingBackfillJob",
+  "OnboardingScrapeJob",
   "RequestRateLimitBucket",
 ];
 

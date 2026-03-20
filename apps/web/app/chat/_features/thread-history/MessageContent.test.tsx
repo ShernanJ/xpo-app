@@ -49,3 +49,46 @@ test("renders user text followed by the attached image", () => {
   expect(screen.getByText("here's the image")).toBeVisible();
   expect(screen.getByAltText("draft.png")).toBeVisible();
 });
+
+test("renders a source tweet card instead of the raw user link when reply source preview is present", () => {
+  render(
+    <MessageContent
+      role="user"
+      content="https://x.com/elkelk/status/2034751673290350617"
+      isStreaming={false}
+      isLatestAssistantMessage={false}
+      typedLength={0}
+      assistantTypingBubble={null}
+      replySourcePreview={{
+        postId: "2034751673290350617",
+        sourceUrl: "https://x.com/elkelk/status/2034751673290350617",
+        author: {
+          displayName: "elkelk",
+          username: "elkelk",
+          avatarUrl: null,
+          isVerified: false,
+        },
+        text: "Perfect algo pull",
+        media: [],
+        quotedPost: {
+          postId: "quoted-1",
+          sourceUrl: "https://x.com/thejustinguo/status/1",
+          author: {
+            displayName: "Justin Guo",
+            username: "thejustinguo",
+            avatarUrl: null,
+            isVerified: false,
+          },
+          text: "founder mode but the screenshot is doing half the work",
+          media: [],
+        },
+      }}
+    />,
+  );
+
+  expect(screen.getByText("Source Post")).toBeVisible();
+  expect(screen.getByText("Perfect algo pull")).toBeVisible();
+  expect(
+    screen.queryByText("https://x.com/elkelk/status/2034751673290350617"),
+  ).toBeNull();
+});

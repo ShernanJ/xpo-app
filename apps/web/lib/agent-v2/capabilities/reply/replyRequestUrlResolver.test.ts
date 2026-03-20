@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   extractReplyRequestStatusDetailsFromHtml,
   isStandaloneXStatusUrl,
+  resolveReplyRequestSourceFromStatusUrl,
   resolveReplyRequestSourceFromSyndicationPayload,
 } from "./replyRequestUrlResolver.ts";
 import { parseXStatusUrl } from "./replyStatusUrl.ts";
@@ -141,14 +142,91 @@ test("resolveReplyRequestSourceFromSyndicationPayload captures quoted post conte
   assert.equal(resolved?.sourceContext.media?.images.length, 2);
   assert.equal(
     resolved?.sourceContext.media?.images[0]?.imageUrl,
-    "https://pbs.twimg.com/media/primary-image.jpg",
+    "https://pbs.twimg.com/media/primary-image.jpg?format=jpg&name=large",
   );
   assert.equal(
     resolved?.sourceContext.media?.images[1]?.imageUrl,
-    "https://pbs.twimg.com/media/quoted-image.jpg",
+    "https://pbs.twimg.com/media/quoted-image.jpg?format=jpg&name=large",
   );
   assert.equal(
     resolved?.sourceContext.media?.images[1]?.altText,
     "Quoted post image: Screenshot of a product mockup",
   );
+});
+
+test("resolveReplyRequestSourceFromStatusUrl hydrates avatar and verification details for primary and quoted authors", async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchCalls: string[] = [];
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    fetchCalls.push(url);
+
+    if (url.startsWith("https://cdn.syndication.twimg.com/tweet-result")) {
+      return {
+        ok: true,
+        json: async () => ({
+          id_str: "2034751673290350617",
+          text: "Perfect algo pull",
+          user: {
+            screen_name: "elkelk",
+          },
+          quoted_tweet: {
+            id_str: "2034700000000000000",
+            text: "founder mode but the screenshot is doing half the work",
+            user: {
+              screen_name: "thejustinguo",
+            },
+          },
+        }),
+      } as Response;
+    }
+
+    if (url.startsWith("https://cdn.syndication.twimg.com/widgets/followbutton/info.json")) {
+      return {
+        ok: true,
+        json: async () => [
+          {
+            screen_name: "elkelk",
+            name: "Elk Elk",
+            profile_image_url_https:
+              "https://pbs.twimg.com/profile_images/elkelk_normal.jpg",
+            verified: true,
+          },
+          {
+            screen_name: "thejustinguo",
+            name: "Justin Guo",
+            profile_image_url_https:
+              "https://pbs.twimg.com/profile_images/thejustinguo_normal.jpg",
+            verified: false,
+          },
+        ],
+      } as Response;
+    }
+
+    throw new Error(`Unexpected fetch: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    const resolved = await resolveReplyRequestSourceFromStatusUrl(
+      "https://x.com/elkelk/status/2034751673290350617",
+    );
+
+    assert.ok(resolved);
+    assert.equal(
+      resolved?.replySourcePreview.author.avatarUrl,
+      "https://pbs.twimg.com/profile_images/elkelk_400x400.jpg",
+    );
+    assert.equal(resolved?.replySourcePreview.author.isVerified, true);
+    assert.equal(resolved?.replySourcePreview.author.displayName, "Elk Elk");
+    assert.equal(
+      resolved?.replySourcePreview.quotedPost?.author.avatarUrl,
+      "https://pbs.twimg.com/profile_images/thejustinguo_400x400.jpg",
+    );
+    assert.equal(resolved?.replySourcePreview.quotedPost?.author.displayName, "Justin Guo");
+    assert.equal(resolved?.replySourcePreview.quotedPost?.author.isVerified, false);
+    assert.equal(fetchCalls.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

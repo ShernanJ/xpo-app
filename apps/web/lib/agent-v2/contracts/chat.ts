@@ -9,6 +9,7 @@ export type V2ChatIntent =
   | "answer_question";
 
 import type { ReplySourceContext } from "../../reply-engine/types.ts";
+import type { ReplySourcePreview } from "../../reply-engine/replySourcePreview.ts";
 
 export type ConversationState =
   | "collecting_context"
@@ -127,6 +128,7 @@ export interface ActiveReplyContext {
   sourceUrl: string | null;
   authorHandle: string | null;
   sourceContext?: ReplySourceContext | null;
+  replySourcePreview?: ReplySourcePreview | null;
   quotedUserAsk: string | null;
   confidence: "low" | "medium" | "high";
   parseReason: string;
@@ -170,7 +172,9 @@ export type V2ChatOutputShape =
   | "profile_analysis"
   | "short_form_post"
   | "long_form_post"
-  | "thread_seed";
+  | "thread_seed"
+  | "reply_candidate"
+  | "quote_candidate";
 
 // ---------------------------------------------------------------------------
 // V3 Conversational Orchestrator Types

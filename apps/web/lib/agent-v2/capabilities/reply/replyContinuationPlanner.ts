@@ -35,6 +35,7 @@ export interface ReplyEmbeddedRequestContext {
   sourceUrl: string | null;
   authorHandle: string | null;
   sourceContext?: ActiveReplyContext["sourceContext"];
+  replySourcePreview?: ActiveReplyContext["replySourcePreview"];
   quotedUserAsk: string | null;
   confidence: "low" | "medium" | "high";
   parseReason: string;
@@ -116,6 +117,9 @@ function createReplyContext(args: {
     sourceUrl: args.sourceContext.sourceUrl,
     authorHandle: args.sourceContext.authorHandle,
     ...(args.sourceContext.sourceContext ? { sourceContext: args.sourceContext.sourceContext } : {}),
+    ...(args.sourceContext.replySourcePreview
+      ? { replySourcePreview: args.sourceContext.replySourcePreview }
+      : {}),
     quotedUserAsk: args.sourceContext.quotedUserAsk,
     confidence: args.sourceContext.confidence,
     parseReason: args.sourceContext.parseReason,

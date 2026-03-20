@@ -55,7 +55,10 @@ export interface UseDraftEditorSurfacePropsOptions {
 export function useDraftEditorSurfaceProps(
   options: UseDraftEditorSurfacePropsOptions,
 ): DraftEditorSurfaceProps {
-  const primaryActionLabel = "Save As New Version";
+  const isReplyDraft = options.selectedDraftArtifact?.kind === "reply_candidate";
+  const primaryActionLabel = isReplyDraft
+    ? "Save New Reply Version"
+    : "Save As New Version";
   const isPrimaryActionDisabled = options.isViewingHistoricalDraftVersion
     ? !options.draftEditorSerializedContent.trim()
     : !options.draftEditorSerializedContent.trim() || !options.hasDraftEditorChanges;
@@ -78,6 +81,7 @@ export function useDraftEditorSurfaceProps(
     onPrimaryAction: () => {
       void options.saveDraftEditor();
     },
+    editorMode: isReplyDraft ? "reply" : "default",
     isSelectedDraftThread: options.isSelectedDraftThread,
     selectedDraftArtifact: options.selectedDraftArtifact,
     selectedDraftThreadFramingStyle: options.selectedDraftThreadFramingStyle,
@@ -117,6 +121,7 @@ export function useDraftEditorSurfaceProps(
     onCopyDraftEditor: () => {
       void options.copyDraftEditor(options.draftEditorSerializedContent);
     },
+    shareActionLabel: isReplyDraft ? "Go to Tweet" : "Share",
     onShareDraftEditor: options.onShareDraftEditor,
   };
 }

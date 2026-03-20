@@ -1149,3 +1149,104 @@ test("deletes a group from the manage groups dialog and clears selected items ba
   expect(screen.getByLabelText("Group:")).toHaveValue("");
   expect(screen.queryByRole("option", { name: "Launch" })).not.toBeInTheDocument();
 });
+
+test("switching to the Replies tab fetches reply-only content and updates the search placeholder", async () => {
+  const user = userEvent.setup();
+  const fetchWorkspace = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const method = init?.method ?? "GET";
+
+    if (method === "GET" && url === "/api/creator/v2/content") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          items: [],
+        },
+      });
+    }
+
+    if (method === "GET" && url === "/api/creator/v2/content?contentType=replies") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          items: [
+            {
+              ...buildItem({
+                id: "reply_1",
+                title: "Reply draft",
+                status: "DRAFT",
+                createdAt: buildRelativeIso(0),
+                content: "reply draft body",
+              }),
+              outputShape: "reply_candidate",
+              artifact: {
+                ...buildItem({
+                  id: "reply_1",
+                  title: "Reply draft",
+                  status: "DRAFT",
+                  createdAt: buildRelativeIso(0),
+                  content: "reply draft body",
+                }).artifact,
+                kind: "reply_candidate",
+                replySourcePreview: {
+                  postId: "2034751673290350617",
+                  sourceUrl: "https://x.com/elkelk/status/2034751673290350617",
+                  author: {
+                    displayName: "elkelk",
+                    username: "elkelk",
+                    avatarUrl: null,
+                    isVerified: false,
+                  },
+                  text: "Perfect algo pull",
+                  media: [],
+                },
+              },
+            },
+          ],
+        },
+      });
+    }
+
+    if (method === "GET" && url === "/api/creator/v2/folders") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          folders: [],
+        },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${method} ${url}`);
+  });
+
+  render(
+    <ContentHubDialog
+      open
+      onOpenChange={vi.fn()}
+      fetchWorkspace={fetchWorkspace}
+      initialHandle="standev"
+      identity={{
+        displayName: "Stanley",
+        username: "standev",
+        avatarUrl: null,
+      }}
+      isVerifiedAccount
+    />,
+  );
+
+  expect(await screen.findByPlaceholderText("Search posts & threads")).toBeVisible();
+
+  await user.click(screen.getAllByRole("button", { name: "Replies" })[0]);
+
+  await waitFor(() => {
+    expect(fetchWorkspace).toHaveBeenCalledWith(
+      "/api/creator/v2/content?contentType=replies",
+      expect.objectContaining({
+        method: "GET",
+      }),
+    );
+  });
+
+  expect(screen.getByPlaceholderText("Search replies")).toBeVisible();
+  expect(await screen.findAllByText("Reply draft")).not.toHaveLength(0);
+});

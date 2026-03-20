@@ -1341,6 +1341,10 @@ async function handleChatRouteRequest(args: {
         userId: args.userId,
         activeHandle,
         turnId: activeTurnId,
+        userMessageId:
+          conversationContext.createdUserMessageId ??
+          args.turnControl?.existingUserMessageId ??
+          null,
         loadBilling: loadBillingStateForResponse,
         recordProductEvent,
         onAssistantTurnPersisted: async (assistantMessageId) => {

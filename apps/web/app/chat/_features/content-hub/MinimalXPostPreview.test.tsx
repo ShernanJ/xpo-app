@@ -144,3 +144,48 @@ test("copies an individual thread post and shows a temporary checkmark state", a
 
   expect(screen.getByRole("button", { name: "Copy post 2" })).toBeVisible();
 }, 7000);
+
+test("renders reply drafts with the source tweet preview", () => {
+  const item = buildItem({
+    id: "reply_1",
+    title: "Reply draft",
+    status: "DRAFT",
+    createdAt: "2026-03-19T10:00:00.000Z",
+    content: "reply draft body",
+  });
+
+  render(
+    <MinimalXPostPreview
+      item={{
+        ...item,
+        outputShape: "reply_candidate",
+        artifact: {
+          ...item.artifact!,
+          kind: "reply_candidate",
+          replySourcePreview: {
+            postId: "2034751673290350617",
+            sourceUrl: "https://x.com/elkelk/status/2034751673290350617",
+            author: {
+              displayName: "elkelk",
+              username: "elkelk",
+              avatarUrl: null,
+              isVerified: false,
+            },
+            text: "Perfect algo pull",
+            media: [],
+          },
+        },
+      }}
+      identity={identity}
+      isVerifiedAccount
+      variant="full"
+    />,
+  );
+
+  expect(screen.getByText("Replying to")).toBeVisible();
+  expect(screen.getByRole("link", { name: "@elkelk" })).toHaveAttribute(
+    "href",
+    "https://x.com/elkelk/status/2034751673290350617",
+  );
+  expect(screen.getByText("Perfect algo pull")).toBeVisible();
+});

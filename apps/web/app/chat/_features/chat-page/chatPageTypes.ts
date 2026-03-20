@@ -10,6 +10,7 @@ import type {
   ChatMediaAttachmentRef,
   ImageTurnContext,
 } from "@/lib/chat/chatMedia";
+import type { ReplySourcePreview } from "@/lib/reply-engine/replySourcePreview";
 
 export interface CreatorChatSuccess {
   ok: true;
@@ -75,6 +76,10 @@ export interface CreatorChatSuccess {
     messageId?: string;
     threadTitle?: string;
     billing?: BillingStatePayload;
+    userMessage?: {
+      id: string;
+      replySourcePreview?: ReplySourcePreview | null;
+    } | null;
     memory?: {
       conversationState: string;
       activeConstraints: string[];
@@ -201,6 +206,7 @@ export type ReplyArtifacts =
       sourceText: string;
       sourceUrl: string | null;
       authorHandle: string | null;
+      replySourcePreview?: ReplySourcePreview | null;
       options: ReplyArtifactOption[];
       groundingNotes: string[];
       warnings: string[];
@@ -211,6 +217,7 @@ export type ReplyArtifacts =
       sourceText: string;
       sourceUrl: string | null;
       authorHandle: string | null;
+      replySourcePreview?: ReplySourcePreview | null;
       options: ReplyArtifactOption[];
       notes: string[];
       selectedOptionId: string | null;
@@ -277,6 +284,7 @@ export interface ChatMessage {
   } | null;
   profileAnalysisArtifact?: ProfileAnalysisArtifact | null;
   imageTurnContext?: ImageTurnContext | null;
+  replySourcePreview?: ReplySourcePreview | null;
   feedbackValue?: MessageFeedbackValue | null;
   isStreaming?: boolean;
   agentProgress?: AgentProgressRun | null;

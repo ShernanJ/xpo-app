@@ -61,8 +61,21 @@ export function getFullArtifactText(
 }
 
 export function getSearchableContentText(item: ContentItemSummaryRecord): string {
+  const replySourceText =
+    item.artifact?.replySourcePreview?.text ??
+    item.artifact?.replySourcePreview?.quotedPost?.text ??
+    "";
+  const replySourceHandles = [
+    item.artifact?.replySourcePreview?.author.username,
+    item.artifact?.replySourcePreview?.quotedPost?.author.username,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return normalizeContentSearchValue(
-    [item.title, item.preview.primaryText].filter(Boolean).join(" "),
+    [item.title, item.preview.primaryText, replySourceText, replySourceHandles]
+      .filter(Boolean)
+      .join(" "),
   );
 }
 

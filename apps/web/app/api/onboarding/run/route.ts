@@ -1,21 +1,17 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth/serverSession";
 
-import { maybeEnqueueOnboardingBackfillJob } from "@/lib/onboarding/pipeline/backfill";
+import { finalizeOnboardingRunForUser } from "@/lib/onboarding/pipeline/finalizeRun";
+import { shouldQueueOnboardingLiveScrape } from "@/lib/onboarding/pipeline/liveScrapePolicy";
+import { enqueueOnboardingRunJob } from "@/lib/onboarding/pipeline/scrapeJob";
 import { runOnboarding } from "@/lib/onboarding/pipeline/service";
-import {
-  persistOnboardingRun,
-  syncOnboardingPostsToDb,
-} from "@/lib/onboarding/store/onboardingRunStore";
 import { parseOnboardingInput } from "@/lib/onboarding/contracts/validation";
-import { prisma } from "@/lib/db";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
 import { validateHandleLimit } from "@/lib/billing/handleLimits";
 import {
   capturePostHogServerEvent,
   capturePostHogServerException,
 } from "@/lib/posthog/server";
-import { generateStyleProfile } from "@/lib/agent-v2/core/styleProfile";
 import {
   enforceSessionMutationRateLimit,
   parseJsonBody,
@@ -91,6 +87,37 @@ export async function POST(request: Request) {
     );
   }
 
+  if (await shouldQueueOnboardingLiveScrape(effectiveInput)) {
+    const queued = await enqueueOnboardingRunJob({
+      account: effectiveInput.account,
+      input: effectiveInput,
+      userId,
+    });
+    const normalizedHandle = effectiveInput.account.replace(/^@/, "").toLowerCase();
+
+    await capturePostHogServerEvent({
+      request,
+      distinctId: userId,
+      event: "xpo_onboarding_run_queued",
+      properties: {
+        account: normalizedHandle,
+        deduped: queued.deduped,
+        job_id: queued.jobId,
+        route: "/api/onboarding/run",
+      },
+    });
+
+    return NextResponse.json(
+      {
+        ok: true,
+        status: "queued",
+        jobId: queued.jobId,
+        account: normalizedHandle,
+      },
+      { status: 202 },
+    );
+  }
+
   let result: Awaited<ReturnType<typeof runOnboarding>>;
   try {
     result = await runOnboarding(effectiveInput);
@@ -138,66 +165,24 @@ export async function POST(request: Request) {
     );
   }
 
-  const persisted = await persistOnboardingRun({
+  const finalized = await finalizeOnboardingRunForUser({
     input: effectiveInput,
     result,
     userAgent: request.headers.get("user-agent"),
     userId,
-  });
-  const normalizedHandle = effectiveInput.account.replace(/^@/, "").toLowerCase();
-
-  // 2b. Sync posts to Prisma so retrieval and style profiling can use them
-  await syncOnboardingPostsToDb(userId, effectiveInput.account, result).catch((err) =>
-    console.error("Failed to sync posts to DB:", err),
-  );
-  await generateStyleProfile(
-    userId,
-    normalizedHandle,
-    80,
-    { forceRegenerate: true },
-  ).catch((error) =>
-    console.error("Failed to refresh style profile after onboarding sync:", error),
-  );
-  const backfill = await maybeEnqueueOnboardingBackfillJob({
-    runId: persisted.runId,
-    input: effectiveInput,
-    result,
-  });
-
-  await prisma.user.update({
-    where: { id: userId },
-    data: { activeXHandle: normalizedHandle },
-  });
-
-  await prisma.voiceProfile.createMany({
-    data: [{
-      userId,
-      xHandle: normalizedHandle,
-      styleCard: {},
-    }],
-    skipDuplicates: true,
   });
   await capturePostHogServerEvent({
     request,
     distinctId: userId,
     event: "xpo_onboarding_run_completed",
     properties: {
-      account: normalizedHandle,
-      backfill_queued: Boolean(backfill),
+      account: finalized.normalizedHandle,
+      backfill_queued: Boolean(finalized.payload.backfill.queued),
       route: "/api/onboarding/run",
       source: result.source,
       warnings_count: result.warnings?.length ?? 0,
     },
   });
 
-  return NextResponse.json(
-    {
-      ok: true,
-      runId: persisted.runId,
-      persistedAt: persisted.persistedAt,
-      backfill,
-      data: result,
-    },
-    { status: 200 },
-  );
+  return NextResponse.json(finalized.payload, { status: 200 });
 }

@@ -8,6 +8,7 @@ import {
   buildReplySourceContextFromFlatInput,
   type ReplySourceContext,
 } from "../../../reply-engine/index.ts";
+import type { ReplySourcePreview } from "../../../reply-engine/replySourcePreview.ts";
 import type {
   ActiveReplyArtifactRef,
   ActiveReplyContext,
@@ -27,6 +28,7 @@ export interface EmbeddedReplyContext {
   sourceUrl: string | null;
   authorHandle: string | null;
   sourceContext?: ReplySourceContext | null;
+  replySourcePreview?: ReplySourcePreview | null;
   quotedUserAsk: string | null;
   confidence: EmbeddedReplyConfidence;
   parseReason: string;
@@ -74,6 +76,7 @@ export type ChatReplyArtifacts =
       sourceText: string;
       sourceUrl: string | null;
       authorHandle: string | null;
+      replySourcePreview?: ReplySourcePreview | null;
       options: ChatReplyOptionArtifact[];
       groundingNotes: string[];
       warnings: string[];
@@ -84,6 +87,7 @@ export type ChatReplyArtifacts =
       sourceText: string;
       sourceUrl: string | null;
       authorHandle: string | null;
+      replySourcePreview?: ReplySourcePreview | null;
       options: ChatReplyDraftArtifact[];
       notes: string[];
       selectedOptionId: string | null;
@@ -532,6 +536,7 @@ export function createEmptyActiveReplyContext(args: {
   sourceUrl: string | null;
   authorHandle: string | null;
   sourceContext?: ReplySourceContext | null;
+  replySourcePreview?: ReplySourcePreview | null;
   quotedUserAsk: string | null;
   confidence: EmbeddedReplyConfidence;
   parseReason: string;
@@ -545,6 +550,7 @@ export function createEmptyActiveReplyContext(args: {
     sourceUrl: args.sourceUrl,
     authorHandle: args.authorHandle,
     ...(args.sourceContext ? { sourceContext: args.sourceContext } : {}),
+    ...(args.replySourcePreview ? { replySourcePreview: args.replySourcePreview } : {}),
     quotedUserAsk: args.quotedUserAsk,
     confidence: args.confidence,
     parseReason: args.parseReason,
@@ -572,6 +578,7 @@ export function buildReplyArtifactsFromOptions(args: {
     sourceText: args.context.sourceText,
     sourceUrl: args.context.sourceUrl,
     authorHandle: args.context.authorHandle,
+    replySourcePreview: args.context.replySourcePreview ?? null,
     options: args.response.options.map((option) => ({
       id: option.id,
       label: option.label,
@@ -593,6 +600,7 @@ export function buildReplyArtifactsFromDraft(args: {
     sourceText: args.context.sourceText,
     sourceUrl: args.context.sourceUrl,
     authorHandle: args.context.authorHandle,
+    replySourcePreview: args.context.replySourcePreview ?? null,
     options: args.response.options.map((option) => ({
       id: option.id,
       label: option.label,

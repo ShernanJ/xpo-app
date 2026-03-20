@@ -5,6 +5,7 @@ import type {
 import type { ImageTurnContext } from "../../../../../../../lib/chat/chatMedia.ts";
 import {
   buildAssistantContextPacket,
+  buildInitialDraftVersionPayload,
   type ChatRouteResponseData,
 } from "../request/routeLogic.ts";
 import type {
@@ -12,6 +13,7 @@ import type {
   ChatReplyParseEnvelope,
 } from "../../../../../../../lib/agent-v2/capabilities/reply/replyTurnLogic.ts";
 import type { RoutingTrace } from "../../../../../../../lib/agent-v2/runtime/conversationManager.ts";
+import type { ReplySourcePreview } from "../../../../../../../lib/reply-engine/replySourcePreview.ts";
 
 type ReplySurfaceMode = Extract<
   SurfaceMode,
@@ -34,15 +36,41 @@ export function buildReplyAssistantMessageData(args: {
   threadTitle: string;
   replyArtifacts?: ChatReplyArtifacts | null;
   replyParse?: ChatReplyParseEnvelope | null;
+  replySourcePreview?: ReplySourcePreview | null;
 }): ChatRouteResponseData {
+  const primaryReplyDraft =
+    args.replyArtifacts?.kind === "reply_draft"
+      ? args.replyArtifacts.options[0]?.text?.trim() || null
+      : null;
+  const draftVersionPayload =
+    args.outputShape === "reply_candidate" && primaryReplyDraft
+      ? buildInitialDraftVersionPayload({
+          draft: primaryReplyDraft,
+          outputShape: "reply_candidate",
+          supportAsset: null,
+          selectedDraftContext: null,
+          replySourcePreview: args.replySourcePreview ?? null,
+        })
+      : {
+          draftArtifacts: [],
+          draftVersions: undefined,
+          activeDraftVersionId: undefined,
+          previousVersionSnapshot: undefined,
+          revisionChainId: undefined,
+        };
+
   return {
     reply: args.reply,
     angles: [],
     quickReplies: args.quickReplies,
     plan: null,
-    draft: null,
-    drafts: [],
-    draftArtifacts: [],
+    draft: primaryReplyDraft,
+    drafts: primaryReplyDraft ? [primaryReplyDraft] : [],
+    draftArtifacts: draftVersionPayload.draftArtifacts,
+    draftVersions: draftVersionPayload.draftVersions,
+    activeDraftVersionId: draftVersionPayload.activeDraftVersionId,
+    previousVersionSnapshot: draftVersionPayload.previousVersionSnapshot ?? undefined,
+    revisionChainId: draftVersionPayload.revisionChainId,
     draftBundle: null,
     supportAsset: null,
     mediaAttachments: [],
@@ -63,7 +91,9 @@ export function buildReplyAssistantMessageData(args: {
     contextPacket: buildAssistantContextPacket({
       reply: args.reply,
       plan: null,
-      draft: null,
+      draft: primaryReplyDraft,
+      activeDraftVersionId: draftVersionPayload.activeDraftVersionId,
+      revisionChainId: draftVersionPayload.revisionChainId,
       outputShape: args.outputShape,
       surfaceMode: args.surfaceMode,
       issuesFixed: [],
@@ -204,6 +234,10 @@ export async function buildChatSuccessResponse(args: {
   createdAssistantMessageId?: string;
   newThreadId?: string;
   turnId?: string | null;
+  userMessage?: {
+    id: string;
+    replySourcePreview?: ReplySourcePreview | null;
+  } | null;
   routingTrace?: RoutingTrace;
   loadBilling: () => Promise<unknown>;
 }): Promise<Response> {
@@ -219,6 +253,7 @@ export async function buildChatSuccessResponse(args: {
         ...(args.createdAssistantMessageId
           ? { messageId: args.createdAssistantMessageId }
           : {}),
+        ...(args.userMessage ? { userMessage: args.userMessage } : {}),
         ...(args.newThreadId ? { newThreadId: args.newThreadId } : {}),
         ...(args.turnId ? { turnId: args.turnId } : {}),
       },

@@ -31,6 +31,7 @@ import { ChatMediaAttachments } from "../shared/ChatMediaAttachments";
 
 export interface DraftEditorPanelProps {
   layout: "desktop" | "mobile";
+  editorMode?: "default" | "reply";
   identity: {
     avatarUrl: string | null;
     displayName: string;
@@ -74,12 +75,14 @@ export interface DraftEditorPanelProps {
   onRunDraftInspector: () => void;
   hasCopiedDraftEditorText: boolean;
   onCopyDraftEditor: () => void;
+  shareActionLabel?: string;
   onShareDraftEditor: () => void;
 }
 
 export function DraftEditorPanel(props: DraftEditorPanelProps) {
   const {
     layout,
+    editorMode = "default",
     identity,
     isVerifiedAccount,
     timelinePosition,
@@ -112,6 +115,7 @@ export function DraftEditorPanel(props: DraftEditorPanelProps) {
     onRunDraftInspector,
     hasCopiedDraftEditorText,
     onCopyDraftEditor,
+    shareActionLabel = "Share",
     onShareDraftEditor,
   } = props;
 
@@ -157,6 +161,8 @@ export function DraftEditorPanel(props: DraftEditorPanelProps) {
     (!isSelectedDraftThread || selectedDraftThreadPostIndex === 0)
       ? selectedDraftArtifact.mediaAttachments
       : [];
+  const isReplyDraft = editorMode === "reply";
+  const replySourcePreview = selectedDraftArtifact?.replySourcePreview ?? null;
 
   useEffect(() => {
     if (!isSelectedDraftThread) {
@@ -192,7 +198,11 @@ export function DraftEditorPanel(props: DraftEditorPanelProps) {
   ]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-[2rem] border border-white/[0.1] bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl">
+    <div
+      className={`flex h-full flex-col overflow-hidden rounded-[2rem] border bg-[#0F0F0F]/95 shadow-[0_28px_90px_rgba(0,0,0,0.42)] backdrop-blur-2xl ${
+        isReplyDraft ? "border-white/[0.18]" : "border-white/[0.1]"
+      }`}
+    >
       <div className={panelHeaderPaddingClassName}>
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3">
@@ -228,6 +238,31 @@ export function DraftEditorPanel(props: DraftEditorPanelProps) {
               <p className={`mt-0.5 line-clamp-1 text-zinc-400 ${usernameClassName}`}>
                 @{identity.username}
               </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {isReplyDraft ? (
+                  <p className={`text-zinc-400 ${isMobile ? "text-[12px]" : "text-[13px]"}`}>
+                    Replying to{" "}
+                    {replySourcePreview?.sourceUrl && replySourcePreview.author.username ? (
+                      <a
+                        href={replySourcePreview.sourceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-medium text-[#1d9bf0] transition hover:text-[#63b3ff]"
+                      >
+                        @{replySourcePreview.author.username}
+                      </a>
+                    ) : (
+                      <span className="font-medium text-[#1d9bf0]">
+                        @{replySourcePreview?.author.username || "source"}
+                      </span>
+                    )}
+                  </p>
+                ) : (
+                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                    Draft
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -280,7 +315,8 @@ export function DraftEditorPanel(props: DraftEditorPanelProps) {
       </div>
 
       <div className={`min-h-0 flex-1 ${panelPaddingClassName}`}>
-        {isSelectedDraftThread ? (
+        <div className="flex h-full min-h-0 flex-col gap-4">
+          {isSelectedDraftThread ? (
           <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto pr-1">
             <div
               ref={threadPostContainerRef}
@@ -386,32 +422,33 @@ export function DraftEditorPanel(props: DraftEditorPanelProps) {
               )}
             </div>
           </div>
-        ) : isViewingHistoricalDraftVersion ? (
-          <div
-            className={`h-full min-h-full overflow-y-auto text-white ${bodyTextClassName}`}
-          >
-            <div className="whitespace-pre-wrap">{editorDraftText}</div>
-            <ChatMediaAttachments
-              attachments={selectedDraftMediaAttachments}
-              variant="draft"
-              onlyFirst
-            />
-          </div>
-        ) : (
-          <div className="flex h-full min-h-full flex-col">
-            <textarea
-              value={editorDraftText}
-              onChange={(event) => onChangeEditorDraftText(event.target.value)}
-              className={`h-full min-h-[240px] w-full resize-none overflow-y-auto bg-transparent pr-1 text-white outline-none placeholder:text-zinc-600 ${bodyTextClassName}`}
-              placeholder="Draft content"
-            />
-            <ChatMediaAttachments
-              attachments={selectedDraftMediaAttachments}
-              variant="draft"
-              onlyFirst
-            />
-          </div>
-        )}
+          ) : isViewingHistoricalDraftVersion ? (
+            <div
+              className={`h-full min-h-full overflow-y-auto text-white ${bodyTextClassName}`}
+            >
+              <div className="whitespace-pre-wrap">{editorDraftText}</div>
+              <ChatMediaAttachments
+                attachments={selectedDraftMediaAttachments}
+                variant="draft"
+                onlyFirst
+              />
+            </div>
+          ) : (
+            <div className="flex h-full min-h-full flex-col">
+              <textarea
+                value={editorDraftText}
+                onChange={(event) => onChangeEditorDraftText(event.target.value)}
+                className={`h-full min-h-[240px] w-full resize-none overflow-y-auto bg-transparent pr-1 text-white outline-none placeholder:text-zinc-600 ${bodyTextClassName}`}
+                placeholder={isReplyDraft ? "Reply draft" : "Draft content"}
+              />
+              <ChatMediaAttachments
+                attachments={selectedDraftMediaAttachments}
+                variant="draft"
+                onlyFirst
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       <div className={`border-t border-white/10 ${panelFooterPaddingClassName}`}>
@@ -443,7 +480,7 @@ export function DraftEditorPanel(props: DraftEditorPanelProps) {
               onClick={onShareDraftEditor}
               className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-black transition hover:bg-zinc-200"
             >
-              Share
+              {shareActionLabel}
             </button>
           </div>
         </div>

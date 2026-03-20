@@ -2,12 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getServerSession } from "@/lib/auth/serverSession";
 import {
+  type ContentHubContentType,
   listContentItemSummariesForWorkspace,
   serializeContentItemSummary,
 } from "@/lib/content/contentHub";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
 
 const VALID_CONTENT_STATUSES = new Set(["DRAFT", "PUBLISHED", "ARCHIVED", "ALL"]);
+const VALID_CONTENT_TYPES = new Set<ContentHubContentType>([
+  "posts_threads",
+  "replies",
+]);
 const DEFAULT_CONTENT_PAGE_SIZE = 24;
 const MAX_CONTENT_PAGE_SIZE = 100;
 
@@ -30,6 +35,9 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status")?.trim().toUpperCase() || "ALL";
+  const contentType =
+    (searchParams.get("contentType")?.trim().toLowerCase() as ContentHubContentType | null) ||
+    "posts_threads";
   const cursor = searchParams.get("cursor")?.trim() || null;
   const requestedTake = Number.parseInt(searchParams.get("take")?.trim() || "", 10);
   const take =
@@ -42,11 +50,21 @@ export async function GET(request: NextRequest) {
       { status: 400 },
     );
   }
+  if (!VALID_CONTENT_TYPES.has(contentType)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        errors: [{ field: "contentType", message: "Invalid content type filter." }],
+      },
+      { status: 400 },
+    );
+  }
 
   const page = await listContentItemSummariesForWorkspace({
     userId: session.user.id,
     xHandle: workspaceHandle.xHandle,
     status: status === "ALL" ? null : status,
+    contentType,
     cursor,
     take,
     sortBy: "createdAt",

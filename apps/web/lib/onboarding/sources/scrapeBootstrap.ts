@@ -1,15 +1,8 @@
-import { access, mkdtemp, readFile, rm } from "fs/promises";
-import { execFile } from "node:child_process";
-import os from "node:os";
-import path from "path";
-import { promisify } from "util";
-
 import { readLatestScrapeCaptureByAccount } from "../store/scrapeCaptureStore";
 import type { XPublicPost } from "../types";
+import { runUserTweetsCapture } from "../../x-scrape/userTweetsCapture.mjs";
 import { importUserTweetsPayload } from "./importScrapePayload";
 import { parseUserTweetsGraphqlPayload } from "./scrapeUserTweetsParser";
-
-const execFileAsync = promisify(execFile);
 
 interface BootstrapImportResult {
   captureId: string;
@@ -28,23 +21,46 @@ interface BootstrapImportResult {
   } | null;
 }
 
-async function resolveScrapeScriptPath(): Promise<string> {
-  const cwd = process.cwd();
-  const candidates = [
-    path.resolve(cwd, "scripts", "scrape-user-tweets-http.mjs"),
-    path.resolve(cwd, "apps", "web", "scripts", "scrape-user-tweets-http.mjs"),
-  ];
+function extractScrapeTelemetry(payload: unknown, parsed: {
+  posts: { length: number };
+  replyPosts: { length: number };
+  quotePosts: { length: number };
+}) {
+  const scrapeTelemetryRoot =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>).__scrapeMeta
+      : null;
 
-  for (const candidate of candidates) {
-    try {
-      await access(candidate);
-      return candidate;
-    } catch {
-      // Try next candidate.
-    }
-  }
-
-  throw new Error("Could not resolve scrape-user-tweets-http.mjs for onboarding bootstrap.");
+  return scrapeTelemetryRoot &&
+    typeof scrapeTelemetryRoot === "object" &&
+    !Array.isArray(scrapeTelemetryRoot)
+    ? {
+        uniqueOriginalPostsCollected: parsed.posts.length,
+        totalRawPostCount:
+          typeof (scrapeTelemetryRoot as Record<string, unknown>).totalRawPostCount === "number"
+            ? ((scrapeTelemetryRoot as Record<string, unknown>).totalRawPostCount as number)
+            : parsed.posts.length + parsed.replyPosts.length + parsed.quotePosts.length,
+        sessionId:
+          typeof (scrapeTelemetryRoot as Record<string, unknown>).sessionId === "string"
+            ? ((scrapeTelemetryRoot as Record<string, unknown>).sessionId as string)
+            : null,
+        rotatedSessionIds: Array.isArray(
+          (scrapeTelemetryRoot as Record<string, unknown>).rotatedSessionIds,
+        )
+          ? ((scrapeTelemetryRoot as Record<string, unknown>).rotatedSessionIds as unknown[])
+              .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+          : [],
+        didRotateSession:
+          (scrapeTelemetryRoot as Record<string, unknown>).didRotateSession === true,
+      }
+    : {
+        uniqueOriginalPostsCollected: parsed.posts.length,
+        totalRawPostCount:
+          parsed.posts.length + parsed.replyPosts.length + parsed.quotePosts.length,
+        sessionId: null,
+        rotatedSessionIds: [],
+        didRotateSession: false,
+      };
 }
 
 export async function bootstrapScrapeCapture(account: string) {
@@ -101,32 +117,14 @@ export async function probeLatestScrapePosts(
     count?: number;
   },
 ): Promise<{ posts: XPublicPost[] }> {
-  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "stanley-onboarding-probe-"));
-  const outputPath = path.join(tmpDir, `${account}-payload.json`);
-  const scriptPath = await resolveScrapeScriptPath();
   const count = Math.max(5, Math.min(100, Math.floor(options?.count ?? 20)));
 
   try {
-    await execFileAsync(
-      process.execPath,
-      [
-        scriptPath,
-        "--account",
-        account,
-        "--count",
-        String(count),
-        "--pages",
-        "1",
-        "--output",
-        outputPath,
-      ],
-      {
-        cwd: process.cwd(),
-        maxBuffer: 1024 * 1024 * 8,
-      },
-    );
-
-    const payload = JSON.parse(await readFile(outputPath, "utf8"));
+    const { payload } = await runUserTweetsCapture({
+      account,
+      count,
+      pages: 1,
+    });
     const parsed = parseUserTweetsGraphqlPayload({
       payload,
       account,
@@ -138,20 +136,10 @@ export async function probeLatestScrapePosts(
       posts: parsed.posts,
     };
   } catch (error) {
-    const execError = error as {
-      stderr?: string;
-      stdout?: string;
-      message?: string;
-    };
     const detail =
-      execError?.stderr?.trim() ||
-      execError?.stdout?.trim() ||
-      execError?.message ||
-      "unknown probe failure";
+      error instanceof Error ? error.message : "unknown probe failure";
 
     throw new Error(`Lightweight profile probe failed for @${account}: ${detail}`);
-  } finally {
-    await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
@@ -181,9 +169,6 @@ export async function bootstrapScrapeCaptureWithOptions(
     } satisfies BootstrapImportResult;
   }
 
-  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "stanley-onboarding-"));
-  const outputPath = path.join(tmpDir, `${account}-payload.json`);
-  const scriptPath = await resolveScrapeScriptPath();
   const pages = Math.max(1, Math.min(12, Math.floor(options.pages)));
   const count = Math.max(20, Math.min(100, Math.floor(options.count)));
   const targetOriginalPostCount = Math.max(
@@ -196,69 +181,18 @@ export async function bootstrapScrapeCaptureWithOptions(
   );
 
   try {
-    await execFileAsync(
-      process.execPath,
-      [
-        scriptPath,
-        "--account",
-        account,
-        "--count",
-        String(count),
-        "--pages",
-        String(pages),
-        "--target-originals",
-        String(targetOriginalPostCount),
-        "--max-duration-ms",
-        String(maxDurationMs),
-        "--output",
-        outputPath,
-      ],
-      {
-        cwd: process.cwd(),
-        maxBuffer: 1024 * 1024 * 8,
-      },
-    );
-
-    const payload = JSON.parse(await readFile(outputPath, "utf8"));
+    const { payload } = await runUserTweetsCapture({
+      account,
+      count,
+      pages,
+      targetOriginals: targetOriginalPostCount,
+      maxDurationMs,
+    });
     const parsed = parseUserTweetsGraphqlPayload({
       payload,
       account,
     });
-    const scrapeTelemetryRoot =
-      payload && typeof payload === "object" && !Array.isArray(payload)
-        ? (payload as Record<string, unknown>).__scrapeMeta
-        : null;
-    const scrapeTelemetry =
-      scrapeTelemetryRoot && typeof scrapeTelemetryRoot === "object" && !Array.isArray(scrapeTelemetryRoot)
-        ? {
-            uniqueOriginalPostsCollected: parsed.posts.length,
-            totalRawPostCount:
-              typeof (scrapeTelemetryRoot as Record<string, unknown>).totalRawPostCount === "number"
-                ? ((scrapeTelemetryRoot as Record<string, unknown>).totalRawPostCount as number)
-                : parsed.posts.length +
-                  parsed.replyPosts.length +
-                  parsed.quotePosts.length,
-            sessionId:
-              typeof (scrapeTelemetryRoot as Record<string, unknown>).sessionId === "string"
-                ? ((scrapeTelemetryRoot as Record<string, unknown>).sessionId as string)
-                : null,
-            rotatedSessionIds: Array.isArray(
-              (scrapeTelemetryRoot as Record<string, unknown>).rotatedSessionIds,
-            )
-              ? ((scrapeTelemetryRoot as Record<string, unknown>).rotatedSessionIds as unknown[])
-                  .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-              : [],
-            didRotateSession:
-              (scrapeTelemetryRoot as Record<string, unknown>).didRotateSession === true,
-          }
-        : {
-            uniqueOriginalPostsCollected: parsed.posts.length,
-            totalRawPostCount:
-              parsed.posts.length + parsed.replyPosts.length + parsed.quotePosts.length,
-            sessionId: null,
-            rotatedSessionIds: [],
-            didRotateSession: false,
-          };
+    const scrapeTelemetry = extractScrapeTelemetry(payload, parsed);
     const imported = await importUserTweetsPayload({
       account,
       payload,
@@ -271,19 +205,9 @@ export async function bootstrapScrapeCaptureWithOptions(
       scrapeTelemetry,
     } satisfies BootstrapImportResult;
   } catch (error) {
-    const execError = error as {
-      stderr?: string;
-      stdout?: string;
-      message?: string;
-    };
     const detail =
-      execError?.stderr?.trim() ||
-      execError?.stdout?.trim() ||
-      execError?.message ||
-      "unknown scrape bootstrap failure";
+      error instanceof Error ? error.message : "unknown scrape bootstrap failure";
 
     throw new Error(`Live scrape bootstrap failed for @${account}: ${detail}`);
-  } finally {
-    await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }

@@ -7,8 +7,16 @@ export const GLOBAL_CONTENT_OUTPUT_SHAPES = [
   "long_form_post",
   "thread_seed",
 ] as const;
+export const REPLY_CONTENT_OUTPUT_SHAPES = ["reply_candidate"] as const;
+export const INDEXED_CONTENT_OUTPUT_SHAPES = [
+  ...GLOBAL_CONTENT_OUTPUT_SHAPES,
+  ...REPLY_CONTENT_OUTPUT_SHAPES,
+] as const;
 
 export type GlobalContentOutputShape = (typeof GLOBAL_CONTENT_OUTPUT_SHAPES)[number];
+export type ReplyContentOutputShape = (typeof REPLY_CONTENT_OUTPUT_SHAPES)[number];
+export type IndexedContentOutputShape = (typeof INDEXED_CONTENT_OUTPUT_SHAPES)[number];
+export type ContentHubContentType = "posts_threads" | "replies";
 
 type FolderRecord = {
   id: string;
@@ -176,6 +184,20 @@ export function isGlobalContentOutputShape(
   return GLOBAL_CONTENT_OUTPUT_SHAPES.includes(value as GlobalContentOutputShape);
 }
 
+export function isIndexedContentOutputShape(
+  value: string | null | undefined,
+): value is IndexedContentOutputShape {
+  return INDEXED_CONTENT_OUTPUT_SHAPES.includes(value as IndexedContentOutputShape);
+}
+
+function resolveContentOutputShapes(
+  contentType?: ContentHubContentType | null,
+): IndexedContentOutputShape[] {
+  return contentType === "replies"
+    ? [...REPLY_CONTENT_OUTPUT_SHAPES]
+    : [...GLOBAL_CONTENT_OUTPUT_SHAPES];
+}
+
 function toFolderRecord(folder: {
   id: string;
   userId: string;
@@ -326,11 +348,12 @@ function buildContentWhere(args: {
   onlyLatest?: boolean;
   requireUnpublished?: boolean;
   requireIndexedMessage?: boolean;
+  contentType?: ContentHubContentType | null;
 }) {
   const where: Prisma.DraftCandidateWhereInput = {
     userId: args.userId,
     outputShape: {
-      in: [...GLOBAL_CONTENT_OUTPUT_SHAPES],
+      in: resolveContentOutputShapes(args.contentType),
     },
     ...(args.xHandle ? { xHandle: args.xHandle } : {}),
     ...(args.status ? { status: args.status as never } : {}),
@@ -357,7 +380,7 @@ type PersistedDraftBundleOptionRecord = {
 
 export interface ResolvedCurrentChatDraft {
   title: string;
-  outputShape: GlobalContentOutputShape;
+  outputShape: IndexedContentOutputShape;
   artifact: DraftArtifactDetails;
   voiceTarget: unknown | null;
   noveltyNotes: string[];
@@ -437,7 +460,7 @@ export function resolveCurrentChatDraft(
 
   const record = value as Record<string, unknown>;
   const outputShape = asString(record.outputShape);
-  if (!isGlobalContentOutputShape(outputShape)) {
+  if (!isIndexedContentOutputShape(outputShape)) {
     return null;
   }
 
@@ -587,6 +610,7 @@ export async function listContentItemsForWorkspace(args: {
   status?: string | null;
   take?: number;
   sortBy?: "createdAt" | "updatedAt";
+  contentType?: ContentHubContentType | null;
 }) {
   const items = await prisma.draftCandidate.findMany({
     where: buildContentWhere({
@@ -594,6 +618,7 @@ export async function listContentItemsForWorkspace(args: {
       xHandle: args.xHandle,
       status: args.status,
       requireIndexedMessage: true,
+      contentType: args.contentType,
     }),
     include: {
       folder: true,
@@ -612,6 +637,7 @@ export async function listContentItemSummariesForWorkspace(args: {
   take?: number;
   cursor?: string | null;
   sortBy?: "createdAt" | "updatedAt";
+  contentType?: ContentHubContentType | null;
 }) {
   const pageSize = Math.min(Math.max(args.take ?? 24, 1), 100);
   const items = await prisma.draftCandidate.findMany({
@@ -620,6 +646,7 @@ export async function listContentItemSummariesForWorkspace(args: {
       xHandle: args.xHandle,
       status: args.status,
       requireIndexedMessage: true,
+      contentType: args.contentType,
     }),
     orderBy: [{ [args.sortBy ?? "updatedAt"]: "desc" }, { id: "desc" }],
     take: pageSize + 1,
@@ -682,6 +709,7 @@ export async function findContentItemForWorkspace(args: {
   id: string;
   userId: string;
   xHandle?: string | null;
+  contentType?: ContentHubContentType | null;
 }) {
   const item = await prisma.draftCandidate.findFirst({
     where: {
@@ -690,6 +718,7 @@ export async function findContentItemForWorkspace(args: {
         userId: args.userId,
         xHandle: args.xHandle,
         requireIndexedMessage: true,
+        contentType: args.contentType,
       }),
     },
     include: {

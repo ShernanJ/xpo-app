@@ -4,6 +4,7 @@ import { type ComponentProps } from "react";
 import { Check, Copy, Edit3 } from "lucide-react";
 import type { AgentProgressRun } from "@/lib/chat/agentProgress";
 import type { ChatMediaAttachmentRef } from "@/lib/chat/chatMedia";
+import type { ReplySourcePreview } from "@/lib/reply-engine/replySourcePreview";
 import { TextShimmer } from "@/components/ui/text-shimmer";
 
 import {
@@ -117,6 +118,7 @@ function PendingDraftShell(props: { progress: AgentProgressRun }) {
 type ArtifactSectionsProps = ComponentProps<typeof MessageArtifactSections>;
 export type ChatMessageStreamMessage = ArtifactSectionsProps["message"] & {
   mediaAttachments?: ChatMediaAttachmentRef[];
+  replySourcePreview?: ReplySourcePreview | null;
 };
 
 export interface ChatMessageStreamProps<TMessage extends ChatMessageStreamMessage> {
@@ -189,6 +191,7 @@ export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
             role={message.role}
             previousRole={messages[index - 1]?.role}
             index={index}
+            usePlainUserCard={message.role === "user" && Boolean(message.replySourcePreview)}
             userActions={
               message.role === "user" && message.content.trim().length > 0 ? (
                 <div className="flex items-center gap-1 text-white">
@@ -255,6 +258,7 @@ export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
                   typedLength={typedAssistantLengths[message.id] ?? 0}
                   assistantTypingBubble={<AssistantTypingBubble label={message.content || null} />}
                   mediaAttachments={message.mediaAttachments}
+                  replySourcePreview={message.replySourcePreview}
                 />
                 <AssistantResultFooter
                   message={message}
@@ -278,6 +282,7 @@ export function ChatMessageStream<TMessage extends ChatMessageStreamMessage>(
                   typedLength={typedAssistantLengths[message.id] ?? 0}
                   assistantTypingBubble={<AssistantTypingBubble label={message.content || null} />}
                   mediaAttachments={message.mediaAttachments}
+                  replySourcePreview={message.replySourcePreview}
                 />
 
                 <MessageArtifactSections

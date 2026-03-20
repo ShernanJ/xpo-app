@@ -9,6 +9,7 @@ interface ChatMessageRowProps {
   index: number;
   children: ReactNode;
   userActions?: ReactNode;
+  usePlainUserCard?: boolean;
   onRegisterRef: (messageId: string, node: HTMLDivElement | null) => void;
 }
 
@@ -22,7 +23,9 @@ export function ChatMessageRow(props: ChatMessageRowProps) {
   const roleClassName =
     props.role === "assistant"
       ? "text-zinc-100"
-      : "inline-block max-w-full rounded-[1.15rem] bg-[#202327] px-4 py-2 text-white";
+      : props.usePlainUserCard
+        ? "w-full max-w-full text-white"
+        : "inline-block max-w-full rounded-[1.15rem] bg-[#202327] px-4 py-2 text-white";
 
   return (
     <div

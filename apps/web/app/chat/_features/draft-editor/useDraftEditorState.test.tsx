@@ -214,3 +214,148 @@ test("saveDraftEditor falls back to the selected thread message id when no activ
     "/api/creator/v2/threads/thread-fallback/draft-promotions",
   );
 });
+
+test("shareDraftEditorToX opens the source tweet for reply drafts", () => {
+  const windowOpen = vi.spyOn(window, "open").mockImplementation(() => null);
+
+  const replyArtifact = {
+    id: "reply-artifact",
+    title: "Reply draft",
+    kind: "reply_candidate" as const,
+    content: "reply text",
+    posts: [],
+    characterCount: 10,
+    weightedCharacterCount: 10,
+    maxCharacterLimit: 280,
+    isWithinXLimit: true,
+    supportAsset: null,
+    groundingSources: [],
+    groundingMode: null,
+    groundingExplanation: null,
+    betterClosers: [],
+    replyPlan: [],
+    voiceTarget: null,
+    noveltyNotes: [],
+    threadFramingStyle: null,
+    replySourcePreview: {
+      postId: "2034751673290350617",
+      sourceUrl: "https://x.com/elkelk/status/2034751673290350617",
+      author: {
+        displayName: "elkelk",
+        username: "elkelk",
+        avatarUrl: null,
+        isVerified: false,
+      },
+      text: "Perfect algo pull",
+      media: [],
+    },
+  };
+
+  const { result } = renderHook(() =>
+    useDraftEditorState({
+      activeDraftEditor: {
+        messageId: "assistant-msg-1",
+        versionId: "v1",
+        revisionChainId: "reply-chain-1",
+      },
+      composerCharacterLimit: 280,
+      messages: [
+        {
+          id: "assistant-msg-1",
+          threadId: "thread-1",
+          role: "assistant" as const,
+          content: "reply draft",
+          createdAt: "2026-03-19T14:00:00.000Z",
+          outputShape: "reply_candidate" as const,
+          revisionChainId: "reply-chain-1",
+          draftArtifacts: [replyArtifact],
+          draftVersions: [
+            {
+              id: "v1",
+              content: "reply text",
+              source: "assistant_generated" as const,
+              createdAt: "2026-03-19T14:00:00.000Z",
+              basedOnVersionId: null,
+              weightedCharacterCount: 10,
+              maxCharacterLimit: 280,
+              supportAsset: null,
+              artifact: replyArtifact,
+            },
+          ],
+          activeDraftVersionId: "v1",
+        },
+      ],
+      selectedDraftVersionId: "v1",
+      selectedDraftVersionContent: "reply text",
+      selectedDraftVersion: {
+        id: "v1",
+        content: "reply text",
+        source: "assistant_generated",
+        createdAt: "2026-03-19T14:00:00.000Z",
+        basedOnVersionId: null,
+        weightedCharacterCount: 10,
+        maxCharacterLimit: 280,
+        supportAsset: null,
+        artifact: replyArtifact,
+      },
+      selectedDraftMessage: {
+        id: "assistant-msg-1",
+        threadId: "thread-1",
+        role: "assistant" as const,
+        content: "reply draft",
+        createdAt: "2026-03-19T14:00:00.000Z",
+        outputShape: "reply_candidate" as const,
+        revisionChainId: "reply-chain-1",
+        draftArtifacts: [replyArtifact],
+        draftVersions: [
+          {
+            id: "v1",
+            content: "reply text",
+            source: "assistant_generated" as const,
+            createdAt: "2026-03-19T14:00:00.000Z",
+            basedOnVersionId: null,
+            weightedCharacterCount: 10,
+            maxCharacterLimit: 280,
+            supportAsset: null,
+            artifact: replyArtifact,
+          },
+        ],
+        activeDraftVersionId: "v1",
+      },
+      selectedDraftArtifact: replyArtifact,
+      selectedDraftBundle: null,
+      isSelectedDraftThread: false,
+      isVerifiedAccount: false,
+      activeThreadId: "thread-1",
+      fetchWorkspace: vi.fn(),
+      mergeSourceMaterials: vi.fn(),
+      scrollThreadToBottom: vi.fn(),
+      setMessages: vi.fn(),
+      setActiveDraftEditor: vi.fn(),
+      setExpandedInlineThreadPreviewId: vi.fn(),
+      setSelectedThreadPostByMessageId: vi.fn(),
+      onErrorMessage: vi.fn(),
+      createPromotionUserMessage: (args) => ({
+        ...args,
+        role: "user" as const,
+      }),
+      createPromotionAssistantMessage: (args) => ({
+        ...args,
+        role: "assistant" as const,
+        feedbackValue: null,
+      }),
+    }),
+  );
+
+  act(() => {
+    result.current.shareDraftEditorToX();
+  });
+
+  expect(windowOpen).toHaveBeenCalledWith(
+    "https://x.com/elkelk/status/2034751673290350617",
+    "_blank",
+    "noopener,noreferrer",
+  );
+
+  windowOpen.mockRestore();
+});

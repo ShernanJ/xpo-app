@@ -434,3 +434,207 @@ test("report action opens scoped feedback for assistant messages", async () => {
 
   expect(onOpenScopedFeedback).toHaveBeenCalledTimes(1);
 });
+
+test("reply candidates render the dedicated reply preview and use draft revisions for inline chips", async () => {
+  const user = userEvent.setup();
+  const onRequestDraftCardRevision = vi.fn();
+  const onCopyPreviewDraft = vi.fn();
+
+  render(
+    <MessageArtifactSections
+      message={{
+        id: "assistant-reply-1",
+        role: "assistant",
+        content: "drafted one grounded reply from that post.",
+        outputShape: "reply_candidate",
+        draft: "holy that's the kind of detail that makes you double-check every brand asset.",
+        drafts: [
+          "holy that's the kind of detail that makes you double-check every brand asset.",
+        ],
+        draftArtifacts: [
+          {
+            id: "reply-artifact-1",
+            title: "Reply draft",
+            kind: "reply_candidate",
+            content:
+              "holy that's the kind of detail that makes you double-check every brand asset.",
+            posts: [],
+            characterCount: 73,
+            weightedCharacterCount: 73,
+            maxCharacterLimit: 280,
+            isWithinXLimit: true,
+            supportAsset: null,
+            groundingSources: [],
+            groundingMode: null,
+            groundingExplanation: null,
+            betterClosers: [],
+            replyPlan: [],
+            voiceTarget: null,
+            noveltyNotes: [],
+            threadFramingStyle: null,
+            replySourcePreview: {
+              postId: "2034751673290350617",
+              sourceUrl: "https://x.com/elkelk/status/2034751673290350617",
+              author: {
+                displayName: "elkelk",
+                username: "elkelk",
+                avatarUrl: null,
+                isVerified: false,
+              },
+              text: "Perfect algo pull",
+              media: [],
+              quotedPost: {
+                postId: "quoted-1",
+                sourceUrl: "https://x.com/thejustinguo/status/1",
+                author: {
+                  displayName: "Justin Guo",
+                  username: "thejustinguo",
+                  avatarUrl: null,
+                  isVerified: false,
+                },
+                text: "founder mode but the screenshot is doing half the work",
+                media: [],
+              },
+            },
+          },
+        ],
+        draftVersions: [
+          {
+            id: "reply-version-1",
+            content:
+              "holy that's the kind of detail that makes you double-check every brand asset.",
+            source: "assistant_generated",
+            createdAt: "2026-03-19T10:00:00.000Z",
+            basedOnVersionId: null,
+            weightedCharacterCount: 73,
+            maxCharacterLimit: 280,
+            supportAsset: null,
+          },
+        ],
+        activeDraftVersionId: "reply-version-1",
+        feedbackValue: null,
+        replyArtifacts: {
+          kind: "reply_draft",
+          sourceText: "Perfect algo pull",
+          sourceUrl: "https://x.com/elkelk/status/2034751673290350617",
+          authorHandle: "elkelk",
+          replySourcePreview: {
+            postId: "2034751673290350617",
+            sourceUrl: "https://x.com/elkelk/status/2034751673290350617",
+            author: {
+              displayName: "elkelk",
+              username: "elkelk",
+              avatarUrl: null,
+              isVerified: false,
+            },
+            text: "Perfect algo pull",
+            media: [],
+          },
+          options: [
+            {
+              id: "safe",
+              label: "safe",
+              text: "holy that's the kind of detail that makes you double-check every brand asset.",
+            },
+          ],
+          notes: [],
+        },
+      }}
+      index={0}
+      messagesLength={1}
+      composerCharacterLimit={280}
+      isVerifiedAccount={false}
+      isMainChatLocked={false}
+      showDevTools={false}
+      selectedDraftMessageId={null}
+      selectedDraftVersionId={null}
+      selectedThreadPreviewPostIndex={undefined}
+      expandedInlineThreadPreviewId={null}
+      copiedPreviewDraftMessageId={null}
+      dismissedAutoSavedSource={false}
+      autoSavedSourceUndoPending={false}
+      messageFeedbackPending={false}
+      canRunReplyActions={true}
+      contextIdentity={{
+        username: "stan",
+        displayName: "Stan",
+        avatarUrl: null,
+      }}
+      getRevealClassName={() => ""}
+      shouldAnimateRevealLines={() => false}
+      shouldShowQuickReplies={() => false}
+      shouldShowOptionArtifacts={() => false}
+      shouldShowDraftOutput={() => true}
+      onOpenSourceMaterialEditor={() => {}}
+      onUndoAutoSavedSourceMaterials={() => {}}
+      onSubmitAssistantMessageFeedback={() => {}}
+      onOpenScopedFeedback={() => {}}
+      onQuickReplySelect={() => {}}
+      onAngleSelect={() => {}}
+      onReplyOptionSelect={() => {}}
+      onSelectDraftBundleOption={() => {}}
+      onOpenDraftEditor={() => {}}
+      onRequestDraftCardRevision={onRequestDraftCardRevision}
+      onToggleExpandedInlineThreadPreview={() => {}}
+      onCopyPreviewDraft={onCopyPreviewDraft}
+      onShareDraftEditor={() => {}}
+    />,
+  );
+
+  expect(screen.getByText("Replying to")).toBeVisible();
+  expect(screen.getByRole("link", { name: "@elkelk" })).toHaveAttribute(
+    "href",
+    "https://x.com/elkelk/status/2034751673290350617",
+  );
+  expect(screen.getByText("Perfect algo pull")).toBeVisible();
+  expect(screen.queryByText("Reply Drafts")).toBeNull();
+
+  await user.click(screen.getByRole("button", { name: "Make it bolder" }));
+
+  expect(onRequestDraftCardRevision).toHaveBeenCalledWith("make it bolder");
+
+  await user.click(screen.getByRole("button", { name: "Copy reply draft" }));
+
+  expect(onCopyPreviewDraft).toHaveBeenCalledWith(
+    "assistant-reply-1",
+    "holy that's the kind of detail that makes you double-check every brand asset.",
+  );
+});
+
+test("reply candidates keep the legacy footer quick-reply rail hidden", () => {
+  render(
+    <AssistantResultFooter
+      message={{
+        id: "assistant-reply-footer",
+        role: "assistant",
+        content: "pushed the reply bolder without inventing anything.",
+        outputShape: "reply_candidate",
+        quickReplies: [
+          {
+            kind: "planner_action",
+            value: "make it bolder",
+            label: "Make it bolder",
+          },
+          {
+            kind: "planner_action",
+            value: "make it less harsh",
+            label: "Less harsh",
+          },
+        ],
+        feedbackValue: null,
+      }}
+      isLatestMessage={true}
+      isMainChatLocked={false}
+      messageFeedbackPending={false}
+      canRunReplyActions={true}
+      shouldShowQuickReplies={() => true}
+      onSubmitAssistantMessageFeedback={() => {}}
+      onOpenScopedFeedback={() => {}}
+      onQuickReplySelect={() => {}}
+    />,
+  );
+
+  expect(screen.queryByRole("button", { name: "Make it bolder" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Less harsh" })).toBeNull();
+  expect(screen.getByLabelText("Thumbs up")).toBeVisible();
+});

@@ -36,6 +36,7 @@ import {
   resolveThreadFramingStyle,
   type DraftArtifactDetails,
 } from "../../../../../../../lib/onboarding/draftArtifacts.ts";
+import type { ReplySourcePreview } from "../../../../../../../lib/reply-engine/replySourcePreview.ts";
 import type { DraftBundleResult } from "../../../../../../../lib/agent-v2/capabilities/drafting/draftBundles.ts";
 import { shapeAssistantResponse } from "../../../../../../../lib/agent-v2/runtime/responseShaper.ts";
 import { selectResponseShapePlan } from "../../../../../../../lib/agent-v2/runtime/surfaceModeSelector.ts";
@@ -909,6 +910,7 @@ export function buildInitialDraftVersionPayload(args: {
   noveltyNotes?: string[];
   threadPostMaxCharacterLimit?: number;
   threadFramingStyle?: DraftArtifactDetails["threadFramingStyle"];
+  replySourcePreview?: ReplySourcePreview | null;
 }): {
   draftArtifacts: DraftArtifactDetails[];
   draftVersions?: DraftVersionEntry[];
@@ -955,6 +957,7 @@ export function buildInitialDraftVersionPayload(args: {
     ...(args.threadFramingStyle
       ? { threadFramingStyle: args.threadFramingStyle }
       : {}),
+    ...(args.replySourcePreview ? { replySourcePreview: args.replySourcePreview } : {}),
   });
   const maxCharacterLimit = resolveVersionCharacterLimit({
     outputShape: args.outputShape,

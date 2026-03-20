@@ -1,6 +1,7 @@
 import type { CreatorGenerationOutputShape } from "../contracts/generationContract";
 import type { VoiceTarget } from "../../agent-v2/core/voiceTarget";
 import type { ChatMediaAttachmentRef } from "../../chat/chatMedia";
+import type { ReplySourcePreview } from "../../reply-engine/replySourcePreview";
 
 export type ThreadFramingStyle = "none" | "soft_signal" | "numbered";
 
@@ -45,6 +46,7 @@ export interface DraftArtifactDetails {
   voiceTarget: VoiceTarget | null;
   noveltyNotes: string[];
   threadFramingStyle: ThreadFramingStyle | null;
+  replySourcePreview?: ReplySourcePreview | null;
 }
 
 export interface DraftArtifactInput {
@@ -64,6 +66,7 @@ export interface DraftArtifactInput {
   noveltyNotes?: string[];
   threadPostMaxCharacterLimit?: number;
   threadFramingStyle?: ThreadFramingStyle | null;
+  replySourcePreview?: ReplySourcePreview | null;
 }
 
 export const SHORT_FORM_X_LIMIT = 280;
@@ -270,6 +273,7 @@ export function buildDraftArtifact(params: DraftArtifactInput): DraftArtifactDet
     voiceTarget: params.voiceTarget ?? null,
     noveltyNotes: (params.noveltyNotes || []).slice(0, 3),
     threadFramingStyle,
+    replySourcePreview: params.replySourcePreview ?? null,
   };
 }
 

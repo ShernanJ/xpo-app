@@ -643,8 +643,13 @@ export function useDraftEditorState<TMessage extends DraftEditorMessageLike>(
   }, [onErrorMessage]);
 
   const shareDraftEditorToX = useCallback(() => {
-    window.open("https://x.com/compose/post", "_blank", "noopener,noreferrer");
-  }, []);
+    const replySourceUrl = selectedDraftArtifact?.replySourcePreview?.sourceUrl?.trim() ?? "";
+    window.open(
+      replySourceUrl || "https://x.com/compose/post",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  }, [selectedDraftArtifact?.replySourcePreview?.sourceUrl]);
 
   const copyPreviewDraft = useCallback(async (messageId: string, content: string) => {
     const nextContent = content.trim();

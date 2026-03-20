@@ -50,8 +50,61 @@ interface OnboardingAnalysisFailure {
   errors: ValidationError[];
 }
 
+interface OnboardingRunSuccess {
+  ok: true;
+  runId: string;
+  persistedAt: string;
+  backfill: {
+    queued: boolean;
+    jobId: string | null;
+    deduped: boolean;
+  };
+  data: unknown;
+}
+
+interface OnboardingRunQueued {
+  ok: true;
+  status: "queued";
+  jobId: string;
+  account: string;
+}
+
+interface OnboardingRunFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+interface OnboardingJobRunning {
+  ok: true;
+  status: "queued" | "running";
+  jobId: string;
+  account: string;
+}
+
+interface OnboardingJobCompleted extends OnboardingRunSuccess {
+  status: "completed";
+  jobId: string;
+  account: string;
+}
+
+interface OnboardingJobFailed {
+  ok: false;
+  status: "failed";
+  jobId: string;
+  account: string;
+  errors: ValidationError[];
+}
+
 type OnboardingPreviewResponse = OnboardingPreviewSuccess | OnboardingPreviewFailure;
 type OnboardingAnalysisResponse = OnboardingAnalysisSuccess | OnboardingAnalysisFailure;
+type OnboardingRunResponse =
+  | OnboardingRunSuccess
+  | OnboardingRunQueued
+  | OnboardingRunFailure;
+type OnboardingJobStatusResponse =
+  | OnboardingJobRunning
+  | OnboardingJobCompleted
+  | OnboardingJobFailed;
 type LandingPricingOffer = BillingStatePayload["offers"][number];
 
 interface OnboardingLandingProps {
@@ -337,6 +390,21 @@ function sectionReveal(delay: number) {
 
 function normalizeHandle(value: string): string {
   return value.trim().replace(/^@+/, "").toLowerCase();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function getFirstErrorMessage(payload: unknown): string {
+  if (!payload || typeof payload !== "object" || !("errors" in payload)) {
+    return "Failed to analyze account. Please try again.";
+  }
+
+  const errors = (payload as { errors?: ValidationError[] }).errors;
+  return errors?.[0]?.message ?? "Failed to analyze account. Please try again.";
 }
 
 export default function OnboardingLanding({ pricingOffers }: OnboardingLandingProps) {
@@ -982,16 +1050,44 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
             tone: { casing: "lowercase", risk: "safe" }
           }),
         });
+        const payload = (await resp.json()) as OnboardingRunResponse;
 
-        if (!resp.ok) {
-          throw new Error("Failed to map account");
+        if (resp.status === 202 && payload.ok && "status" in payload && payload.status === "queued") {
+          let completedPayload: OnboardingJobCompleted | null = null;
+
+          for (let attempt = 0; attempt < 90; attempt += 1) {
+            await sleep(attempt === 0 ? 700 : 1500);
+
+            const jobResponse = await fetch(`/api/onboarding/jobs/${payload.jobId}`, {
+              headers: buildPostHogHeaders(),
+              method: "GET",
+            });
+            const jobPayload = (await jobResponse.json()) as OnboardingJobStatusResponse;
+
+            if (jobPayload.ok && jobPayload.status === "completed") {
+              completedPayload = jobPayload;
+              break;
+            }
+
+            if (!jobPayload.ok && jobPayload.status === "failed") {
+              throw new Error(getFirstErrorMessage(jobPayload));
+            }
+
+            if (!jobResponse.ok && (!("status" in jobPayload) || jobPayload.status !== "running")) {
+              throw new Error(getFirstErrorMessage(jobPayload));
+            }
+          }
+
+          if (!completedPayload) {
+            throw new Error("We queued your onboarding job, but it is taking longer than expected. Please try again shortly.");
+          }
+        } else if (!resp.ok || !payload.ok) {
+          throw new Error(getFirstErrorMessage(payload));
         }
 
         const elapsed = Date.now() - analysisStartedAt;
         if (elapsed < LANDING_MIN_ANALYSIS_LOADING_MS) {
-          await new Promise((resolve) => {
-            window.setTimeout(resolve, LANDING_MIN_ANALYSIS_LOADING_MS - elapsed);
-          });
+          await sleep(LANDING_MIN_ANALYSIS_LOADING_MS - elapsed);
         }
 
         // Force a session refresh so the next page load has the new JWT activeXHandle,

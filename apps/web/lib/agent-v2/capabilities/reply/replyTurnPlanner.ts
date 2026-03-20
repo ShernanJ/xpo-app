@@ -8,6 +8,8 @@ import {
   resolveReplyRequestSourceFromStatusUrl,
   isStandaloneXStatusUrl,
 } from "./replyRequestUrlResolver.ts";
+import type { ReplySourcePreview } from "../../../reply-engine/replySourcePreview.ts";
+import type { DraftArtifactDetails } from "../../../onboarding/shared/draftArtifacts.ts";
 import type { V2ConversationMemory } from "../../contracts/chat.ts";
 import {
   planReplyContinuation,
@@ -53,6 +55,14 @@ export interface PlannedReplyTurn {
   replyArtifacts?: ChatReplyArtifacts | null;
   replyParse?: ChatReplyParseEnvelope | null;
   eventType?: string;
+  draft?: string | null;
+  drafts?: string[];
+  draftArtifacts?: DraftArtifactDetails[];
+  draftVersions?: Array<Record<string, unknown>>;
+  activeDraftVersionId?: string | null;
+  previousVersionSnapshot?: Record<string, unknown> | null;
+  revisionChainId?: string | null;
+  replySourcePreview?: ReplySourcePreview | null;
 }
 
 export function buildReplyMemorySnapshot(args: {
@@ -268,6 +278,7 @@ async function planDirectReplyDraft(args: {
   let resolvedAuthorHandle = replyContext.authorHandle;
   let resolvedSourceContext = replyContext.sourceContext || null;
   let resolvedParseReason = replyContext.parseReason;
+  let resolvedReplySourcePreview = replyContext.replySourcePreview || null;
 
   if (isStandaloneXStatusUrl(replyContext.sourceText)) {
     const resolvedFromUrl = await resolveReplyRequestSourceFromStatusUrl(
@@ -297,6 +308,7 @@ async function planDirectReplyDraft(args: {
     resolvedAuthorHandle = resolvedFromUrl.authorHandle;
     resolvedSourceContext = resolvedFromUrl.sourceContext;
     resolvedParseReason = "structured_reply_request_url";
+    resolvedReplySourcePreview = resolvedFromUrl.replySourcePreview;
   }
 
   const activeReplyContext = createEmptyActiveReplyContext({
@@ -304,6 +316,7 @@ async function planDirectReplyDraft(args: {
     sourceUrl: resolvedSourceUrl,
     authorHandle: resolvedAuthorHandle,
     sourceContext: resolvedSourceContext,
+    replySourcePreview: resolvedReplySourcePreview,
     quotedUserAsk: replyContext.quotedUserAsk,
     confidence: replyContext.confidence,
     parseReason: resolvedParseReason,
@@ -364,6 +377,9 @@ async function planDirectReplyDraft(args: {
       parseReason: nextReplyContext.parseReason,
     },
     eventType: "chat_reply_draft_generated",
+    draft: primaryOption?.text ?? null,
+    drafts: primaryOption?.text ? [primaryOption.text] : [],
+    replySourcePreview: nextReplyContext.replySourcePreview ?? null,
   };
 }
 
@@ -451,6 +467,7 @@ export async function planReplyTurn(args: {
         parseReason: continuationPlan.parseReason,
       },
       eventType: continuationPlan.eventType,
+      replySourcePreview: continuationPlan.nextReplyContext.replySourcePreview ?? null,
     };
   }
 
@@ -473,6 +490,11 @@ export async function planReplyTurn(args: {
         parseReason: continuationPlan.parseReason,
       },
       eventType: continuationPlan.eventType,
+      draft: continuationPlan.generatedResponse.options[0]?.text ?? null,
+      drafts: continuationPlan.generatedResponse.options[0]?.text
+        ? [continuationPlan.generatedResponse.options[0].text]
+        : [],
+      replySourcePreview: continuationPlan.nextReplyContext.replySourcePreview ?? null,
     };
   }
 
@@ -485,6 +507,7 @@ export async function planReplyTurn(args: {
       sourceUrl: args.replyParseResult.context.sourceUrl,
       authorHandle: args.replyParseResult.context.authorHandle,
       sourceContext: args.replyParseResult.context.sourceContext || null,
+      replySourcePreview: args.replyParseResult.context.replySourcePreview || null,
       quotedUserAsk: args.replyParseResult.context.quotedUserAsk,
       confidence: args.replyParseResult.context.confidence,
       parseReason: args.replyParseResult.context.parseReason,
