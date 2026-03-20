@@ -23,12 +23,25 @@ function createAudit(args?: {
     headerClarity: "clear" | "unclear" | "unsure" | null;
     headerClarityAnsweredAt: string | null;
     headerClarityBannerUrl: string | null;
+    analysisGoal: string | null;
+    analysisCorrections: Array<{
+      id: string;
+      detail: string;
+      createdAt: string;
+    }>;
   } | null;
 }) {
   const headerImageUrl =
     args?.headerImageUrl === undefined
       ? "https://pbs.twimg.com/profile_banners/123/1500x500"
       : args.headerImageUrl;
+  const profileAuditState = args?.profileAuditState
+    ? {
+        ...args.profileAuditState,
+        analysisGoal: args.profileAuditState.analysisGoal ?? null,
+        analysisCorrections: args.profileAuditState.analysisCorrections ?? [],
+      }
+    : null;
 
   return buildProfileConversionAudit({
     onboarding: {
@@ -66,7 +79,7 @@ function createAudit(args?: {
         },
       },
     } as never,
-    profileAuditState: args?.profileAuditState ?? null,
+    profileAuditState,
     pinnedPostImageAnalysis: args?.pinnedPostImageAnalysis ?? null,
   });
 }
@@ -127,6 +140,8 @@ test("profile conversion audit passes a strong pinned authority post", () => {
       headerClarity: "clear",
       headerClarityAnsweredAt: "2026-03-10T10:00:00.000Z",
       headerClarityBannerUrl: "https://pbs.twimg.com/profile_banners/123/1500x500",
+      analysisGoal: null,
+      analysisCorrections: [],
     },
   });
 
@@ -170,6 +185,8 @@ test("profile conversion audit upgrades a short pinned post when the image carri
       headerClarity: "clear",
       headerClarityAnsweredAt: "2026-03-10T10:00:00.000Z",
       headerClarityBannerUrl: "https://pbs.twimg.com/profile_banners/123/1500x500",
+      analysisGoal: null,
+      analysisCorrections: [],
     },
   });
 

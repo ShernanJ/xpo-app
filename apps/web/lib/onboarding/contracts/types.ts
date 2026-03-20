@@ -17,6 +17,12 @@ export type ContentType =
   | "question_post"
   | "link_post";
 
+export type PostLinkSignal =
+  | "none"
+  | "media_only"
+  | "external"
+  | "mixed";
+
 export type HookPattern =
   | "question_open"
   | "numeric_open"
@@ -67,6 +73,9 @@ export interface XPublicPost {
   text: string;
   createdAt: string;
   metrics: XPostMetrics;
+  imageUrls?: string[] | null;
+  expandedUrls?: string[] | null;
+  linkSignal?: PostLinkSignal | null;
 }
 
 export interface XPinnedPost extends XPublicPost {
@@ -499,6 +508,9 @@ export interface PostFeatureSnapshot {
   engagementTotal: number;
   hasLinks: boolean;
   linkCount: number;
+  linkSignal: PostLinkSignal;
+  hasImageAttachments: boolean;
+  imageCount: number;
   hasMentions: boolean;
   mentionCount: number;
   hasQuestion: boolean;

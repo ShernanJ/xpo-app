@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  analyzePostFeatures,
+  classifyContentType,
   extractEntityCandidates,
   isLowSignalEntityCandidate,
 } from "./postAnalysis.ts";
@@ -60,4 +62,50 @@ test("cta-ish and role-edge phrases are filtered out", () => {
   assert.equal(candidates.includes("vitalii founder"), false);
   assert.equal(candidates.includes("talent"), true);
   assert.equal(candidates.includes("operator"), true);
+});
+
+test("media-only t.co posts are classified as media-led instead of outbound-link posts", () => {
+  const post = {
+    id: "post-1",
+    text: "holy fucking cinema. https://t.co/Fqnj4ifTfI",
+    createdAt: "2026-03-20T12:00:00.000Z",
+    metrics: {
+      likeCount: 80,
+      replyCount: 20,
+      repostCount: 1,
+      quoteCount: 0,
+    },
+    imageUrls: ["https://pbs.twimg.com/media/kevin-proof.jpg"],
+    expandedUrls: null,
+    linkSignal: "media_only" as const,
+  };
+
+  assert.equal(classifyContentType(post), "single_line");
+  const features = analyzePostFeatures(post);
+  assert.equal(features.linkSignal, "media_only");
+  assert.equal(features.hasLinks, false);
+  assert.equal(features.hasImageAttachments, true);
+  assert.equal(features.imageCount, 1);
+});
+
+test("true outbound links still classify as link posts", () => {
+  const post = {
+    id: "post-2",
+    text: "read the teardown https://t.co/example",
+    createdAt: "2026-03-20T12:00:00.000Z",
+    metrics: {
+      likeCount: 10,
+      replyCount: 1,
+      repostCount: 2,
+      quoteCount: 0,
+    },
+    imageUrls: null,
+    expandedUrls: ["https://example.com/teardown"],
+    linkSignal: "external" as const,
+  };
+
+  assert.equal(classifyContentType(post), "link_post");
+  const features = analyzePostFeatures(post);
+  assert.equal(features.hasLinks, true);
+  assert.equal(features.linkCount, 1);
 });

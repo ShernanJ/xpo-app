@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { consumeJustOnboardedHandle } from "@/lib/chat/workspaceStartupSession";
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import {
   buildRecommendedPlaybooks,
@@ -173,13 +172,7 @@ export function useAnalysisState(options: UseAnalysisStateOptions) {
   const [analysisScrapeClockMs, setAnalysisScrapeClockMs] = useState<number>(() => Date.now());
 
   const dailyScrapeTriggerRef = useRef<string | null>(null);
-  const autoOpenedFingerprintRef = useRef<string | null>(null);
   const dismissedFingerprintRef = useRef<string | null>(null);
-  const suppressNextAutoOpenRef = useRef(false);
-
-  useEffect(() => {
-    suppressNextAutoOpenRef.current = consumeJustOnboardedHandle(accountName);
-  }, [accountName]);
 
   const analysisScrapeCooldownRemainingMs = useMemo(() => {
     if (!analysisScrapeCooldownUntil) {
@@ -422,36 +415,6 @@ export function useAnalysisState(options: UseAnalysisStateOptions) {
       }
     })();
   }, [accountName, runProfileScrapeRefresh]);
-
-  useEffect(() => {
-    const audit = context?.profileConversionAudit;
-    if (!audit?.shouldAutoOpen || !audit.fingerprint) {
-      return;
-    }
-
-    if (suppressNextAutoOpenRef.current) {
-      suppressNextAutoOpenRef.current = false;
-      return;
-    }
-
-    if (dismissedFingerprintRef.current === audit.fingerprint) {
-      return;
-    }
-
-    if (autoOpenedFingerprintRef.current === audit.fingerprint) {
-      return;
-    }
-
-    autoOpenedFingerprintRef.current = audit.fingerprint;
-    setAnalysisOpen(true);
-    void trackProductEvent({
-      eventType: "profile_audit_auto_opened",
-      properties: {
-        fingerprint: audit.fingerprint,
-        score: audit.score,
-      },
-    });
-  }, [context?.profileConversionAudit, trackProductEvent]);
 
   const analysisPriorityItems = useMemo<AnalysisPriorityItem[]>(
     () => context?.strategyDelta.adjustments.slice(0, 3) ?? [],

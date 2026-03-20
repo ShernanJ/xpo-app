@@ -5,6 +5,7 @@ import type {
   GrowthStage,
   HookPattern,
   HookPatternItem,
+  PostLinkSignal,
   PostFeatureSnapshot,
   XPublicPost,
 } from "../types";
@@ -192,12 +193,54 @@ function median(values: number[]): number {
   return sorted[middle];
 }
 
-export function classifyContentType(text: string): ContentType {
-  const trimmed = text.trim();
+function resolvePostLinkSignal(post: XPublicPost): PostLinkSignal {
+  if (post.linkSignal) {
+    return post.linkSignal;
+  }
+
+  const rawUrlCount = post.text.match(/https?:\/\/\S+/gi)?.length ?? 0;
+  const hasExpandedUrls = (post.expandedUrls?.length ?? 0) > 0;
+  const hasImages = (post.imageUrls?.length ?? 0) > 0;
+
+  if (!rawUrlCount && !hasExpandedUrls && !hasImages) {
+    return "none";
+  }
+
+  if (hasExpandedUrls && hasImages) {
+    return "mixed";
+  }
+
+  if (hasExpandedUrls) {
+    return "external";
+  }
+
+  if (hasImages && rawUrlCount > 0) {
+    return "media_only";
+  }
+
+  return rawUrlCount > 0 ? "external" : "none";
+}
+
+function countExternalLinks(post: XPublicPost): number {
+  if ((post.expandedUrls?.length ?? 0) > 0) {
+    return post.expandedUrls?.length ?? 0;
+  }
+
+  const linkSignal = resolvePostLinkSignal(post);
+  if (linkSignal === "external" || linkSignal === "mixed") {
+    return post.text.match(/https?:\/\/\S+/gi)?.length ?? 0;
+  }
+
+  return 0;
+}
+
+export function classifyContentType(post: XPublicPost): ContentType {
+  const trimmed = post.text.trim();
   const lines = trimmed.split("\n").map((line) => line.trim()).filter(Boolean);
   const firstLine = lines[0] ?? "";
+  const linkSignal = resolvePostLinkSignal(post);
 
-  if (/https?:\/\//i.test(trimmed)) {
+  if (linkSignal === "external" || linkSignal === "mixed") {
     return "link_post";
   }
 
@@ -412,7 +455,9 @@ export function analyzePostFeatures(post: XPublicPost): PostFeatureSnapshot {
     .filter(Boolean);
   const wordCount = trimmed.length > 0 ? trimmed.split(/\s+/).filter(Boolean).length : 0;
   const mentionMatches = post.text.match(/@\w+/g) ?? [];
-  const linkMatches = post.text.match(/https?:\/\/\S+/gi) ?? [];
+  const linkSignal = resolvePostLinkSignal(post);
+  const externalLinkCount = countExternalLinks(post);
+  const imageCount = post.imageUrls?.length ?? 0;
   const emojiMatches = post.text.match(/\p{Extended_Pictographic}/gu) ?? [];
   const normalizedText = post.text.replace(/\s+/g, " ").trim();
 
@@ -425,11 +470,14 @@ export function analyzePostFeatures(post: XPublicPost): PostFeatureSnapshot {
   ].some((pattern) => pattern.test(normalizedText));
 
   return {
-    contentType: classifyContentType(post.text),
+    contentType: classifyContentType(post),
     hookPattern: detectHookPattern(post.text),
     engagementTotal: getPostEngagement(post),
-    hasLinks: linkMatches.length > 0,
-    linkCount: linkMatches.length,
+    hasLinks: externalLinkCount > 0,
+    linkCount: externalLinkCount,
+    linkSignal,
+    hasImageAttachments: imageCount > 0,
+    imageCount,
     hasMentions: mentionMatches.length > 0,
     mentionCount: mentionMatches.length,
     hasQuestion: trimmed.includes("?"),
@@ -519,7 +567,7 @@ export function computeContentDistribution(
   >();
 
   for (const post of posts) {
-    const type = classifyContentType(post.text);
+    const type = classifyContentType(post);
     const engagement = getPostEngagement(post);
     const current = counters.get(type) ?? { count: 0, totalEngagement: 0 };
     counters.set(type, {

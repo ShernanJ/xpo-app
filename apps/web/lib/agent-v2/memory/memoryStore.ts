@@ -4,6 +4,7 @@ import { applyMemorySaliencePolicy } from "./memorySalience";
 import { looksLikeProfileContextLeak } from "../core/profileContextLeak.ts";
 import type {
   ActiveDraftRef,
+  ActiveProfileAnalysisRef,
   ActiveReplyArtifactRef,
   ActiveReplyContext,
   ClarificationState,
@@ -41,6 +42,7 @@ export interface UpdateMemoryArgs {
   formatPreference?: DraftFormatPreference | null;
   activeReplyContext?: ActiveReplyContext | null;
   activeReplyArtifactRef?: ActiveReplyArtifactRef | null;
+  activeProfileAnalysisRef?: ActiveProfileAnalysisRef | null;
   selectedReplyOptionId?: string | null;
 }
 
@@ -60,6 +62,7 @@ interface StoredMemoryEnvelope {
   formatPreference: DraftFormatPreference | null;
   activeReplyContext: ActiveReplyContext | null;
   activeReplyArtifactRef: ActiveReplyArtifactRef | null;
+  activeProfileAnalysisRef: ActiveProfileAnalysisRef | null;
   selectedReplyOptionId: string | null;
 }
 
@@ -80,6 +83,7 @@ function createInitialStoredMemoryEnvelope(): StoredMemoryEnvelope {
     formatPreference: null,
     activeReplyContext: null,
     activeReplyArtifactRef: null,
+    activeProfileAnalysisRef: null,
     selectedReplyOptionId: null,
   };
 }
@@ -364,6 +368,28 @@ function normalizeActiveReplyArtifactRef(value: unknown): ActiveReplyArtifactRef
   };
 }
 
+function normalizeActiveProfileAnalysisRef(value: unknown): ActiveProfileAnalysisRef | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const messageId = typeof record.messageId === "string" ? record.messageId.trim() : "";
+  const handle =
+    typeof record.handle === "string" ? record.handle.trim().replace(/^@+/, "").toLowerCase() : "";
+  const fingerprint = typeof record.fingerprint === "string" ? record.fingerprint.trim() : "";
+
+  if (!messageId || !handle || !fingerprint) {
+    return null;
+  }
+
+  return {
+    messageId,
+    handle,
+    fingerprint,
+  };
+}
+
 function normalizeClarificationState(value: unknown): ClarificationState | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -413,6 +439,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       formatPreference: null,
       activeReplyContext: null,
       activeReplyArtifactRef: null,
+      activeProfileAnalysisRef: null,
       selectedReplyOptionId: null,
     };
   }
@@ -434,6 +461,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       formatPreference: null,
       activeReplyContext: null,
       activeReplyArtifactRef: null,
+      activeProfileAnalysisRef: null,
       selectedReplyOptionId: null,
     };
   }
@@ -474,6 +502,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
         : null,
     activeReplyContext: normalizeActiveReplyContext(record.activeReplyContext),
     activeReplyArtifactRef: normalizeActiveReplyArtifactRef(record.activeReplyArtifactRef),
+    activeProfileAnalysisRef: normalizeActiveProfileAnalysisRef(record.activeProfileAnalysisRef),
     selectedReplyOptionId:
       typeof record.selectedReplyOptionId === "string" ? record.selectedReplyOptionId.trim() || null : null,
   };
@@ -496,6 +525,7 @@ function serializeMemoryEnvelope(value: StoredMemoryEnvelope): Prisma.InputJsonV
     formatPreference: value.formatPreference,
     activeReplyContext: value.activeReplyContext,
     activeReplyArtifactRef: value.activeReplyArtifactRef,
+    activeProfileAnalysisRef: value.activeProfileAnalysisRef,
     selectedReplyOptionId: value.selectedReplyOptionId,
   } as Prisma.InputJsonValue;
 }
@@ -519,6 +549,7 @@ function buildStoredMemoryEnvelopeFromSnapshot(
     formatPreference: snapshot.formatPreference,
     activeReplyContext: snapshot.activeReplyContext,
     activeReplyArtifactRef: snapshot.activeReplyArtifactRef,
+    activeProfileAnalysisRef: snapshot.activeProfileAnalysisRef,
     selectedReplyOptionId: snapshot.selectedReplyOptionId,
   };
 }
@@ -591,6 +622,7 @@ export function createConversationMemorySnapshot(
     formatPreference: envelope.formatPreference,
     activeReplyContext: envelope.activeReplyContext,
     activeReplyArtifactRef: envelope.activeReplyArtifactRef,
+    activeProfileAnalysisRef: envelope.activeProfileAnalysisRef,
     selectedReplyOptionId: envelope.selectedReplyOptionId,
     voiceFidelity: "balanced",
   };
@@ -752,6 +784,10 @@ export async function updateConversationMemory(args: UpdateMemoryArgs) {
           args.activeReplyArtifactRef === undefined
             ? existingSnapshot.activeReplyArtifactRef
             : args.activeReplyArtifactRef,
+        activeProfileAnalysisRef:
+          args.activeProfileAnalysisRef === undefined
+            ? existingSnapshot.activeProfileAnalysisRef
+            : args.activeProfileAnalysisRef,
         selectedReplyOptionId:
           args.selectedReplyOptionId === undefined
             ? existingSnapshot.selectedReplyOptionId

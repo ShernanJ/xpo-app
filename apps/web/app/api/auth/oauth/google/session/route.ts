@@ -23,6 +23,19 @@ interface GoogleOAuthSessionBody {
   state?: unknown;
 }
 
+function runPostHogTask(
+  task: () => Promise<unknown>,
+  errorMessage: string,
+) {
+  try {
+    void task().catch((error) => {
+      console.error(errorMessage, error);
+    });
+  } catch (error) {
+    console.error(errorMessage, error);
+  }
+}
+
 function clearGoogleOauthStateCookie(response: NextResponse) {
   response.cookies.set({
     name: GOOGLE_OAUTH_STATE_COOKIE_NAME,
@@ -138,40 +151,52 @@ export async function POST(request: Request) {
     clearGoogleOauthStateCookie(response);
     setSessionCookie(response, sessionToken);
 
-    await identifyPostHogServerUser({
-      request,
-      distinctId: appUser.id,
-      properties: {
-        email: appUser.email,
-        handle: appUser.handle,
-        active_x_handle: appUser.activeXHandle,
-      },
-    });
-    await capturePostHogServerEvent({
-      request,
-      distinctId: appUser.id,
-      event: "xpo_auth_google_succeeded",
-      properties: {
-        email_domain: resolveEmailDomain(appUser.email ?? ""),
-        route: "/api/auth/oauth/google/session",
-        login_method: "google",
-      },
-    });
+    runPostHogTask(
+      () =>
+        identifyPostHogServerUser({
+          request,
+          distinctId: appUser.id,
+          properties: {
+            email: appUser.email,
+            handle: appUser.handle,
+            active_x_handle: appUser.activeXHandle,
+          },
+        }),
+      "PostHog identify failed during Google sign-in.",
+    );
+    runPostHogTask(
+      () =>
+        capturePostHogServerEvent({
+          request,
+          distinctId: appUser.id,
+          event: "xpo_auth_google_succeeded",
+          properties: {
+            email_domain: resolveEmailDomain(appUser.email ?? ""),
+            route: "/api/auth/oauth/google/session",
+            login_method: "google",
+          },
+        }),
+      "PostHog event capture failed during Google sign-in.",
+    );
 
     return response;
   } catch (error) {
     if (error instanceof AuthIdentityConflictError) {
-      await capturePostHogServerException({
-        request,
-        distinctId: cookieState || null,
-        error,
-        properties: {
-          route: "/api/auth/oauth/google/session",
-          code: error.code,
-          existing_email: error.existingEmail,
-          incoming_email: error.incomingEmail,
-        },
-      });
+      runPostHogTask(
+        () =>
+          capturePostHogServerException({
+            request,
+            distinctId: cookieState || null,
+            error,
+            properties: {
+              route: "/api/auth/oauth/google/session",
+              code: error.code,
+              existing_email: error.existingEmail,
+              incoming_email: error.incomingEmail,
+            },
+          }),
+        "PostHog exception capture failed during Google sign-in conflict handling.",
+      );
       const response = NextResponse.json(
         {
           ok: false,
@@ -184,14 +209,18 @@ export async function POST(request: Request) {
       return response;
     }
 
-    await capturePostHogServerException({
-      request,
-      distinctId: cookieState || null,
-      error,
-      properties: {
-        route: "/api/auth/oauth/google/session",
-      },
-    });
+    runPostHogTask(
+      () =>
+        capturePostHogServerException({
+          request,
+          distinctId: cookieState || null,
+          error,
+          properties: {
+            route: "/api/auth/oauth/google/session",
+          },
+        }),
+      "PostHog exception capture failed during Google sign-in.",
+    );
     const response = NextResponse.json(
       { ok: false, error: "Could not complete Google sign-in right now." },
       { status: 500 },

@@ -682,6 +682,7 @@ export function createReplayConversationSnapshot(
     formatPreference: envelope.formatPreference,
     activeReplyContext: null,
     activeReplyArtifactRef: null,
+    activeProfileAnalysisRef: null,
     selectedReplyOptionId: null,
     voiceFidelity: "balanced",
   };

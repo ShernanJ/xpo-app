@@ -10,6 +10,7 @@ function createTweetNode(args: {
   bannerUrl?: string | null;
   pinnedTweetIds?: string[];
   imageUrls?: string[];
+  expandedUrls?: string[];
 }) {
   return {
     __typename: "Tweet",
@@ -29,6 +30,16 @@ function createTweetNode(args: {
                 id_str: `${args.id}-media-${index}`,
                 type: "photo",
                 media_url_https: imageUrl,
+              })),
+            },
+          }
+        : {}),
+      ...(args.expandedUrls?.length
+        ? {
+            entities: {
+              urls: args.expandedUrls.map((expandedUrl, index) => ({
+                url: `https://t.co/link-${index}`,
+                expanded_url: expandedUrl,
               })),
             },
           }
@@ -147,6 +158,38 @@ test("parseUserTweetsGraphqlPayload extracts banner and pinned tweet metadata", 
   assert.deepEqual(parsed.pinnedPost?.imageUrls, [
     "https://pbs.twimg.com/media/pinned-photo.jpg",
   ]);
+});
+
+test("parseUserTweetsGraphqlPayload preserves image metadata on recent posts and distinguishes media from external links", () => {
+  const payload = createPayload([
+    createTweetNode({
+      id: "111",
+      text: "proof post https://t.co/media-1",
+      imageUrls: ["https://pbs.twimg.com/media/proof-photo.jpg"],
+    }),
+    createTweetNode({
+      id: "112",
+      text: "read the write-up https://t.co/link-1",
+      expandedUrls: ["https://example.com/write-up"],
+    }),
+  ]);
+
+  const parsed = parseUserTweetsGraphqlPayload({
+    payload,
+    account: "stan",
+  });
+  const posts = parsed.posts || [];
+  const mediaPost = posts.find((post) => post.id === "111") ?? null;
+  const externalLinkPost = posts.find((post) => post.id === "112") ?? null;
+
+  assert.deepEqual(mediaPost?.imageUrls, [
+    "https://pbs.twimg.com/media/proof-photo.jpg",
+  ]);
+  assert.equal(mediaPost?.linkSignal, "media_only");
+  assert.deepEqual(externalLinkPost?.expandedUrls, [
+    "https://example.com/write-up",
+  ]);
+  assert.equal(externalLinkPost?.linkSignal, "external");
 });
 
 test("parseUserTweetsGraphqlPayload prefers top-level user banner metadata when tweet nodes omit it", () => {

@@ -9,6 +9,7 @@ import { getComposerSlashCommands } from "./composerCommands";
 
 vi.mock("framer-motion", () => ({
   AnimatePresence: ({ children }: { children: ReactNode }) => children,
+  useReducedMotion: () => false,
   motion: new Proxy(
     ((Component: ElementType) =>
       ({ children, ...props }: HTMLAttributes<HTMLElement>) => (
@@ -91,6 +92,35 @@ test("shows the full slash command list and descriptions for a bare slash query"
   expect(screen.getByText("Draft a multi-post X thread in your voice.")).toBeVisible();
   expect(screen.getByText("Generate niche-matched post ideas before drafting.")).toBeVisible();
   expect(screen.getByText("Paste a tweet or X link and get one grounded reply in your voice.")).toBeVisible();
+});
+
+test("opens slash command input from the leading slash button", async () => {
+  const user = userEvent.setup();
+  const props = buildProps({
+    draftInput: "th",
+  });
+
+  render(<ChatComposerSurface {...props} />);
+
+  await user.click(screen.getByRole("button", { name: "Open slash commands" }));
+
+  expect(props.onDraftInputChange).toHaveBeenCalledWith("/th");
+});
+
+test("animates the slash affordance into the composer when slash mode is active", () => {
+  const props = buildProps({
+    draftInput: "/",
+    slashCommandQuery: "",
+    isSlashCommandPickerOpen: true,
+  });
+
+  render(<ChatComposerSurface {...props} />);
+
+  expect(
+    screen.queryByRole("button", { name: "Open slash commands" }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByTestId("composer-slash-inline-affordance")).toBeVisible();
+  expect(screen.getByRole("textbox", { name: "Chat composer" })).toHaveClass("pl-[1.65rem]");
 });
 
 test("backspace exits thread command mode when the composer is empty", () => {

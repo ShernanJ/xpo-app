@@ -4,6 +4,7 @@ import Image from "next/image";
 import {
   AnimatePresence,
   motion,
+  useReducedMotion,
 } from "framer-motion";
 import {
   Paperclip,
@@ -96,6 +97,7 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
     onSelectSlashCommand,
     onSubmit,
   } = props;
+  const prefersReducedMotion = useReducedMotion();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const highlightedSlashCommandSessionKey = `${isSlashCommandPickerOpen ? "open" : "closed"}:${slashCommandQuery ?? ""}`;
   const [highlightedCommandState, setHighlightedCommandState] = useState(() => ({
@@ -139,6 +141,32 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
     onSelectSlashCommand(commandId);
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
+    });
+  };
+
+  const handleOpenSlashCommands = () => {
+    if (isComposerDisabled) {
+      return;
+    }
+
+    const normalizedInput = draftInput.trimStart();
+    if (normalizedInput.startsWith("/")) {
+      textareaRef.current?.focus();
+      return;
+    }
+
+    const nextValue = normalizedInput ? `/${normalizedInput}` : "/";
+    onDraftInputChange(nextValue);
+
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) {
+        return;
+      }
+
+      textarea.focus();
+      const cursorPosition = Math.min(nextValue.length, textarea.value.length);
+      textarea.setSelectionRange(cursorPosition, cursorPosition);
     });
   };
 
@@ -196,13 +224,33 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
 
   const placeholderTopClassName = modeLabel ? "top-[2.3rem]" : "top-3.5";
   const showPlaceholder = draftInput.length === 0;
+  const shouldRenderSlashAffordance =
+    composerMode === null && composerImageAttachment === null;
+  const showInlineSlashAffordance =
+    shouldRenderSlashAffordance && slashCommandQuery !== null;
+  const showSlashTriggerButton =
+    shouldRenderSlashAffordance && slashCommandQuery === null;
+  const inputLeftPaddingClassName = showInlineSlashAffordance
+    ? "pl-[1.65rem]"
+    : "pl-12";
   const inputRightPaddingClassName = "pr-[6.75rem] sm:pr-[7.25rem]";
+  const placeholderLeftInsetClassName = showInlineSlashAffordance
+    ? "left-[1.65rem]"
+    : "left-12";
   const placeholderRightInsetClassName = "right-[6.75rem] sm:right-[7.25rem]";
   const displayedPlaceholder = isSending ? "Agent is thinking" : activePlaceholder;
   const displayedPlaceholderAnimationKey = isSending
     ? "thinking"
     : placeholderAnimationKey;
   const shouldAnimateDisplayedPlaceholder = !isSending && shouldAnimatePlaceholder;
+  const slashAffordanceTransition = prefersReducedMotion
+    ? { duration: 0 }
+    : {
+        duration: 0.2,
+        ease: [0.16, 1, 0.3, 1] as const,
+      };
+  const slashAffordanceFrameClassName =
+    "absolute left-3 top-2.5 z-10 inline-flex h-8 w-8 items-center justify-center";
 
   return (
     <form onSubmit={onSubmit}>
@@ -221,6 +269,40 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
         ) : null}
 
         <div className="relative">
+          <AnimatePresence initial={false} mode="sync">
+            {showSlashTriggerButton ? (
+              <motion.button
+                key="slash-trigger"
+                type="button"
+                onClick={handleOpenSlashCommands}
+                disabled={isComposerDisabled}
+                initial={prefersReducedMotion ? false : { opacity: 0.84, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.94 }}
+                transition={slashAffordanceTransition}
+                className={`${slashAffordanceFrameClassName} rounded-[0.9rem] border border-white/10 bg-black/20 text-[14px] font-medium leading-none text-zinc-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-all hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.04] hover:text-white disabled:pointer-events-none disabled:border-white/5 disabled:text-zinc-600`}
+                aria-label="Open slash commands"
+              >
+                /
+              </motion.button>
+            ) : null}
+
+            {showInlineSlashAffordance ? (
+              <motion.span
+                key="slash-inline"
+                initial={prefersReducedMotion ? false : { opacity: 0, filter: "blur(4px)" }}
+                animate={{ opacity: 1, filter: "blur(0px)" }}
+                exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, filter: "blur(4px)" }}
+                transition={slashAffordanceTransition}
+                className={`${slashAffordanceFrameClassName} pointer-events-none text-[16px] font-medium leading-none text-white sm:text-[14px]`}
+                data-testid="composer-slash-inline-affordance"
+                aria-hidden="true"
+              >
+                /
+              </motion.span>
+            ) : null}
+          </AnimatePresence>
+
           <textarea
             ref={textareaRef}
             value={draftInput}
@@ -229,14 +311,14 @@ export function ChatComposerSurface(props: ChatComposerSurfaceProps) {
             placeholder=""
             disabled={isComposerDisabled}
             aria-label="Chat composer"
-            className={`max-h-[180px] min-h-[44px] w-full resize-none bg-transparent px-4 py-3 text-[16px] leading-6 text-white outline-none disabled:opacity-50 sm:text-[14px] sm:leading-5 ${inputRightPaddingClassName} ${modeLabel ? "pt-8" : ""}`}
+            className={`max-h-[180px] min-h-[44px] w-full resize-none bg-transparent py-3 text-[16px] leading-6 text-white outline-none transition-[padding] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] disabled:opacity-50 sm:text-[14px] sm:leading-5 ${inputLeftPaddingClassName} ${inputRightPaddingClassName} ${modeLabel ? "pt-8" : ""}`}
             rows={1}
           />
 
           {showPlaceholder ? (
             <div
               aria-hidden="true"
-              className={`pointer-events-none absolute left-4 ${placeholderRightInsetClassName} ${placeholderTopClassName} overflow-hidden text-left text-[16px] leading-6 text-zinc-400 sm:text-[14px] sm:leading-5`}
+              className={`pointer-events-none absolute ${placeholderLeftInsetClassName} ${placeholderRightInsetClassName} ${placeholderTopClassName} overflow-hidden text-left text-[16px] leading-6 text-zinc-400 sm:text-[14px] sm:leading-5`}
             >
               {isSending ? (
                 <TextShimmer

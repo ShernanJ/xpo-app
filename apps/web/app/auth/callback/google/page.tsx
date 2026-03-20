@@ -23,6 +23,16 @@ type CallbackState =
   | { kind: "loading"; message: string }
   | { kind: "error"; message: string };
 
+const GOOGLE_OAUTH_SESSION_REQUEST_TIMEOUT_MS = 15_000;
+
+function isAbortError(error: unknown): boolean {
+  if (typeof DOMException !== "undefined" && error instanceof DOMException) {
+    return error.name === "AbortError";
+  }
+
+  return error instanceof Error && error.name === "AbortError";
+}
+
 function GoogleOAuthCallbackContent() {
   const searchParams = useSearchParams();
   const hasStartedFinalizationRef = useRef(false);
@@ -86,11 +96,17 @@ function GoogleOAuthCallbackContent() {
 
       window.history.replaceState(null, "", window.location.pathname + window.location.search);
 
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => {
+        controller.abort();
+      }, GOOGLE_OAUTH_SESSION_REQUEST_TIMEOUT_MS);
+
       try {
         const response = await fetch("/api/auth/oauth/google/session", {
           method: "POST",
           headers: buildPostHogHeaders({ "Content-Type": "application/json" }),
           credentials: "same-origin",
+          signal: controller.signal,
           body: JSON.stringify({
             accessToken,
             state: flowState,
@@ -131,6 +147,16 @@ function GoogleOAuthCallbackContent() {
           );
         }
       } catch (error) {
+        if (isAbortError(error)) {
+          if (!cancelled) {
+            setCallbackState({
+              kind: "error",
+              message: "Google sign-in is taking too long. Please try again.",
+            });
+          }
+          return;
+        }
+
         capturePostHogException(error, {
           callback_url: callbackUrl,
           has_x_handle: Boolean(xHandle),
@@ -142,6 +168,8 @@ function GoogleOAuthCallbackContent() {
             message: "Could not complete Google sign-in right now.",
           });
         }
+      } finally {
+        window.clearTimeout(timeoutId);
       }
     }
 

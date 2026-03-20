@@ -1255,7 +1255,7 @@ function extractDominantContentType(posts: XPublicPost[]): ContentType | null {
 
   const counts = new Map<ContentType, number>();
   for (const post of posts) {
-    const type = classifyContentType(post.text);
+    const type = classifyContentType(post);
     counts.set(type, (counts.get(type) ?? 0) + 1);
   }
 

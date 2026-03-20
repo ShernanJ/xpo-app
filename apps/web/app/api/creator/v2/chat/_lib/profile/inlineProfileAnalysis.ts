@@ -7,6 +7,7 @@ import {
   analyzeBannerUrlForGrowth,
   type BannerAnalysisResult,
 } from "@/lib/creator/bannerAnalysis";
+import { PROFILE_ANALYSIS_FEEDBACK_PROMPT } from "./profileAnalysisFollowUp";
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import {
   buildProfileConversionAudit,
@@ -209,6 +210,57 @@ function buildBulletLines(items: StructuredSectionItem[]): string[] {
   }
 
   return lines;
+}
+
+function appendProfileAnalysisConversationPrompt(value: string): string {
+  const normalizedPrompt = normalizePrompt(PROFILE_ANALYSIS_FEEDBACK_PROMPT);
+  const normalizedValue = normalizePrompt(value);
+  if (normalizedValue.includes(normalizedPrompt)) {
+    return value.trim();
+  }
+
+  return `${value.trim()}\n\n${PROFILE_ANALYSIS_FEEDBACK_PROMPT}`;
+}
+
+function buildStrongestPostWorkingItem(
+  strongestPost: ProfileReplyContext["strongestPost"] | null | undefined,
+): StructuredSectionItem | null {
+  const allowMediaProofRead =
+    strongestPost?.linkSignal === "media_only" &&
+    (strongestPost.imageUrls?.length ?? 0) > 0;
+
+  if (!strongestPost || (!allowMediaProofRead && isLowLeverageSnippet(strongestPost.text))) {
+    return null;
+  }
+
+  const strongestPostMetrics = formatMetricParts(strongestPost.metrics);
+  const performanceLine = `${formatQuotedSnippet(strongestPost.text, 100)} performed best${
+    strongestPostMetrics.length > 0 ? ` with ${strongestPostMetrics.join(", ")}` : ""
+  }`;
+
+  if (strongestPost.linkSignal === "media_only" && (strongestPost.imageUrls?.length ?? 0) > 0) {
+    const proofReason =
+      strongestPost.reasons.find((reason) =>
+        /\b(media-backed|attached image|proof post|link-led|visual proof)\b/i.test(reason),
+      ) ||
+      "This reads more like a media-backed proof post than a link-led post, so the attached image is likely carrying part of the attention.";
+
+    return {
+      lead: "Achievement proof is already capable of holding attention when the visual does the talking",
+      details: [
+        performanceLine,
+        proofReason,
+      ],
+    };
+  }
+
+  return {
+    lead: "There is already at least one post that can hold attention",
+    details: [
+      performanceLine,
+      ...(strongestPost.reasons[0] ? [strongestPost.reasons[0]] : []),
+    ],
+  };
 }
 
 function buildPriorityActions(artifact: ProfileAnalysisArtifact): StructuredSectionItem[] {
@@ -504,18 +556,14 @@ function buildProfileAnalysisFallback(args: {
   const workingItems: StructuredSectionItem[] = strengths
     .slice(0, 3)
     .map((strength) => ({ lead: strength }));
-  if (strongestPost && !isLowLeverageSnippet(strongestPost.text)) {
-    const strongestPostMetrics = formatMetricParts(strongestPost.metrics);
-    workingItems.push({
-      lead: "There is already at least one post that can hold attention",
-      details: [
-        `${formatQuotedSnippet(strongestPost.text, 100)} performed best${
-          strongestPostMetrics.length > 0 ? ` with ${strongestPostMetrics.join(", ")}` : ""
-        }`,
-      ],
-    });
+  const strongestPostWorkingItem = buildStrongestPostWorkingItem(strongestPost);
+  if (strongestPostWorkingItem) {
+    workingItems.push(strongestPostWorkingItem);
   }
   const gapItems = gaps.slice(0, 4).map((gap) => ({ lead: gap }));
+  const priorityIntro = artifact.analysisGoal?.trim()
+    ? `Using your goal of ${formatQuotedSnippet(artifact.analysisGoal, 90)} as the lens, these are the next three things I would change.`
+    : "If you only change three things next, change them in this order.";
 
   const lines = [
     `**Verdict:** ${artifact.audit.headline}`,
@@ -549,7 +597,7 @@ function buildProfileAnalysisFallback(args: {
 
   lines.push("", "## Priority Order");
   if (priorities.length > 0) {
-    lines.push("If you only change three things next, change them in this order.");
+    lines.push(priorityIntro);
     priorities.forEach((priority, index) => {
       lines.push(`${index + 1}. ${ensureSentence(priority.lead)}`);
       for (const detail of priority.details || []) {
@@ -558,7 +606,7 @@ function buildProfileAnalysisFallback(args: {
     });
   } else {
     lines.push(
-      "If you only change three things next, change them in this order.",
+      priorityIntro,
       "1. Tighten the bio so the audience, outcome, and proof are explicit.",
       "   - Give a new visitor a reason to follow without making them infer the value.",
       "2. Sharpen the banner so the promise is obvious at a glance.",
@@ -568,7 +616,7 @@ function buildProfileAnalysisFallback(args: {
     );
   }
 
-  return lines.join("\n");
+  return appendProfileAnalysisConversationPrompt(lines.join("\n"));
 }
 
 export async function generateProfileAnalysisNarrative(args: {
@@ -599,6 +647,7 @@ FORMAT:
 - Use one level of nested bullets for evidence or examples.
 - Do not write labels like "Recent theme:" or confidence parentheticals like "(medium-confidence signal)".
 - If a point is inferential, soften the wording naturally instead of printing a confidence score.
+- End with one short conversational question asking about the user's goal or any corrections.
 
 GROUNDING RULES:
 - Use only the evidence in this prompt.
@@ -608,6 +657,8 @@ GROUNDING RULES:
 - Every Content Patterns point must be backed by at least one supplied snippet or explicit topic insight.
 - Treat pinned-image proof as first-class evidence when judging the pinned post.
 - Let pinned proof outrank weak recent-post noise when it is the strongest thing a new visitor would notice.
+- If strongest post link signal is media_only, do not describe it as link-led or as an outbound-link win.
+- If user corrections are supplied, treat them as stronger than weak inference while still respecting explicit scrape facts.
 - If recent-post evidence is thin, say so.
 - Keep the response scannable and under roughly 350 words.
 
@@ -633,11 +684,15 @@ PROFILE DATA:
 - Pinned image role: ${args.artifact.pinnedPostImageAnalysis?.imageRole || "None"}
 - Pinned image readable text: ${args.artifact.pinnedPostImageAnalysis?.readableText || "None"}
 - Pinned image key details: ${args.artifact.pinnedPostImageAnalysis?.keyDetails.join(" | ") || "None"}
+- Analysis goal: ${args.artifact.analysisGoal || "None"}
+- User corrections to keep factual: ${args.artifact.analysisCorrections?.map((entry) => entry.detail).join(" | ") || "None"}
 - Topic insights: ${formatTopicInsightsForPrompt(args.profileReplyContext)}
 - Recent themes (legacy): ${args.profileReplyContext?.topicBullets.join(" | ") || "None"}
 - Recent snippets: ${args.profileReplyContext?.recentPostSnippets.join(" | ") || "None"}
 - Strongest post: ${strongestPost?.text || "None"}
 - Strongest post engagement total: ${strongestPost?.engagementTotal ?? "None"}
+- Strongest post link signal: ${strongestPost?.linkSignal || "none"}
+- Strongest post image count: ${strongestPost?.imageUrls.length ?? 0}
 - Strongest post reasons: ${strongestPost?.reasons.join(" | ") || "None"}
 - Banner visual vibe: ${args.artifact.bannerAnalysis?.vision.overall_vibe || "None"}
 - Banner readable text: ${args.artifact.bannerAnalysis?.vision.readable_text.trim() || "None"}
@@ -667,7 +722,7 @@ Return valid JSON:
 
 async function resolveProfileBannerAnalysis(args: {
   onboarding: OnboardingResult;
-  analyzeBannerUrl?: (bannerUrl: string) => Promise<BannerAnalysisResult>;
+  analyzeBannerUrl?: (bannerUrl: string) => Promise<BannerAnalysisResult | null>;
 }): Promise<BannerAnalysisResult | null> {
   const bannerUrl = args.onboarding.profile.headerImageUrl?.trim() || "";
   if (!bannerUrl) {
@@ -761,7 +816,7 @@ export async function buildProfileAnalysisArtifact(args: {
   onboarding: OnboardingResult;
   audit: ProfileConversionAudit;
   creatorAgentContext?: CreatorAgentContext | null;
-  analyzeBannerUrl?: (bannerUrl: string) => Promise<BannerAnalysisResult>;
+  analyzeBannerUrl?: (bannerUrl: string) => Promise<BannerAnalysisResult | null>;
   analyzePinnedPostImage?: ResolvePinnedPostImageAnalysisFn;
 }): Promise<ProfileAnalysisArtifact> {
   const [bannerAnalysis, pinnedPostImageAnalysis] = await Promise.all([
@@ -812,6 +867,9 @@ export async function buildProfileAnalysisArtifact(args: {
     },
     bannerAnalysis,
     pinnedPostImageAnalysis,
+    analysisGoal: args.creatorAgentContext?.profileAuditState?.analysisGoal ?? null,
+    analysisCorrections:
+      args.creatorAgentContext?.profileAuditState?.analysisCorrections ?? [],
   };
 }
 
@@ -820,13 +878,14 @@ export async function buildInlineProfileAnalysisResponse(args: {
   audit: ProfileConversionAudit;
   memory: V2ConversationMemory;
   creatorAgentContext?: CreatorAgentContext | null;
-  analyzeBannerUrl?: (bannerUrl: string) => Promise<BannerAnalysisResult>;
+  analyzeBannerUrl?: (bannerUrl: string) => Promise<BannerAnalysisResult | null>;
   analyzePinnedPostImage?: ResolvePinnedPostImageAnalysisFn;
   profileReplyContext?: ProfileReplyContext | null;
   generateNarrative?: (args: {
     artifact: ProfileAnalysisArtifact;
     profileReplyContext?: ProfileReplyContext | null;
   }) => Promise<string | null>;
+  leadIn?: string | null;
 }): Promise<RawOrchestratorResponse> {
   const artifact = await buildProfileAnalysisArtifact(args);
   const response =
@@ -838,11 +897,14 @@ export async function buildInlineProfileAnalysisResponse(args: {
       artifact,
       profileReplyContext: args.profileReplyContext,
     });
+  const composedResponse = appendProfileAnalysisConversationPrompt(
+    [args.leadIn?.trim(), response.trim()].filter(Boolean).join("\n\n"),
+  );
 
   return {
     mode: "coach",
     outputShape: "profile_analysis",
-    response,
+    response: composedResponse,
     data: {
       quickReplies: buildProfileAnalysisQuickReplies(artifact),
       profileAnalysisArtifact: artifact,

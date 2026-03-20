@@ -231,6 +231,7 @@ export function scopeMemoryForCurrentTurn(args: {
     unresolvedQuestion: null,
     activeReplyContext: null,
     activeReplyArtifactRef: null,
+    activeProfileAnalysisRef: null,
     selectedReplyOptionId: null,
   };
 }

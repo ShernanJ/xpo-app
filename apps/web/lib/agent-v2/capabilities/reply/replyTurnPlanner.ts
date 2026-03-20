@@ -74,6 +74,7 @@ export function buildReplyMemorySnapshot(args: {
     ...args.storedMemory,
     activeReplyContext: args.activeReplyContext,
     activeReplyArtifactRef: args.storedMemory.activeReplyArtifactRef,
+    activeProfileAnalysisRef: null,
     selectedReplyOptionId:
       args.selectedReplyOptionId === undefined
         ? args.storedMemory.selectedReplyOptionId

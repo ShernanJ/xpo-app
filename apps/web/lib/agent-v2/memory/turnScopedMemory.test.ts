@@ -39,6 +39,7 @@ function buildMemory(overrides: Partial<V2ConversationMemory> = {}): V2Conversat
     formatPreference: "thread",
     activeReplyContext: null,
     activeReplyArtifactRef: null,
+    activeProfileAnalysisRef: null,
     selectedReplyOptionId: null,
     voiceFidelity: "balanced",
     ...overrides,

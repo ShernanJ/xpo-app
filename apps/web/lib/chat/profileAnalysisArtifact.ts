@@ -2,6 +2,7 @@ import type { ProfileConversionAudit } from "../onboarding/profile/profileConver
 import type { ProfileAnalysisPinnedPostImageAnalysis } from "../onboarding/profile/pinnedPostImageAnalysis.ts";
 import type { XPinnedPost, XPublicProfile } from "../onboarding/types.ts";
 import type { BannerAnalysisResult } from "../creator/bannerAnalysis.ts";
+import type { ProfileAnalysisCorrection } from "../agent-v2/core/styleProfile.ts";
 
 export interface ProfileAnalysisArtifact {
   kind: "profile_analysis";
@@ -34,4 +35,6 @@ export interface ProfileAnalysisArtifact {
   >;
   bannerAnalysis?: BannerAnalysisResult | null;
   pinnedPostImageAnalysis?: ProfileAnalysisPinnedPostImageAnalysis | null;
+  analysisGoal?: string | null;
+  analysisCorrections?: ProfileAnalysisCorrection[];
 }

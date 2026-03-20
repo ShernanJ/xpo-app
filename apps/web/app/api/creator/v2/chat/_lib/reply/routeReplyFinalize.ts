@@ -148,6 +148,7 @@ export async function finalizeReplyTurnWithDeps(
               kind: args.preparedTurn.plannedTurn.replyArtifacts.kind,
             }
           : null,
+        activeProfileAnalysisRef: null,
         selectedReplyOptionId:
           args.preparedTurn.plannedTurn.selectedReplyOptionId === undefined
             ? null

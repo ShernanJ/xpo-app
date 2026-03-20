@@ -42,6 +42,16 @@ function mergeProfiles(
 
 const MAX_PARSED_SCRAPE_POSTS = 250;
 
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -469,6 +479,15 @@ function extractPostFromTweetNode(
     }
   }
 
+  const imageUrls = extractTweetImageUrls(tweetNode);
+  const expandedUrls = extractTweetExpandedUrls(tweetNode);
+  const rawUrlMatches = text.match(/https?:\/\/\S+/gi) ?? [];
+  const linkSignal = resolvePostLinkSignal({
+    rawUrlCount: rawUrlMatches.length,
+    expandedUrls,
+    imageUrls,
+  });
+
   return {
     id,
     text,
@@ -479,6 +498,9 @@ function extractPostFromTweetNode(
       repostCount: asNumber(legacy.retweet_count),
       quoteCount: asNumber(legacy.quote_count),
     },
+    imageUrls: imageUrls.length > 0 ? imageUrls : null,
+    expandedUrls: expandedUrls.length > 0 ? expandedUrls : null,
+    linkSignal,
   };
 }
 
@@ -543,7 +565,51 @@ function extractTweetImageUrls(tweetNode: Record<string, unknown>): string[] {
     })
     .filter((value): value is string => Boolean(value));
 
-  return Array.from(new Set(urls));
+  return uniqueStrings(urls);
+}
+
+function extractTweetExpandedUrls(tweetNode: Record<string, unknown>): string[] {
+  const legacy = asRecord(tweetNode.legacy);
+  const entityUrls = asRecord(legacy?.entities)?.urls;
+
+  return uniqueStrings(
+    (Array.isArray(entityUrls) ? entityUrls : []).map((entryValue) => {
+      const entry = asRecord(entryValue);
+      return (
+        asString(entry?.expanded_url) ??
+        asString(entry?.expanded ?? asRecord(entry?.expanded_url)?.url) ??
+        asString(entry?.url)
+      );
+    }),
+  );
+}
+
+function resolvePostLinkSignal(args: {
+  rawUrlCount: number;
+  expandedUrls: string[];
+  imageUrls: string[];
+}): XPublicPost["linkSignal"] {
+  const hasImages = args.imageUrls.length > 0;
+  const hasExpandedUrls = args.expandedUrls.length > 0;
+  const hasRawUrls = args.rawUrlCount > 0;
+
+  if (!hasRawUrls && !hasExpandedUrls && !hasImages) {
+    return "none";
+  }
+
+  if (hasImages && hasExpandedUrls) {
+    return "mixed";
+  }
+
+  if (hasExpandedUrls) {
+    return "external";
+  }
+
+  if (hasImages && hasRawUrls) {
+    return "media_only";
+  }
+
+  return hasRawUrls ? "external" : "none";
 }
 
 function buildPinnedPost(
@@ -551,10 +617,11 @@ function buildPinnedPost(
   username: string,
   imageUrls: string[] = [],
 ): XPinnedPost {
+  const mergedImageUrls = uniqueStrings([...(post.imageUrls ?? []), ...imageUrls]);
   return {
     ...post,
     url: `https://x.com/${username}/status/${post.id}`,
-    imageUrls: imageUrls.length > 0 ? imageUrls : null,
+    imageUrls: mergedImageUrls.length > 0 ? mergedImageUrls : null,
   };
 }
 

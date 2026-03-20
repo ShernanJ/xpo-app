@@ -42,6 +42,8 @@ class SupabaseAuthRequestError extends Error {
   }
 }
 
+const SUPABASE_AUTH_REQUEST_TIMEOUT_MS = 10_000;
+
 function getSupabaseAuthConfig(): { url: string; anonKey: string } {
   const url = process.env.SUPABASE_URL?.trim().replace(/\/+$/, "");
   const anonKey = process.env.SUPABASE_ANON_KEY?.trim();
@@ -93,17 +95,51 @@ function deriveSupabaseError(data: unknown, fallback: string): SupabaseAuthError
   return { code: "request_failed", message: raw };
 }
 
-async function supabaseAuthRequest<T>(path: string, init: RequestInit): Promise<T> {
+function isAbortError(error: unknown): boolean {
+  if (typeof DOMException !== "undefined" && error instanceof DOMException) {
+    return error.name === "AbortError";
+  }
+
+  return error instanceof Error && error.name === "AbortError";
+}
+
+async function fetchSupabaseAuthResponse(
+  path: string,
+  init: RequestInit,
+): Promise<Response> {
   const { url, anonKey } = getSupabaseAuthConfig();
-  const response = await fetch(`${url}/auth/v1${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      apikey: anonKey,
-      Authorization: `Bearer ${anonKey}`,
-      ...(init.headers ?? {}),
-    },
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, SUPABASE_AUTH_REQUEST_TIMEOUT_MS);
+
+  try {
+    return await fetch(`${url}/auth/v1${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        apikey: anonKey,
+        Authorization: `Bearer ${anonKey}`,
+        ...(init.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new SupabaseAuthRequestError({
+        code: "request_failed",
+        message: "Supabase auth is taking too long. Please try again.",
+      });
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function supabaseAuthRequest<T>(path: string, init: RequestInit): Promise<T> {
+  const response = await fetchSupabaseAuthResponse(path, init);
 
   const data = (await response.json().catch(() => null)) as T | null;
   if (!response.ok || !data) {
@@ -116,16 +152,7 @@ async function supabaseAuthRequest<T>(path: string, init: RequestInit): Promise<
 }
 
 async function supabaseAuthRequestWithoutBody(path: string, init: RequestInit): Promise<void> {
-  const { url, anonKey } = getSupabaseAuthConfig();
-  const response = await fetch(`${url}/auth/v1${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      apikey: anonKey,
-      Authorization: `Bearer ${anonKey}`,
-      ...(init.headers ?? {}),
-    },
-  });
+  const response = await fetchSupabaseAuthResponse(path, init);
 
   const data = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
@@ -214,11 +241,9 @@ export async function getSupabaseUserFromAccessToken(
   accessToken: string,
 ): Promise<{ ok: true; data: SupabaseAuthSuccess } | { ok: false; error: SupabaseAuthError }> {
   try {
-    const { url, anonKey } = getSupabaseAuthConfig();
-    const response = await fetch(`${url}/auth/v1/user`, {
+    const response = await fetchSupabaseAuthResponse("/user", {
       method: "GET",
       headers: {
-        apikey: anonKey,
         Authorization: `Bearer ${accessToken}`,
       },
     });

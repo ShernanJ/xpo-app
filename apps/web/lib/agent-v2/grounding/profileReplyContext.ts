@@ -6,6 +6,7 @@ import type {
   ContentType,
   CreatorRepresentativePost,
   HookPattern,
+  PostLinkSignal,
 } from "../../onboarding/contracts/types.ts";
 
 export interface ProfileReplyTopicInsight {
@@ -28,6 +29,8 @@ export interface ProfileReplyStrongestPost {
   createdAt: string;
   engagementTotal: number;
   metrics: XPostMetrics;
+  imageUrls: string[];
+  linkSignal: PostLinkSignal | null;
   comparison: ProfileReplyPostComparison;
   reasons: string[];
   hookPattern: HookPattern | null;
@@ -599,6 +602,15 @@ function buildStrongestPostReasons(args: {
     reasons.push(hookReason);
   }
 
+  if (
+    args.strongestPost.linkSignal === "media_only" &&
+    (args.strongestPost.imageUrls?.length ?? 0) > 0
+  ) {
+    reasons.push(
+      "This reads more like a media-backed proof post than a link-led post, so the attached image is likely carrying part of the attention.",
+    );
+  }
+
   const bestContentType = args.creatorAgentContext?.performanceModel.bestContentType ?? null;
   if (bestContentType && representative?.contentType === bestContentType) {
     const label = labelContentType(bestContentType);
@@ -729,6 +741,8 @@ function buildStrongestPostInsight(args: {
     createdAt: strongestPost.createdAt,
     engagementTotal: strongestEngagement,
     metrics: strongestPost.metrics,
+    imageUrls: strongestPost.imageUrls ?? [],
+    linkSignal: strongestPost.linkSignal ?? null,
     comparison,
     reasons: buildStrongestPostReasons({
       representativePost,

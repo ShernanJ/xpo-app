@@ -266,6 +266,8 @@ function createProfileReplyContext(): ProfileReplyContext {
         referenceEngagementTotal: 12,
         ratio: 3.08,
       },
+      imageUrls: [],
+      linkSignal: "none",
       reasons: [
         "The opener gets to the point fast, which makes the post easy to process.",
       ],
@@ -330,6 +332,7 @@ test("buildInlineProfileAnalysisResponse falls back to structured markdown when 
       formatPreference: null,
       activeReplyContext: null,
       activeReplyArtifactRef: null,
+      activeProfileAnalysisRef: null,
       selectedReplyOptionId: null,
       voiceFidelity: "balanced",
     },
@@ -383,6 +386,7 @@ test("buildInlineProfileAnalysisResponse falls back to structured markdown when 
   expect(response.response).toContain("Dashboard screenshot showing growth and revenue proof.");
   expect(response.response).not.toContain("Recent theme:");
   expect(response.response).not.toContain("confidence signal");
+  expect(response.response).toContain("What's your goal for this profile, and did I get anything wrong?");
   expect(response.memory.assistantTurnCount).toBe(3);
   expect(response.memory.unresolvedQuestion).toBeNull();
   expect(response.memory.preferredSurfaceMode).toBe("structured");
@@ -424,6 +428,7 @@ test("buildInlineProfileAnalysisResponse softens low-confidence reads without ex
       formatPreference: null,
       activeReplyContext: null,
       activeReplyArtifactRef: null,
+      activeProfileAnalysisRef: null,
       selectedReplyOptionId: null,
       voiceFidelity: "balanced",
     },
@@ -529,6 +534,8 @@ test("buildInlineProfileAnalysisResponse promotes pinned proof over one-off nois
           referenceEngagementTotal: 14,
           ratio: 7.2,
         },
+        imageUrls: ["https://pbs.twimg.com/media/kevin-proof.jpg"],
+        linkSignal: "media_only",
         reasons: ["The opener is short, but it does not explain the positioning on its own."],
         hookPattern: "statement_open",
         contentType: "single_line",
@@ -553,6 +560,7 @@ test("buildInlineProfileAnalysisResponse promotes pinned proof over one-off nois
       formatPreference: null,
       activeReplyContext: null,
       activeReplyArtifactRef: null,
+      activeProfileAnalysisRef: null,
       selectedReplyOptionId: null,
       voiceFidelity: "balanced",
     },
@@ -582,6 +590,7 @@ test("buildInlineProfileAnalysisResponse promotes pinned proof over one-off nois
 
   expect(response.response).toContain("visible proof of a real win");
   expect(response.response).toContain("First Prize Winner $20k CAD");
+  expect(response.response).toContain("media-backed proof post");
   expect(response.response).not.toContain("Recent theme:");
   expect(response.response).not.toContain("medium-confidence signal");
   expect(response.response).not.toContain("sf or nyc for one week");
@@ -611,6 +620,7 @@ test("buildInlineProfileAnalysisResponse uses the injected narrative when availa
       formatPreference: null,
       activeReplyContext: null,
       activeReplyArtifactRef: null,
+      activeProfileAnalysisRef: null,
       selectedReplyOptionId: null,
       voiceFidelity: "balanced",
     },

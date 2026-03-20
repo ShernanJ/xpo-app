@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db";
-import { manageConversationTurnRaw } from "@/lib/agent-v2/runtime/conversationManager";
-import type { UserPreferences } from "@/lib/agent-v2/core/styleProfile";
+import {
+  manageConversationTurnRaw,
+  type RawOrchestratorResponse,
+} from "@/lib/agent-v2/runtime/conversationManager";
+import {
+  saveStyleProfile,
+  type UserPreferences,
+} from "@/lib/agent-v2/core/styleProfile";
+import type {
+  CreatorChatQuickReply,
+  V2ConversationMemory,
+} from "@/lib/agent-v2/contracts/chat";
 import {
   resolveThreadFramingStyle,
 } from "@/lib/onboarding/shared/draftArtifacts";
@@ -59,10 +69,18 @@ import {
 } from "@/lib/chat/chatStream";
 import { finalizeMainAssistantTurn } from "./_lib/main/routeMainFinalize";
 import {
+  buildProfileAnalysisArtifact,
   buildInlineProfileAnalysisResponse,
   generateProfileAnalysisNarrative,
   isInlineProfileAnalysisRequest,
 } from "./_lib/profile/inlineProfileAnalysis";
+import {
+  PROFILE_ANALYSIS_FEEDBACK_PROMPT,
+  buildProfileAnalysisQuestionResponse,
+  extractPersistedProfileAnalysisArtifact,
+  interpretProfileAnalysisFollowUp,
+} from "./_lib/profile/profileAnalysisFollowUp";
+import { buildProfileAnalysisQuickReplies } from "@/lib/agent-v2/responses/profileAnalysisQuickReplies";
 import { finalizeReplyTurn } from "./_lib/reply/routeReplyFinalize";
 import { consumeRateLimit } from "@/lib/security/rateLimit";
 import {
@@ -78,6 +96,7 @@ import {
 } from "@/lib/chat/chatMedia";
 import { registerChatRouteHandler } from "./_lib/routeHandlerRegistry";
 import { buildChatAcceptedResponse } from "./_lib/response/routeResponse";
+import { applyProfileAnalysisConversationPatchToStyleCard } from "../profile-audit/route.logic";
 
 type CreatorChatRequest = CreatorChatTransportRequest & Record<string, unknown>;
 type StreamProgressCallback = (
@@ -248,6 +267,33 @@ function buildRouteProgressCopy(args: {
     default:
       return null;
   }
+}
+
+function buildProfileAnalysisFollowUpRawResponse(args: {
+  response: string;
+  memory: V2ConversationMemory;
+  quickReplies?: CreatorChatQuickReply[];
+}): RawOrchestratorResponse {
+  return {
+    mode: "coach",
+    outputShape: "coach_question",
+    response: args.response,
+    data: {
+      ...(args.quickReplies && args.quickReplies.length > 0
+        ? { quickReplies: args.quickReplies }
+        : {}),
+      profileAnalysisConversation: {
+        preserveActiveRef: true,
+      },
+    },
+    memory: {
+      ...args.memory,
+      assistantTurnCount: (args.memory.assistantTurnCount ?? 0) + 1,
+      unresolvedQuestion: null,
+      preferredSurfaceMode: "structured",
+    },
+    presentationStyle: "plain_paragraph",
+  };
 }
 
 function resolveChatTurnCreditCost(args: {
@@ -1165,10 +1211,247 @@ async function handleChatRouteRequest(args: {
       return buildTurnCancelledResponse();
     }
 
+    const hasProfileAnalysisContext = Boolean(
+      onboardingResult && growthOsPayload?.profileConversionAudit,
+    );
+    const isExplicitProfileAnalysisRequest =
+      hasProfileAnalysisContext &&
+      isInlineProfileAnalysisRequest(effectiveMessage);
+    const activeProfileAnalysisRef = storedMemory.activeProfileAnalysisRef;
+
+    if (
+      hasProfileAnalysisContext &&
+      activeProfileAnalysisRef &&
+      !isExplicitProfileAnalysisRequest
+    ) {
+      const followUp = interpretProfileAnalysisFollowUp({
+        userMessage: effectiveMessage,
+        topicSummary:
+          profileReplyContext?.knownFor ||
+          storedMemory.topicSummary ||
+          creatorProfileHints?.knownFor ||
+          null,
+      });
+
+      if (followUp.kind !== "none") {
+        await emitProgress(
+          2,
+          buildRouteProgressCopy({
+            workflow: progressPlan.workflow,
+            stepId: progressPlan.steps[2]?.id ?? "generate_output",
+            activeHandle,
+            selectedDraftContext,
+            structuredReplyContext,
+            creatorProfileHints,
+            profileReplyContext,
+          }),
+        );
+
+        let rawResponse: RawOrchestratorResponse;
+        let profileAnalysisStyleCard = styleCard;
+        let profileAnalysisContext = creatorAgentContext;
+
+        if (followUp.kind === "clarify_correction") {
+          const artifact = await prisma.chatMessage.findUnique({
+            where: { id: activeProfileAnalysisRef.messageId },
+            select: {
+              threadId: true,
+              data: true,
+            },
+          });
+          const persistedArtifact =
+            artifact?.threadId === storedThread.id
+              ? extractPersistedProfileAnalysisArtifact(artifact.data)
+              : null;
+
+          rawResponse = buildProfileAnalysisFollowUpRawResponse({
+            response: `${followUp.question} ${PROFILE_ANALYSIS_FEEDBACK_PROMPT}`.trim(),
+            memory: storedMemory,
+            quickReplies: persistedArtifact
+              ? buildProfileAnalysisQuickReplies(persistedArtifact)
+              : [],
+          });
+        } else if (followUp.kind === "answer_question") {
+          const artifactMessage = await prisma.chatMessage.findUnique({
+            where: { id: activeProfileAnalysisRef.messageId },
+            select: {
+              threadId: true,
+              data: true,
+            },
+          });
+          const persistedArtifact =
+            artifactMessage?.threadId === storedThread.id
+              ? extractPersistedProfileAnalysisArtifact(artifactMessage.data)
+              : null;
+          const artifact =
+            persistedArtifact ||
+            (await buildProfileAnalysisArtifact({
+              onboarding: onboardingResult!,
+              audit: growthOsPayload!.profileConversionAudit,
+              creatorAgentContext,
+            }));
+
+          rawResponse = buildProfileAnalysisFollowUpRawResponse({
+            response: buildProfileAnalysisQuestionResponse({
+              userMessage: effectiveMessage,
+              artifact,
+              profileReplyContext,
+            }),
+            memory: storedMemory,
+            quickReplies: buildProfileAnalysisQuickReplies(artifact),
+          });
+        } else {
+          const patchedStyleCard = applyProfileAnalysisConversationPatchToStyleCard({
+            styleCard,
+            patch: {
+              analysisGoal: followUp.analysisGoal,
+              analysisCorrectionDetail: followUp.analysisCorrectionDetail,
+            },
+          });
+          profileAnalysisStyleCard = patchedStyleCard;
+
+          if (args.userId !== "anonymous" && activeHandle) {
+            await saveStyleProfile(
+              args.userId,
+              activeHandle,
+              patchedStyleCard,
+            ).catch((error) => {
+              console.error(
+                "Failed to persist profile-analysis goal/correction state:",
+                error,
+              );
+            });
+          }
+
+          profileAnalysisContext = profileAnalysisContext
+            ? {
+                ...profileAnalysisContext,
+                profileAuditState: patchedStyleCard.profileAuditState ?? null,
+              }
+            : profileAnalysisContext;
+
+          rawResponse = await buildInlineProfileAnalysisResponse({
+            onboarding: onboardingResult!,
+            audit: growthOsPayload!.profileConversionAudit,
+            memory: storedMemory,
+            creatorAgentContext: profileAnalysisContext,
+            profileReplyContext,
+            generateNarrative: generateProfileAnalysisNarrative,
+            leadIn: followUp.leadIn,
+          });
+        }
+
+        const preparedTurn = await prepareManagedMainTurn({
+          rawResponse,
+          recentHistory: recentHistoryStr || "None",
+          selectedDraftContext,
+          formatPreference: effectiveFormatPreference,
+          isVerifiedAccount,
+          userPreferences: effectiveUserPreferences,
+          styleCard: profileAnalysisStyleCard,
+          creatorProfileHints,
+          routingDiagnostics: normalizedTurn.diagnostics,
+          clientTurnId,
+          currentThreadTitle: storedThread.title,
+          shouldClearReplyWorkflow: false,
+          mediaAttachments: selectedAngleMediaAttachments,
+        });
+
+        await emitProgress(
+          3,
+          buildRouteProgressCopy({
+            workflow: progressPlan.workflow,
+            stepId: progressPlan.steps[3]?.id ?? "persist_response",
+            activeHandle,
+            selectedDraftContext,
+            structuredReplyContext,
+            creatorProfileHints,
+            profileReplyContext,
+          }),
+        );
+
+        if (await shouldCancelTurn()) {
+          return buildTurnCancelledResponse();
+        }
+
+        return await finalizeMainAssistantTurn({
+          preparedTurn,
+          routingTrace: {
+            normalizedTurn: {
+              turnSource: normalizedTurn.source,
+              artifactKind: normalizedTurn.artifactContext?.kind ?? null,
+              planSeedSource: normalizedTurn.diagnostics.planSeedSource,
+              replyHandlingBypassedReason:
+                normalizedTurn.diagnostics.replyHandlingBypassedReason,
+              resolvedWorkflow: normalizedTurn.diagnostics.resolvedWorkflow,
+            },
+            runtimeResolution: null,
+            workerExecutions: [],
+            workerExecutionSummary: {
+              total: 0,
+              parallel: 0,
+              sequential: 0,
+              completed: 0,
+              skipped: 0,
+              failed: 0,
+              groups: [],
+            },
+            persistedStateChanges: null,
+            validations: [],
+            turnPlan: null,
+            controllerAction:
+              followUp.kind === "answer_question"
+                ? "profile_analysis_answer"
+                : followUp.kind === "clarify_correction"
+                  ? "profile_analysis_clarify_correction"
+                  : "profile_analysis_rerun",
+            classifiedIntent: effectiveExplicitIntent,
+            resolvedMode: "coach",
+            routerState: null,
+            planInputSource: null,
+            clarification:
+              followUp.kind === "clarify_correction"
+                ? {
+                    kind: "question",
+                    reason: "profile_analysis_correction_missing_detail",
+                    branchKey: "semantic_repair",
+                    question: followUp.question,
+                  }
+                : null,
+            draftGuard: null,
+            planFailure: null,
+            timings: {
+              preflightMs: Date.now() - routePreflightStartedAt,
+            },
+          },
+          shouldIncludeRoutingTrace,
+          storedThreadId: storedThread.id,
+          requestedThreadId: threadId,
+          userId: args.userId,
+          activeHandle,
+          runId: storedRun?.id ?? null,
+          turnId: activeTurnId,
+          sourcePrompt: effectiveMessage,
+          explicitIntent: effectiveExplicitIntent,
+          loadBilling: loadBillingStateForResponse,
+          recordProductEvent,
+          onAssistantTurnPersisted: async (assistantMessageId) => {
+            await markTurnCompleted({
+              userId: args.userId,
+              runId: effectiveRunId,
+              clientTurnId,
+              turnId: activeTurnId,
+              assistantMessageId,
+            });
+          },
+        });
+      }
+    }
+
     if (
       onboardingResult &&
       growthOsPayload?.profileConversionAudit &&
-      isInlineProfileAnalysisRequest(effectiveMessage)
+      isExplicitProfileAnalysisRequest
     ) {
       await emitProgress(
         2,

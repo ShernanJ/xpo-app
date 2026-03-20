@@ -144,6 +144,9 @@ export interface OrchestratorData {
       deletable: boolean;
     }>;
   };
+  profileAnalysisConversation?: {
+    preserveActiveRef?: boolean;
+  };
   routingTrace?: RoutingTrace;
 }
 

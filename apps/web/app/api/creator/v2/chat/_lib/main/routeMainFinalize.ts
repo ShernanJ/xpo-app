@@ -46,6 +46,70 @@ const DEFAULT_MAIN_ASSISTANT_FINALIZATION_DEPS: MainAssistantFinalizationDeps = 
   buildChatSuccessResponse,
 };
 
+function resolveProfileAnalysisMemoryUpdate(rawResponse: PreparedChatRouteTurn["rawResponse"]):
+  | {
+      mode: "activate";
+      handle: string;
+      fingerprint: string;
+    }
+  | {
+      mode: "preserve";
+    }
+  | {
+      mode: "clear";
+    } {
+  const resultData =
+    rawResponse.data &&
+    typeof rawResponse.data === "object" &&
+    !Array.isArray(rawResponse.data)
+      ? (rawResponse.data as Record<string, unknown>)
+      : null;
+  const profileAnalysisArtifact =
+    resultData?.profileAnalysisArtifact &&
+    typeof resultData.profileAnalysisArtifact === "object" &&
+    !Array.isArray(resultData.profileAnalysisArtifact)
+      ? (resultData.profileAnalysisArtifact as Record<string, unknown>)
+      : null;
+  const profile =
+    profileAnalysisArtifact?.profile &&
+    typeof profileAnalysisArtifact.profile === "object" &&
+    !Array.isArray(profileAnalysisArtifact.profile)
+      ? (profileAnalysisArtifact.profile as Record<string, unknown>)
+      : null;
+  const audit =
+    profileAnalysisArtifact?.audit &&
+    typeof profileAnalysisArtifact.audit === "object" &&
+    !Array.isArray(profileAnalysisArtifact.audit)
+      ? (profileAnalysisArtifact.audit as Record<string, unknown>)
+      : null;
+  const handle =
+    typeof profile?.username === "string"
+      ? profile.username.trim().replace(/^@+/, "").toLowerCase()
+      : "";
+  const fingerprint = typeof audit?.fingerprint === "string" ? audit.fingerprint.trim() : "";
+
+  if (handle && fingerprint) {
+    return {
+      mode: "activate",
+      handle,
+      fingerprint,
+    };
+  }
+
+  const conversation =
+    resultData?.profileAnalysisConversation &&
+    typeof resultData.profileAnalysisConversation === "object" &&
+    !Array.isArray(resultData.profileAnalysisConversation)
+      ? (resultData.profileAnalysisConversation as Record<string, unknown>)
+      : null;
+
+  if (conversation?.preserveActiveRef === true) {
+    return { mode: "preserve" };
+  }
+
+  return { mode: "clear" };
+}
+
 export async function finalizeMainAssistantTurn(
   args: FinalizeMainAssistantTurnArgs,
 ): Promise<Response> {
@@ -66,6 +130,9 @@ export async function finalizeMainAssistantTurnWithDeps(
   const persistenceStartedAt = Date.now();
 
   if (args.storedThreadId) {
+    const profileAnalysisMemoryUpdate = resolveProfileAnalysisMemoryUpdate(
+      args.preparedTurn.rawResponse,
+    );
     const persistenceResult = await deps.persistAssistantTurn({
       threadId: args.storedThreadId,
       assistantMessageData: mappedData,
@@ -93,6 +160,19 @@ export async function finalizeMainAssistantTurnWithDeps(
               selectedReplyOptionId: null,
             }
           : {}),
+        ...(profileAnalysisMemoryUpdate.mode === "activate"
+          ? {
+              activeProfileAnalysisRef: {
+                messageId: assistantMessageId,
+                handle: profileAnalysisMemoryUpdate.handle,
+                fingerprint: profileAnalysisMemoryUpdate.fingerprint,
+              },
+            }
+          : profileAnalysisMemoryUpdate.mode === "clear"
+            ? {
+                activeProfileAnalysisRef: null,
+              }
+            : {}),
       }),
       contentTitleSyncContext: {
         userId: args.userId,

@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 
 import { StyleCardSchema } from "@/lib/agent-v2/core/styleProfile";
 import {
+  applyProfileAnalysisConversationPatchToStyleCard,
   applyProfileAuditPatchToStyleCard,
   parseProfileAuditPatchRequest,
 } from "./route.logic";
@@ -51,6 +52,8 @@ test("applyProfileAuditPatchToStyleCard stores dismiss fingerprint and header an
     headerClarity: "unclear",
     headerClarityAnsweredAt: "2026-03-15T12:00:00.000Z",
     headerClarityBannerUrl: "https://pbs.twimg.com/profile_banners/123/1500x500",
+    analysisGoal: null,
+    analysisCorrections: [],
   });
 });
 
@@ -77,5 +80,35 @@ test("applyProfileAuditPatchToStyleCard clears header metadata when the answer i
     headerClarity: null,
     headerClarityAnsweredAt: null,
     headerClarityBannerUrl: null,
+    analysisGoal: null,
+    analysisCorrections: [],
+  });
+});
+
+test("applyProfileAnalysisConversationPatchToStyleCard stores a durable goal and correction", () => {
+  const patched = applyProfileAnalysisConversationPatchToStyleCard({
+    styleCard: createStyleCard(),
+    patch: {
+      analysisGoal: "more founder inbound",
+      analysisCorrectionDetail:
+        "the strongest post was not link-led; the attached image was showing a first-place $20k win",
+    },
+    nowIso: "2026-03-20T12:00:00.000Z",
+  });
+
+  expect(patched.profileAuditState).toEqual({
+    lastDismissedFingerprint: null,
+    headerClarity: null,
+    headerClarityAnsweredAt: null,
+    headerClarityBannerUrl: null,
+    analysisGoal: "more founder inbound",
+    analysisCorrections: [
+      {
+        id: "analysis_correction_2026-03-20T12:00:00.000Z",
+        detail:
+          "the strongest post was not link-led; the attached image was showing a first-place $20k win",
+        createdAt: "2026-03-20T12:00:00.000Z",
+      },
+    ],
   });
 });

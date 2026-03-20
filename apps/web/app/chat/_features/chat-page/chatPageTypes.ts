@@ -119,6 +119,11 @@ export interface CreatorChatSuccess {
         authorHandle: string | null;
         selectedReplyOptionId: string | null;
       } | null;
+      activeProfileAnalysisRef?: {
+        messageId: string;
+        handle: string;
+        fingerprint: string;
+      } | null;
       voiceFidelity?: "balanced";
     };
   };

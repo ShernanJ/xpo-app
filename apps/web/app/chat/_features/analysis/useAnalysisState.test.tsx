@@ -1,7 +1,6 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 
-import { markHandleJustOnboarded } from "@/lib/chat/workspaceStartupSession";
 import { useAnalysisState } from "./useAnalysisState";
 
 function createResponse(payload: unknown): Response {
@@ -146,63 +145,9 @@ beforeEach(() => {
   window.sessionStorage.clear();
 });
 
-test("auto-opens the profile audit when the current fingerprint is unresolved", async () => {
+test("keeps the profile audit closed on mount even when the audit requests auto-open", async () => {
   const { result } = renderHook(() => useAnalysisState(createOptions()));
 
-  await waitFor(() => {
-    expect(result.current.analysisOpen).toBe(true);
-  });
-});
-
-test("does not auto-open again after dismissal for the same fingerprint", async () => {
-  const fetchWorkspace = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
-    createResponse({
-      ok: true,
-      data: {
-        profileAuditState: {
-          lastDismissedFingerprint: "fingerprint-1",
-          headerClarity: null,
-          headerClarityAnsweredAt: null,
-          headerClarityBannerUrl: null,
-        },
-      },
-    }),
-  );
-  const { result, rerender } = renderHook(
-    ({ context }: { context: ReturnType<typeof createContext> | null }) =>
-      useAnalysisState(
-        createOptions({
-          context,
-          fetchWorkspace,
-        }),
-      ),
-    {
-      initialProps: {
-        context: createContext({
-          fingerprint: "fingerprint-1",
-        }),
-      },
-    },
-  );
-
-  await waitFor(() => {
-    expect(result.current.analysisOpen).toBe(true);
-  });
-
-  await act(async () => {
-    result.current.closeAnalysis();
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-
-  expect(result.current.analysisOpen).toBe(false);
-
-  rerender({
-    context: createContext({
-      fingerprint: "fingerprint-1",
-    }),
-  });
-
   await act(async () => {
     await Promise.resolve();
     await Promise.resolve();
@@ -211,61 +156,7 @@ test("does not auto-open again after dismissal for the same fingerprint", async 
   expect(result.current.analysisOpen).toBe(false);
 });
 
-test("reopens the profile audit when the fingerprint changes", async () => {
-  const fetchWorkspace = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
-    createResponse({
-      ok: true,
-      data: {
-        profileAuditState: {
-          lastDismissedFingerprint: "fingerprint-1",
-          headerClarity: null,
-          headerClarityAnsweredAt: null,
-          headerClarityBannerUrl: null,
-        },
-      },
-    }),
-  );
-  const { result, rerender } = renderHook(
-    ({ context }: { context: ReturnType<typeof createContext> | null }) =>
-      useAnalysisState(
-        createOptions({
-          context,
-          fetchWorkspace,
-        }),
-      ),
-    {
-      initialProps: {
-        context: createContext({
-          fingerprint: "fingerprint-1",
-        }),
-      },
-    },
-  );
-
-  await waitFor(() => {
-    expect(result.current.analysisOpen).toBe(true);
-  });
-
-  await act(async () => {
-    result.current.closeAnalysis();
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-
-  rerender({
-    context: createContext({
-      fingerprint: "fingerprint-2",
-    }),
-  });
-
-  await waitFor(() => {
-    expect(result.current.analysisOpen).toBe(true);
-  });
-});
-
-test("suppresses auto-open for the first post-onboarding visit only", async () => {
-  markHandleJustOnboarded("stan");
-
+test("does not auto-open when the audit fingerprint changes", async () => {
   const { result, rerender } = renderHook(
     ({ context }: { context: ReturnType<typeof createContext> | null }) =>
       useAnalysisState(
@@ -295,9 +186,22 @@ test("suppresses auto-open for the first post-onboarding visit only", async () =
     }),
   });
 
-  await waitFor(() => {
-    expect(result.current.analysisOpen).toBe(true);
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
   });
+
+  expect(result.current.analysisOpen).toBe(false);
+});
+
+test("opens the profile audit only when explicitly requested", async () => {
+  const { result } = renderHook(() => useAnalysisState(createOptions()));
+
+  await act(async () => {
+    result.current.openAnalysis();
+  });
+
+  expect(result.current.analysisOpen).toBe(true);
 });
 
 test("starts the pinned-thread CTA with the prefilled origin story prompt", async () => {

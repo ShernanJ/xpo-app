@@ -1,4 +1,5 @@
 import {
+  createEmptyStyleCard,
   ProfileAuditHeaderClaritySchema,
   ProfileAuditStateSchema,
   type ProfileAuditHeaderClarity,
@@ -15,6 +16,11 @@ export interface ProfileAuditPatchInput {
   lastDismissedFingerprint?: string | null;
   headerClarity?: ProfileAuditHeaderClarity | null;
   headerClarityBannerUrl?: string | null;
+}
+
+export interface ProfileAnalysisConversationPatchInput {
+  analysisGoal?: string | null;
+  analysisCorrectionDetail?: string | null;
 }
 
 interface ValidationError {
@@ -131,6 +137,58 @@ export function applyProfileAuditPatchToStyleCard(args: {
 
   return {
     ...args.styleCard,
+    profileAuditState: nextState,
+  };
+}
+
+function normalizeAnalysisGoal(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return value === null ? null : null;
+  }
+
+  const normalized = value.trim().replace(/\s+/g, " ");
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeCorrectionDetail(value: string): string {
+  return value.trim().replace(/\s+/g, " ").replace(/[.?!]+$/g, "");
+}
+
+export function applyProfileAnalysisConversationPatchToStyleCard(args: {
+  styleCard?: VoiceStyleCard | null;
+  patch: ProfileAnalysisConversationPatchInput;
+  nowIso?: string;
+}): VoiceStyleCard {
+  const baseStyleCard = args.styleCard ?? createEmptyStyleCard();
+  const previousState = ProfileAuditStateSchema.parse(baseStyleCard.profileAuditState ?? {});
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  const normalizedGoal = normalizeAnalysisGoal(args.patch.analysisGoal);
+  const normalizedCorrection =
+    typeof args.patch.analysisCorrectionDetail === "string"
+      ? normalizeCorrectionDetail(args.patch.analysisCorrectionDetail)
+      : null;
+
+  const nextCorrections = normalizedCorrection
+    ? [
+        {
+          id: `analysis_correction_${nowIso}`,
+          detail: normalizedCorrection,
+          createdAt: nowIso,
+        },
+        ...previousState.analysisCorrections.filter(
+          (entry) => entry.detail.trim().toLowerCase() !== normalizedCorrection.toLowerCase(),
+        ),
+      ].slice(0, 8)
+    : previousState.analysisCorrections;
+
+  const nextState = ProfileAuditStateSchema.parse({
+    ...previousState,
+    ...(args.patch.analysisGoal !== undefined ? { analysisGoal: normalizedGoal } : {}),
+    ...(normalizedCorrection ? { analysisCorrections: nextCorrections } : {}),
+  });
+
+  return {
+    ...baseStyleCard,
     profileAuditState: nextState,
   };
 }

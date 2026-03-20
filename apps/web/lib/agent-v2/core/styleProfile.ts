@@ -38,11 +38,19 @@ export const ProfileAuditHeaderClaritySchema = z.enum([
   "unsure",
 ]);
 
+export const ProfileAnalysisCorrectionSchema = z.object({
+  id: z.string(),
+  detail: z.string(),
+  createdAt: z.string(),
+});
+
 export const ProfileAuditStateSchema = z.object({
   lastDismissedFingerprint: z.string().nullable().default(null),
   headerClarity: ProfileAuditHeaderClaritySchema.nullable().default(null),
   headerClarityAnsweredAt: z.string().nullable().default(null),
   headerClarityBannerUrl: z.string().nullable().default(null),
+  analysisGoal: z.string().nullable().default(null),
+  analysisCorrections: z.array(ProfileAnalysisCorrectionSchema).default([]),
 });
 
 export const FeedbackCategorySchema = z.enum([
@@ -131,6 +139,7 @@ export type FactLedger = z.infer<typeof FactLedgerSchema>;
 export type FactLedgerSourceMaterial = z.infer<typeof FactLedgerSourceMaterialSchema>;
 export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
 export type ProfileAuditHeaderClarity = z.infer<typeof ProfileAuditHeaderClaritySchema>;
+export type ProfileAnalysisCorrection = z.infer<typeof ProfileAnalysisCorrectionSchema>;
 export type ProfileAuditState = z.infer<typeof ProfileAuditStateSchema>;
 export type FeedbackCategory = z.infer<typeof FeedbackCategorySchema>;
 export type FeedbackAttachment = z.infer<typeof FeedbackAttachmentSchema>;
@@ -169,6 +178,21 @@ function sanitizeStyleCardMemory(styleCard: VoiceStyleCard): VoiceStyleCard {
     contextAnchors: sanitizeContextAnchors(styleCard.contextAnchors || []),
     factLedger: buildNormalizedFactLedger(styleCard),
   };
+}
+
+export function createEmptyStyleCard(): VoiceStyleCard {
+  return StyleCardSchema.parse({
+    sentenceOpenings: [],
+    sentenceClosers: [],
+    pacing: "",
+    emojiPatterns: [],
+    slangAndVocabulary: [],
+    formattingRules: [],
+    customGuidelines: [],
+    contextAnchors: [],
+    antiExamples: [],
+    feedbackSubmissions: [],
+  });
 }
 
 function buildNormalizedFactLedger(card: Pick<VoiceStyleCard, "contextAnchors" | "factLedger">): FactLedger {

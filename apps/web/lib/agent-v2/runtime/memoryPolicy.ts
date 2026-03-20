@@ -31,6 +31,10 @@ export function applyMemoryPatch(
     clarificationQuestionsAsked: patch.clarificationQuestionsAsked === undefined ? current.clarificationQuestionsAsked : patch.clarificationQuestionsAsked,
     preferredSurfaceMode: patch.preferredSurfaceMode === undefined ? current.preferredSurfaceMode : patch.preferredSurfaceMode,
     formatPreference: patch.formatPreference === undefined ? current.formatPreference : patch.formatPreference,
+    activeProfileAnalysisRef:
+      patch.activeProfileAnalysisRef === undefined
+        ? current.activeProfileAnalysisRef
+        : patch.activeProfileAnalysisRef,
   };
 }
 
@@ -61,6 +65,7 @@ export async function saveConversationTurnMemory(args: {
     clarificationQuestionsAsked: patch.clarificationQuestionsAsked,
     preferredSurfaceMode: patch.preferredSurfaceMode,
     formatPreference: patch.formatPreference,
+    activeProfileAnalysisRef: patch.activeProfileAnalysisRef,
     lastIdeationAngles: patch.lastIdeationAngles,
     topicSummary: patch.topicSummary ?? memory.topicSummary,
     concreteAnswerCount: patch.concreteAnswerCount ?? memory.concreteAnswerCount,
@@ -106,6 +111,7 @@ export async function saveConversationTurnMemory(args: {
     clarificationQuestionsAsked: patch.clarificationQuestionsAsked,
     preferredSurfaceMode: patch.preferredSurfaceMode,
     formatPreference: patch.formatPreference,
+    activeProfileAnalysisRef: patch.activeProfileAnalysisRef,
     lastIdeationAngles: patch.lastIdeationAngles,
   });
 

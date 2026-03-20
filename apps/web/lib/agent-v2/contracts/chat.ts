@@ -111,6 +111,12 @@ export interface ActiveReplyArtifactRef {
   kind: "reply_options" | "reply_draft";
 }
 
+export interface ActiveProfileAnalysisRef {
+  messageId: string;
+  handle: string;
+  fingerprint: string;
+}
+
 export interface ActiveReplyOption {
   id: string;
   label: string;
@@ -161,6 +167,7 @@ export interface V2ConversationMemory {
   formatPreference: DraftFormatPreference | null;
   activeReplyContext: ActiveReplyContext | null;
   activeReplyArtifactRef: ActiveReplyArtifactRef | null;
+  activeProfileAnalysisRef: ActiveProfileAnalysisRef | null;
   selectedReplyOptionId: string | null;
   voiceFidelity: "balanced";
 }
