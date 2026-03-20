@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { prisma } from "../db.ts";
 import {
   buildExtensionReplyDraft,
   buildReplyDraftGenerationContext,
@@ -10,10 +11,17 @@ import {
   finalizeReplyDraftText,
   prepareExtensionReplyDraftPromptPacket,
 } from "./replyDraft.ts";
+import {
+  buildExtensionReplyDraftSnippet,
+  buildExtensionReplyDraftTitle,
+  persistGeneratedExtensionReplyDraft,
+  syncPostedExtensionReplyDraft,
+} from "./savedReplyDrafts.ts";
 import { looksAcceptableReplyDraft } from "../reply-engine/index.ts";
 import { resolveVoiceTarget } from "../agent-v2/core/voiceTarget.ts";
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
+import type { ReplySourcePreview } from "../reply-engine/replySourcePreview.ts";
 
 const strategy: GrowthStrategySnapshot = {
   knownFor: "software and product through product positioning",
@@ -108,6 +116,19 @@ const creatorAgentContext = {
     },
   },
 } as never;
+
+const replySourcePreviewFixture: ReplySourcePreview = {
+  postId: "tweet_source_1",
+  sourceUrl: "https://x.com/builder/status/tweet_source_1",
+  author: {
+    displayName: "builder",
+    username: "builder",
+    avatarUrl: null,
+    isVerified: false,
+  },
+  text: "Source post text",
+  media: [],
+};
 
 test("buildExtensionReplyDraft returns safe and bold options with strategy notes", () => {
   const result = buildExtensionReplyDraft({
@@ -753,12 +774,12 @@ test("resolveVoiceTarget does not default replies to question CTA or curious hoo
   assert.equal(target.hookStyle, "blunt");
 });
 
-test("finalizeReplyDraftText preserves lowercase creator style", () => {
+test("finalizeReplyDraftText applies lowercase voice style without stripping sentence-start capitalization", () => {
   const finalized = finalizeReplyDraftText("Reply: I Feel That Too. The Lag Makes It Worse.", {
     styleCard: lowercaseStyleCard,
   });
 
-  assert.equal(finalized, "i feel that too. the lag makes it worse.");
+  assert.equal(finalized, "i Feel That Too. the Lag Makes It Worse.");
 });
 
 test("looksAcceptableReplyDraft rejects product-marketing phrasing", () => {
@@ -1211,4 +1232,242 @@ test("looksAcceptableReplyDraft rejects self-nomination replies on recruiting ca
 
   assert.equal(rejected, false);
   assert.equal(acceptable, true);
+});
+
+test("buildExtensionReplyDraftSnippet normalizes whitespace and truncates only when needed", () => {
+  assert.equal(buildExtensionReplyDraftSnippet("  useful    layer  "), "useful layer");
+  assert.equal(buildExtensionReplyDraftSnippet("12345678901234567890"), "12345678901234567890");
+  assert.equal(buildExtensionReplyDraftSnippet("123456789012345678901"), "12345678901234567890...");
+});
+
+test("buildExtensionReplyDraftTitle formats reply titles as handle plus snippet", () => {
+  assert.equal(
+    buildExtensionReplyDraftTitle({
+      sourceAuthorHandle: "@Builder",
+      replyText: "  useful   layer for the reader  ",
+    }),
+    "@builder - useful layer for the...",
+  );
+});
+
+test("persistGeneratedExtensionReplyDraft creates a saved reply draft when no active draft exists", async () => {
+  const originalFindFirst = prisma.draftCandidate.findFirst;
+  const originalCreate = prisma.draftCandidate.create;
+  const originalUpdate = prisma.draftCandidate.update;
+  const calls: Array<[string, unknown]> = [];
+
+  try {
+    (prisma.draftCandidate.findFirst as unknown as (...args: unknown[]) => unknown) = async () => {
+      calls.push(["findFirst", null]);
+      return null;
+    };
+    (prisma.draftCandidate.create as unknown as (...args: unknown[]) => unknown) = async (
+      payload,
+    ) => {
+      calls.push(["create", payload]);
+      return payload;
+    };
+    (prisma.draftCandidate.update as unknown as (...args: unknown[]) => unknown) = async () => {
+      throw new Error("update should not be called when creating a fresh reply draft");
+    };
+
+    await persistGeneratedExtensionReplyDraft({
+      userId: "user_1",
+      xHandle: "standev",
+      replySourcePostId: "tweet_123",
+      sourcePostText: "Source post text",
+      sourceAuthorHandle: "builder",
+      replyText: "useful layer for the reader",
+      replySourcePreview: replySourcePreviewFixture,
+      voiceTarget: { lane: "reply" },
+    });
+  } finally {
+    (prisma.draftCandidate.findFirst as unknown as typeof prisma.draftCandidate.findFirst) =
+      originalFindFirst;
+    (prisma.draftCandidate.create as unknown as typeof prisma.draftCandidate.create) =
+      originalCreate;
+    (prisma.draftCandidate.update as unknown as typeof prisma.draftCandidate.update) =
+      originalUpdate;
+  }
+
+  const createCall = calls.find(([name]) => name === "create");
+  assert.equal(Boolean(createCall), true);
+  const createPayload = createCall?.[1] as { data: Record<string, unknown> };
+  assert.equal(createPayload.data.replySourcePostId, "tweet_123");
+  assert.equal(createPayload.data.status, "DRAFT");
+  assert.equal(createPayload.data.reviewStatus, "pending");
+  assert.equal(createPayload.data.threadId, null);
+  assert.equal(createPayload.data.messageId, null);
+  assert.equal(createPayload.data.title, "@builder - useful layer for the...");
+  assert.equal(
+    (createPayload.data.artifact as { replySourcePreview?: { author?: { username?: string } } })
+      .replySourcePreview?.author?.username,
+    "builder",
+  );
+});
+
+test("persistGeneratedExtensionReplyDraft updates the existing draft for the same source post", async () => {
+  const originalFindFirst = prisma.draftCandidate.findFirst;
+  const originalCreate = prisma.draftCandidate.create;
+  const originalUpdate = prisma.draftCandidate.update;
+  const calls: Array<[string, unknown]> = [];
+
+  try {
+    (prisma.draftCandidate.findFirst as unknown as (...args: unknown[]) => unknown) = async () => ({
+      id: "draft_1",
+      title: "@builder - old reply",
+      sourcePrompt: "old source prompt",
+      artifact: {
+        id: "extension-reply-tweet_123",
+        title: "@builder - old reply",
+        kind: "reply_candidate",
+        content: "old reply",
+        replySourcePreview: replySourcePreviewFixture,
+      },
+      voiceTarget: { lane: "reply" },
+    });
+    (prisma.draftCandidate.create as unknown as (...args: unknown[]) => unknown) = async () => {
+      throw new Error("create should not be called when updating an existing draft");
+    };
+    (prisma.draftCandidate.update as unknown as (...args: unknown[]) => unknown) = async (
+      payload,
+    ) => {
+      calls.push(["update", payload]);
+      return payload;
+    };
+
+    await persistGeneratedExtensionReplyDraft({
+      userId: "user_1",
+      xHandle: "standev",
+      replySourcePostId: "tweet_123",
+      sourcePostText: "Source post text",
+      sourceAuthorHandle: "builder",
+      replyText: "refined reply text",
+      replySourcePreview: replySourcePreviewFixture,
+      voiceTarget: { lane: "reply" },
+    });
+  } finally {
+    (prisma.draftCandidate.findFirst as unknown as typeof prisma.draftCandidate.findFirst) =
+      originalFindFirst;
+    (prisma.draftCandidate.create as unknown as typeof prisma.draftCandidate.create) =
+      originalCreate;
+    (prisma.draftCandidate.update as unknown as typeof prisma.draftCandidate.update) =
+      originalUpdate;
+  }
+
+  const updatePayload = calls[0]?.[1] as {
+    where: { id: string };
+    data: Record<string, unknown>;
+  };
+  assert.equal(updatePayload.where.id, "draft_1");
+  assert.equal(updatePayload.data.status, "DRAFT");
+  assert.equal(updatePayload.data.publishedTweetId, null);
+  assert.equal(updatePayload.data.postedAt, null);
+  assert.equal(updatePayload.data.observedAt, null);
+  assert.equal(updatePayload.data.title, "@builder - refined reply text");
+  assert.equal(
+    (updatePayload.data.artifact as { id?: string; content?: string }).id,
+    "extension-reply-tweet_123",
+  );
+  assert.equal(
+    (updatePayload.data.artifact as { content?: string }).content,
+    "refined reply text",
+  );
+});
+
+test("persistGeneratedExtensionReplyDraft creates a new draft when only posted reply history exists", async () => {
+  const originalFindFirst = prisma.draftCandidate.findFirst;
+  const originalCreate = prisma.draftCandidate.create;
+  const originalUpdate = prisma.draftCandidate.update;
+  let createCount = 0;
+
+  try {
+    (prisma.draftCandidate.findFirst as unknown as (...args: unknown[]) => unknown) = async () =>
+      null;
+    (prisma.draftCandidate.create as unknown as (...args: unknown[]) => unknown) = async (
+      payload,
+    ) => {
+      createCount += 1;
+      return payload;
+    };
+    (prisma.draftCandidate.update as unknown as (...args: unknown[]) => unknown) = async () => {
+      throw new Error("posted history should not be overwritten");
+    };
+
+    await persistGeneratedExtensionReplyDraft({
+      userId: "user_1",
+      xHandle: "standev",
+      replySourcePostId: "tweet_123",
+      sourcePostText: "Source post text",
+      sourceAuthorHandle: "builder",
+      replyText: "brand new draft after posting",
+      replySourcePreview: replySourcePreviewFixture,
+    });
+  } finally {
+    (prisma.draftCandidate.findFirst as unknown as typeof prisma.draftCandidate.findFirst) =
+      originalFindFirst;
+    (prisma.draftCandidate.create as unknown as typeof prisma.draftCandidate.create) =
+      originalCreate;
+    (prisma.draftCandidate.update as unknown as typeof prisma.draftCandidate.update) =
+      originalUpdate;
+  }
+
+  assert.equal(createCount, 1);
+});
+
+test("syncPostedExtensionReplyDraft promotes the saved reply draft and syncs the final text", async () => {
+  const originalFindFirst = prisma.draftCandidate.findFirst;
+  const originalUpdate = prisma.draftCandidate.update;
+  const postedAt = new Date("2026-03-20T15:30:00.000Z");
+  const calls: Array<unknown> = [];
+
+  try {
+    (prisma.draftCandidate.findFirst as unknown as (...args: unknown[]) => unknown) = async () => ({
+      id: "draft_1",
+      title: "@builder - old reply",
+      sourcePrompt: "old source prompt",
+      artifact: {
+        id: "extension-reply-tweet_123",
+        title: "@builder - old reply",
+        kind: "reply_candidate",
+        content: "old reply",
+        replySourcePreview: replySourcePreviewFixture,
+      },
+      voiceTarget: { lane: "reply" },
+    });
+    (prisma.draftCandidate.update as unknown as (...args: unknown[]) => unknown) = async (
+      payload,
+    ) => {
+      calls.push(payload);
+      return payload;
+    };
+
+    await syncPostedExtensionReplyDraft({
+      userId: "user_1",
+      xHandle: "standev",
+      replySourcePostId: "tweet_123",
+      sourceAuthorHandle: "builder",
+      finalReplyText: "final posted reply",
+      postedAt,
+    });
+  } finally {
+    (prisma.draftCandidate.findFirst as unknown as typeof prisma.draftCandidate.findFirst) =
+      originalFindFirst;
+    (prisma.draftCandidate.update as unknown as typeof prisma.draftCandidate.update) =
+      originalUpdate;
+  }
+
+  const updatePayload = calls[0] as {
+    where: { id: string };
+    data: Record<string, unknown>;
+  };
+  assert.equal(updatePayload.where.id, "draft_1");
+  assert.equal(updatePayload.data.status, "PUBLISHED");
+  assert.equal(updatePayload.data.reviewStatus, "posted");
+  assert.equal(updatePayload.data.postedAt, postedAt);
+  assert.equal(updatePayload.data.title, "@builder - final posted reply");
+  assert.equal(
+    (updatePayload.data.artifact as { content?: string }).content,
+    "final posted reply",
+  );
 });

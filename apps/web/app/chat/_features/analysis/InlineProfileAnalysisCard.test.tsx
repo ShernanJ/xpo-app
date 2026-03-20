@@ -20,7 +20,7 @@ const artifact: ProfileAnalysisArtifact = {
   },
   pinnedPost: {
     id: "pin-1",
-    text: "old pinned tweet",
+    text: "holy fucking cinema. https://t.co/Fqnj4ifTfI",
     createdAt: "2024-01-01T00:00:00.000Z",
     metrics: {
       likeCount: 10,
@@ -29,6 +29,7 @@ const artifact: ProfileAnalysisArtifact = {
       quoteCount: 0,
     },
     url: "https://x.com/test/status/1",
+    imageUrls: ["https://pbs.twimg.com/media/pinned-image.jpg"],
   },
   audit: {
     score: 62,
@@ -126,6 +127,15 @@ const artifact: ProfileAnalysisArtifact = {
       reasoningFallbackUsed: false,
     },
   },
+  pinnedPostImageAnalysis: {
+    imageRole: "proof",
+    readableText: "$47k MRR",
+    primarySubject: "dashboard screenshot",
+    sceneSummary: "Dashboard screenshot showing growth proof.",
+    strategicSignal:
+      "The image acts like proof that the creator has concrete traction behind the pinned claim.",
+    keyDetails: ["revenue chart", "growth trend"],
+  },
 };
 
 test("renders the X-style profile shell and routes pinned-thread prompts back into chat", async () => {
@@ -139,8 +149,44 @@ test("renders the X-style profile shell and routes pinned-thread prompts back in
   expect(screen.queryByText("Your profile is attracting attention but leaking conversion.")).not.toBeInTheDocument();
   expect(screen.queryByText("Profile Audit")).not.toBeInTheDocument();
   expect(screen.getByText("Pinned Post")).toBeInTheDocument();
+  expect(screen.getByText("holy fucking cinema.")).toBeInTheDocument();
+  expect(screen.queryByText("https://t.co/Fqnj4ifTfI")).not.toBeInTheDocument();
+  expect(screen.getByAltText("shernan ✦ pinned post image")).toBeInTheDocument();
   expect(screen.queryByText("Profile Analysis")).not.toBeInTheDocument();
   expect(screen.queryByText("Overall:")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /write origin story/i })).not.toBeInTheDocument();
+  expect(screen.getByText("Conversion Score").closest("[data-layout]")).toHaveClass("max-w-[600px]");
+  expect(screen.getByRole("button", { name: "Expand pinned post image" })).toHaveClass(
+    "max-w-[400px]",
+  );
   await user.tab();
+});
+
+test("supports a panel layout without the inline chat spacing", () => {
+  render(<InlineProfileAnalysisCard artifact={artifact} layout="panel" />);
+
+  const card = screen.getByText("Conversion Score").closest("[data-layout]");
+  expect(card).toHaveAttribute("data-layout", "panel");
+  expect(card?.className).not.toContain("mt-4");
+  expect(card?.className).not.toContain("mb-6");
+});
+
+test("falls back to a trailing t.co media link when pinned image urls are not persisted yet", () => {
+  render(
+    <InlineProfileAnalysisCard
+      artifact={{
+        ...artifact,
+        pinnedPost: artifact.pinnedPost
+          ? {
+              ...artifact.pinnedPost,
+              imageUrls: null,
+            }
+          : null,
+      }}
+    />,
+  );
+
+  expect(screen.getByText("holy fucking cinema.")).toBeInTheDocument();
+  expect(screen.queryByText("https://t.co/Fqnj4ifTfI")).not.toBeInTheDocument();
+  expect(screen.getByAltText("shernan ✦ pinned post image")).toBeInTheDocument();
 });

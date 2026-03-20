@@ -219,6 +219,26 @@ function createProfileReplyContext(): ProfileReplyContext {
     knownFor: "builder-focused growth systems",
     targetAudience: "builders trying to grow on X",
     contentPillars: ["retrieval quality", "proof-first writing", "x growth systems"],
+    topicInsights: [
+      {
+        label: "Retrieval quality and proof-first writing",
+        confidence: "medium",
+        kind: "theme",
+        evidenceSnippets: [
+          "generic ai copy usually comes from weak retrieval, not weak models.",
+        ],
+        source: "recent_posts",
+      },
+      {
+        label: "Narrowing the lane before scaling output",
+        confidence: "low",
+        kind: "positioning",
+        evidenceSnippets: [
+          "generic ai copy usually comes from weak retrieval, not weak models.",
+        ],
+        source: "mixed",
+      },
+    ],
     stage: "0-1k",
     goal: "followers",
     topicBullets: [
@@ -255,6 +275,22 @@ function createProfileReplyContext(): ProfileReplyContext {
   };
 }
 
+function createCreatorAgentContext() {
+  return {
+    growthStrategySnapshot: {
+      knownFor: "builder-focused growth systems",
+      targetAudience: "builders trying to grow on X",
+      contentPillars: ["retrieval quality", "proof-first writing", "x growth systems"],
+    },
+    creatorProfile: {
+      strategy: {
+        primaryGoal: "authority",
+      },
+    },
+    profileAuditState: null,
+  } as never;
+}
+
 test("matches clear profile-audit requests and ignores generic analysis prompts", () => {
   expect(isInlineProfileAnalysisRequest("analyze my profile")).toBe(true);
   expect(isInlineProfileAnalysisRequest("audit my x bio and banner")).toBe(true);
@@ -263,8 +299,16 @@ test("matches clear profile-audit requests and ignores generic analysis prompts"
 });
 
 test("buildInlineProfileAnalysisResponse falls back to structured markdown when no narrative writer is provided", async () => {
+  const onboarding = createOnboarding();
+  onboarding.pinnedPost = onboarding.pinnedPost
+    ? {
+        ...onboarding.pinnedPost,
+        imageUrls: ["https://pbs.twimg.com/media/pinned-proof.jpg"],
+      }
+    : null;
+
   const response = await buildInlineProfileAnalysisResponse({
-    onboarding: createOnboarding(),
+    onboarding,
     audit: createAudit(),
     profileReplyContext: createProfileReplyContext(),
     memory: {
@@ -308,23 +352,239 @@ test("buildInlineProfileAnalysisResponse falls back to structured markdown when 
         reasoningFallbackUsed: false,
       },
     }),
+    analyzePinnedPostImage: async () => ({
+      imageRole: "proof",
+      readableText: "$47k MRR",
+      primarySubject: "dashboard screenshot",
+      sceneSummary: "Dashboard screenshot showing growth and revenue proof.",
+      strategicSignal:
+        "The image adds concrete proof that the pinned post is backed by real business traction.",
+      keyDetails: ["revenue chart", "customer counts"],
+    }),
+    creatorAgentContext: createCreatorAgentContext(),
   });
 
   expect(response.outputShape).toBe("profile_analysis");
   expect(response.data?.profileAnalysisArtifact?.profile.name).toBe("shernan ✦");
-  expect(response.data?.profileAnalysisArtifact?.audit.score).toBe(62);
+  expect(response.data?.profileAnalysisArtifact?.audit.score).toBeGreaterThan(45);
   expect(response.data?.profileAnalysisArtifact?.bannerAnalysis?.feedback.score).toBe(7.4);
+  expect(response.data?.profileAnalysisArtifact?.pinnedPostImageAnalysis?.imageRole).toBe("proof");
+  expect(response.data?.profileAnalysisArtifact?.audit.pinnedTweetCheck.proofStrength).toBe("high");
+  expect(response.data?.profileAnalysisArtifact?.audit.pinnedTweetCheck.imageAdjusted).toBe(true);
   expect(response.data?.quickReplies).toHaveLength(3);
   expect(response.data?.quickReplies?.[0]?.label).toBe("Rewrite bio");
   expect(response.response).toContain("**Verdict:**");
   expect(response.response).toContain("## Profile Snapshot");
   expect(response.response).toContain("## Content Patterns");
   expect(response.response).toContain("## Priority Order");
-  expect(response.response).toContain("**Strongest recent post:**");
+  expect(response.response).toContain("Your clearest signal right now is");
+  expect(response.response).toContain("\n  - ");
+  expect(response.response).toContain("retrieval quality and proof-first writing");
+  expect(response.response).toContain("Dashboard screenshot showing growth and revenue proof.");
+  expect(response.response).not.toContain("Recent theme:");
+  expect(response.response).not.toContain("confidence signal");
   expect(response.memory.assistantTurnCount).toBe(3);
   expect(response.memory.unresolvedQuestion).toBeNull();
   expect(response.memory.preferredSurfaceMode).toBe("structured");
   expect(response.presentationStyle).toBe("preserve_authored_structure");
+});
+
+test("buildInlineProfileAnalysisResponse softens low-confidence reads without exposing internal confidence labels", async () => {
+  const response = await buildInlineProfileAnalysisResponse({
+    onboarding: createOnboarding(),
+    audit: createAudit(),
+    profileReplyContext: {
+      ...createProfileReplyContext(),
+      topicInsights: [
+        {
+          label: "Proof-first writing for builders",
+          confidence: "low",
+          kind: "theme",
+          evidenceSnippets: ["generic ai copy usually comes from weak retrieval, not weak models."],
+          source: "recent_posts",
+        },
+      ],
+    },
+    memory: {
+      conversationState: "needs_more_context",
+      activeConstraints: [],
+      topicSummary: null,
+      lastIdeationAngles: [],
+      concreteAnswerCount: 0,
+      currentDraftArtifactId: null,
+      activeDraftRef: null,
+      rollingSummary: null,
+      pendingPlan: null,
+      clarificationState: null,
+      assistantTurnCount: 1,
+      latestRefinementInstruction: null,
+      unresolvedQuestion: null,
+      clarificationQuestionsAsked: 0,
+      preferredSurfaceMode: null,
+      formatPreference: null,
+      activeReplyContext: null,
+      activeReplyArtifactRef: null,
+      selectedReplyOptionId: null,
+      voiceFidelity: "balanced",
+    },
+    analyzeBannerUrl: async () => null,
+  });
+
+  expect(response.response).toContain("There may be an opening around proof-first writing for builders");
+  expect(response.response).toContain("generic ai copy usually comes from weak retrieval, not weak models.");
+  expect(response.response).not.toContain("low-confidence");
+  expect(response.response).not.toContain("Recent theme:");
+});
+
+test("buildInlineProfileAnalysisResponse promotes pinned proof over one-off noisy posts", async () => {
+  const onboarding = createOnboarding();
+  onboarding.profile.username = "kkevinvalencia";
+  onboarding.profile.name = "Kevin Valencia";
+  onboarding.profile.bio = "19, gpu infra // eng @cloverlabsco";
+  onboarding.profile.followersCount = 109;
+  onboarding.profile.followingCount = 121;
+  onboarding.pinnedPost = onboarding.pinnedPost
+    ? {
+        ...onboarding.pinnedPost,
+        text: "holy fucking cinema. https://t.co/Fqnj4ifTfI",
+        imageUrls: ["https://pbs.twimg.com/media/kevin-proof.jpg"],
+      }
+    : null;
+  onboarding.recentPosts = [
+    {
+      id: "post-1",
+      text: "sf or nyc for one week?",
+      createdAt: "2026-03-12T00:00:00.000Z",
+      metrics: {
+        likeCount: 12,
+        replyCount: 1,
+        repostCount: 0,
+        quoteCount: 0,
+      },
+    },
+    {
+      id: "post-2",
+      text: "holy fucking cinema. https://t.co/Fqnj4ifTfI",
+      createdAt: "2026-03-11T00:00:00.000Z",
+      metrics: {
+        likeCount: 80,
+        replyCount: 20,
+        repostCount: 1,
+        quoteCount: 0,
+      },
+    },
+    {
+      id: "post-3",
+      text: "please z fellows i need this 🥹🥹",
+      createdAt: "2026-03-10T00:00:00.000Z",
+      metrics: {
+        likeCount: 9,
+        replyCount: 0,
+        repostCount: 0,
+        quoteCount: 0,
+      },
+    },
+  ];
+
+  const response = await buildInlineProfileAnalysisResponse({
+    onboarding,
+    audit: createAudit(),
+    profileReplyContext: {
+      accountLabel: "Kevin Valencia @kkevinvalencia",
+      bio: "19, gpu infra // eng @cloverlabsco",
+      knownFor: "gpu infra and engineering wins",
+      targetAudience: "builders and engineers",
+      contentPillars: ["gpu infra systems"],
+      topicInsights: [
+        {
+          label: "GPU infra systems",
+          confidence: "medium",
+          kind: "positioning",
+          evidenceSnippets: ["19, gpu infra // eng @cloverlabsco"],
+          source: "profile_surface",
+        },
+      ],
+      stage: "0-1k",
+      goal: "authority",
+      topicBullets: ["GPU infra systems"],
+      recentPostSnippets: [
+        "sf or nyc for one week?",
+        "holy fucking cinema. https://t.co/Fqnj4ifTfI",
+      ],
+      pinnedPost: "holy fucking cinema. https://t.co/Fqnj4ifTfI",
+      recentPostCount: 3,
+      strongestPost: {
+        timeframe: "recent",
+        text: "holy fucking cinema. https://t.co/Fqnj4ifTfI",
+        createdAt: "2026-03-11T00:00:00.000Z",
+        engagementTotal: 101,
+        metrics: {
+          likeCount: 80,
+          replyCount: 20,
+          repostCount: 1,
+          quoteCount: 0,
+        },
+        comparison: {
+          basis: "baseline_average_engagement",
+          referenceEngagementTotal: 14,
+          ratio: 7.2,
+        },
+        reasons: ["The opener is short, but it does not explain the positioning on its own."],
+        hookPattern: "statement_open",
+        contentType: "single_line",
+      },
+    },
+    memory: {
+      conversationState: "needs_more_context",
+      activeConstraints: [],
+      topicSummary: null,
+      lastIdeationAngles: [],
+      concreteAnswerCount: 0,
+      currentDraftArtifactId: null,
+      activeDraftRef: null,
+      rollingSummary: null,
+      pendingPlan: null,
+      clarificationState: null,
+      assistantTurnCount: 0,
+      latestRefinementInstruction: null,
+      unresolvedQuestion: null,
+      clarificationQuestionsAsked: 0,
+      preferredSurfaceMode: null,
+      formatPreference: null,
+      activeReplyContext: null,
+      activeReplyArtifactRef: null,
+      selectedReplyOptionId: null,
+      voiceFidelity: "balanced",
+    },
+    analyzePinnedPostImage: async () => ({
+      imageRole: "proof",
+      readableText: "First Prize Winner $20k CAD",
+      primarySubject: "Kevin holding a large cheque beside trophies",
+      sceneSummary: "A winner photo with a large cheque and first-place trophies.",
+      strategicSignal: "The image communicates a real achievement and gives the profile tangible authority.",
+      keyDetails: ["first-place trophies", "large cheque", "$20k CAD"],
+    }),
+    creatorAgentContext: {
+      growthStrategySnapshot: {
+        knownFor: "gpu infra and engineering wins",
+        targetAudience: "builders and engineers",
+        contentPillars: ["gpu infra systems"],
+      },
+      creatorProfile: {
+        strategy: {
+          primaryGoal: "authority",
+        },
+      },
+      profileAuditState: null,
+    } as never,
+    analyzeBannerUrl: async () => null,
+  });
+
+  expect(response.response).toContain("visible proof of a real win");
+  expect(response.response).toContain("First Prize Winner $20k CAD");
+  expect(response.response).not.toContain("Recent theme:");
+  expect(response.response).not.toContain("medium-confidence signal");
+  expect(response.response).not.toContain("sf or nyc for one week");
 });
 
 test("buildInlineProfileAnalysisResponse uses the injected narrative when available", async () => {

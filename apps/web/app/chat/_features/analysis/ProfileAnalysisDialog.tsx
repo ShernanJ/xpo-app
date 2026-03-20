@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import {
   ArrowUpRight,
@@ -17,8 +17,11 @@ import {
   RotateCw,
   Settings2,
   Sparkles,
+  X,
 } from "lucide-react";
 
+import { SplitDialog } from "@/components/ui/split-dialog";
+import type { ProfileAnalysisArtifact } from "@/lib/chat/profileAnalysisArtifact";
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import {
   computeXWeightedCharacterCount,
@@ -29,6 +32,9 @@ import {
   type PlaybookDefinition,
   type PlaybookStageKey,
 } from "@/lib/creator/playbooks";
+
+import { InlineProfileAnalysisCard } from "./InlineProfileAnalysisCard";
+import { InteractivePreviewImage } from "../shared/InteractivePreviewImage";
 
 interface AnalysisFollowerProgress {
   currentFollowersLabel: string;
@@ -156,6 +162,142 @@ function formatPinnedAgeLabel(ageDays: number | null): string | null {
   return `${Math.max(1, Math.round(ageDays / 365))}y old`;
 }
 
+function resolvePinnedPostPreview(text: string | null | undefined, imageUrls?: string[] | null): {
+  text: string;
+  imageUrl: string | null;
+} {
+  const normalized = text?.trim() || "";
+
+  if (!normalized) {
+    return {
+      text: "",
+      imageUrl: imageUrls?.[0] ?? null,
+    };
+  }
+
+  const explicitImageUrl = imageUrls?.[0] ?? null;
+  const trailingTcoMatch = normalized.match(/https?:\/\/t\.co\/\S+$/i);
+  const imageUrl = explicitImageUrl ?? trailingTcoMatch?.[0] ?? null;
+
+  return {
+    text: imageUrl
+      ? normalized
+          .replace(/https?:\/\/t\.co\/\S+/gi, "")
+          .replace(/\s+/g, " ")
+          .trim()
+      : normalized,
+    imageUrl,
+  };
+}
+
+function buildApproximateAccountCreatedAt(referenceDate: string, accountAgeDays: number): string {
+  const referenceMs = new Date(referenceDate).getTime();
+  const safeReferenceMs = Number.isFinite(referenceMs) ? referenceMs : Date.now();
+  return new Date(safeReferenceMs - accountAgeDays * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function buildProfilePreviewArtifact(args: {
+  context: CreatorAgentContext;
+  accountName: string | null;
+  isVerifiedAccount: boolean;
+  selectedBioOverride: string | null;
+}): ProfileAnalysisArtifact {
+  const { context, accountName, isVerifiedAccount, selectedBioOverride } = args;
+  const identity = context.creatorProfile.identity;
+  const displayName = identity.displayName || identity.username || accountName || "X User";
+  const previewBio = selectedBioOverride ?? context.profileConversionAudit?.bioFormulaCheck.bio ?? "";
+  const createdAt = buildApproximateAccountCreatedAt(
+    context.generatedAt,
+    Math.max(0, identity.accountAgeDays),
+  );
+
+  const fallbackAudit: ProfileAnalysisArtifact["audit"] = {
+    score: 0,
+    headline: "Profile analysis is still collecting enough signal to score this profile.",
+    fingerprint: `${context.runId}-profile-analysis-preview`,
+    shouldAutoOpen: false,
+    steps: [],
+    strengths: [],
+    gaps: [],
+    unknowns: [],
+    bioFormulaCheck: {
+      status: "unknown",
+      score: 0,
+      summary: "Bio analysis is still loading.",
+      findings: [],
+      bio: previewBio,
+      charCount: previewBio.length,
+      matchesFormula: {
+        what: false,
+        who: false,
+        proofOrCta: false,
+      },
+      alternatives: [],
+    },
+    visualRealEstateCheck: {
+      status: "unknown",
+      score: 0,
+      summary: "Header analysis is still loading.",
+      findings: [],
+      hasHeaderImage: false,
+      headerImageUrl: null,
+      headerClarity: null,
+      headerClarityResolved: false,
+    },
+    pinnedTweetCheck: {
+      status: "unknown",
+      score: 0,
+      summary: "Pinned post analysis is still loading.",
+      findings: [],
+      pinnedPost: null,
+      category: "unknown",
+      ageDays: null,
+      isStale: false,
+      promptSuggestions: {
+        originStory: "",
+        coreThesis: "",
+      },
+    },
+  };
+
+  const audit = context.profileConversionAudit
+    ? {
+        score: context.profileConversionAudit.score,
+        headline: context.profileConversionAudit.headline,
+        fingerprint: context.profileConversionAudit.fingerprint,
+        shouldAutoOpen: context.profileConversionAudit.shouldAutoOpen,
+        steps: context.profileConversionAudit.steps,
+        strengths: context.profileConversionAudit.strengths,
+        gaps: context.profileConversionAudit.gaps,
+        unknowns: context.profileConversionAudit.unknowns,
+        bioFormulaCheck: {
+          ...context.profileConversionAudit.bioFormulaCheck,
+          bio: previewBio,
+          charCount: previewBio.length,
+        },
+        visualRealEstateCheck: context.profileConversionAudit.visualRealEstateCheck,
+        pinnedTweetCheck: context.profileConversionAudit.pinnedTweetCheck,
+      }
+    : fallbackAudit;
+
+  return {
+    kind: "profile_analysis",
+    profile: {
+      username: identity.username || accountName || context.account,
+      name: displayName,
+      bio: previewBio,
+      avatarUrl: context.avatarUrl ?? null,
+      headerImageUrl: audit.visualRealEstateCheck.headerImageUrl ?? null,
+      isVerified: isVerifiedAccount || identity.isVerified,
+      followersCount: identity.followersCount,
+      followingCount: identity.followingCount,
+      createdAt,
+    },
+    pinnedPost: audit.pinnedTweetCheck.pinnedPost ?? null,
+    audit,
+  };
+}
+
 export function ProfileAnalysisDialog(props: ProfileAnalysisDialogProps) {
   const {
     open,
@@ -165,7 +307,6 @@ export function ProfileAnalysisDialog(props: ProfileAnalysisDialogProps) {
     isVerifiedAccount,
     currentPlaybookStage,
     analysisFollowerProgress,
-    analysisDiagnosisSummary,
     analysisSnapshotCards,
     analysisPositioningIsTentative,
     analysisPriorityItems,
@@ -207,517 +348,228 @@ export function ProfileAnalysisDialog(props: ProfileAnalysisDialogProps) {
     ) ??
     audit?.bioFormulaCheck.alternatives[0] ??
     null;
+  const displayName =
+    context.creatorProfile.identity.displayName ||
+    context.creatorProfile.identity.username ||
+    accountName ||
+    context.account;
+  const displayHandle =
+    context.creatorProfile.identity.username || accountName || context.account;
+  const previewArtifact = useMemo(
+    () =>
+      buildProfilePreviewArtifact({
+        context,
+        accountName,
+        isVerifiedAccount,
+        selectedBioOverride: selectedBioAlternative?.text ?? null,
+      }),
+    [accountName, context, isVerifiedAccount, selectedBioAlternative?.text],
+  );
+  const pinnedPostPreview = resolvePinnedPostPreview(
+    audit?.pinnedTweetCheck.pinnedPost?.text,
+    audit?.pinnedTweetCheck.pinnedPost?.imageUrls,
+  );
 
   useEffect(() => {
-    setSelectedBioAlternativeId(context.profileConversionAudit?.bioFormulaCheck.alternatives[0]?.id ?? null);
+    setSelectedBioAlternativeId(
+      context.profileConversionAudit?.bioFormulaCheck.alternatives[0]?.id ?? null,
+    );
     setCopiedBioAlternativeId(null);
     setPendingHeaderClarity(null);
+    setExpandedPriorityIndex(null);
   }, [context.profileConversionAudit?.fingerprint]);
 
-  if (!open) {
-    return null;
+  function renderCloseButton(className?: string) {
+    return (
+      <button
+        type="button"
+        onClick={() => onOpenChange(false)}
+        className={[
+          "h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-400 transition hover:bg-white/[0.05] hover:text-white",
+          className ?? "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        aria-label="Close profile analysis"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    );
   }
 
-  return (
-    <div
-      className="absolute inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/80 px-4 py-4 sm:items-center sm:py-8"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) {
-          onOpenChange(false);
-        }
-      }}
-    >
-      <div className="relative my-auto flex w-full max-w-5xl flex-col rounded-[1.75rem] border border-white/10 bg-[#0F0F0F] shadow-2xl max-sm:max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)]">
-        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
-          <div className="flex min-w-0 items-start gap-4">
-            <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-700 to-zinc-900 text-base font-semibold text-white uppercase">
-              {context.avatarUrl ? (
-                <div
-                  className="h-full w-full bg-cover bg-center"
-                  style={{ backgroundImage: `url(${context.avatarUrl})` }}
-                  role="img"
-                  aria-label={`${context.creatorProfile.identity.displayName || context.creatorProfile.identity.username} profile photo`}
-                />
-              ) : (
-                (
-                  context.creatorProfile.identity.displayName ||
-                  context.creatorProfile.identity.username ||
-                  "X"
-                ).charAt(0)
-              )}
-            </div>
+  const headerSlot = (
+    <div className="py-3">
+      <div className="flex items-center justify-between gap-3 md:hidden">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-white">Profile analysis</p>
+          <p className="text-[11px] text-zinc-500">
+            Preview first, then review the analysis below.
+          </p>
+        </div>
+        {renderCloseButton("inline-flex")}
+      </div>
 
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                Profile Analysis
-              </p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <h2 className="truncate text-2xl font-semibold text-white">
-                  {context.creatorProfile.identity.displayName ||
-                    context.creatorProfile.identity.username}
-                </h2>
-                {isVerifiedAccount ? (
-                  <Image
-                    src="/x-verified.svg"
-                    alt="Verified account"
-                    width={18}
-                    height={18}
-                    className="h-[18px] w-[18px] shrink-0"
-                  />
-                ) : null}
-                <span className="text-sm text-zinc-500">
-                  @{context.creatorProfile.identity.username}
-                </span>
-              </div>
-
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-300">
-                  Stage {PLAYBOOK_STAGE_META[currentPlaybookStage].label}
-                </span>
-                <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                  {PLAYBOOK_STAGE_META[currentPlaybookStage].highlight}
-                </span>
-              </div>
-              <div className="mt-3 max-w-lg">
-                <div className="flex items-center justify-between text-xs text-zinc-500">
-                  <span>{analysisFollowerProgress.currentFollowersLabel}</span>
-                  <span>{analysisFollowerProgress.targetFollowersLabel}</span>
-                </div>
-                <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full border border-white/10 bg-black/40">
-                  <div
-                    className="h-full rounded-full bg-white/80"
-                    style={{ width: `${analysisFollowerProgress.progressPercent}%` }}
-                  />
-                </div>
-              </div>
-              <p className="mt-3 whitespace-normal break-words text-sm leading-7 text-zinc-300">
-                {analysisDiagnosisSummary}
-              </p>
-            </div>
+      <div className="hidden items-start justify-between gap-4 md:flex">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-700 to-zinc-900 text-sm font-semibold uppercase text-white">
+            {context.avatarUrl ? (
+              <div
+                className="h-full w-full bg-cover bg-center"
+                style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                role="img"
+                aria-label={`${displayName} profile photo`}
+              />
+            ) : (
+              displayName.charAt(0)
+            )}
           </div>
 
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-white/[0.04]"
-          >
-            Close
-          </button>
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h2 className="truncate text-lg font-semibold text-white">{displayName}</h2>
+              {isVerifiedAccount ? (
+                <Image
+                  src="/x-verified.svg"
+                  alt="Verified account"
+                  width={18}
+                  height={18}
+                  className="h-[18px] w-[18px] shrink-0"
+                />
+              ) : null}
+            </div>
+            <p className="mt-1 text-sm text-zinc-500">@{displayHandle}</p>
+            <div className="mt-3 max-w-lg">
+              <div className="flex items-center justify-between text-xs text-zinc-500">
+                <span>{analysisFollowerProgress.currentFollowersLabel}</span>
+                <span>{analysisFollowerProgress.targetFollowersLabel}</span>
+              </div>
+              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full border border-white/10 bg-black/40">
+                <div
+                  className="h-full rounded-full bg-white/80"
+                  style={{ width: `${analysisFollowerProgress.progressPercent}%` }}
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="overflow-y-auto px-6 py-6">
-          <div className="space-y-6">
-            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {analysisSnapshotCards.map((card) => (
-                <article
-                  key={card.label}
-                  className="rounded-3xl border border-white/10 bg-white/[0.02] p-4"
-                >
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-300">
+            Stage {PLAYBOOK_STAGE_META[currentPlaybookStage].label}
+          </span>
+          {renderCloseButton("inline-flex")}
+        </div>
+      </div>
+    </div>
+  );
+
+  const leftPane = (
+    <div
+      data-testid="profile-analysis-preview-pane"
+      className="flex h-full min-h-0 flex-col bg-[#0B0B0B]"
+    >
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+        <InlineProfileAnalysisCard artifact={previewArtifact} layout="panel" />
+      </div>
+    </div>
+  );
+
+  const rightPane = (
+    <div
+      data-testid="profile-analysis-info-pane"
+      className="flex h-full min-h-0 flex-col"
+    >
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+        <div className="space-y-6 pb-6">
+          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {analysisSnapshotCards.map((card) => (
+              <article
+                key={card.label}
+                className="rounded-3xl border border-white/10 bg-white/[0.02] p-4"
+              >
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                  {card.label}
+                </p>
+                <p className="mt-2 text-base font-semibold text-white">{card.value}</p>
+                {card.meta ? <p className="mt-1 text-xs text-zinc-500">{card.meta}</p> : null}
+              </article>
+            ))}
+          </section>
+
+          {audit ? (
+            <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                <div className="max-w-3xl">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                    {card.label}
+                    Profile Conversion Audit
                   </p>
-                  <p className="mt-2 text-base font-semibold text-white">{card.value}</p>
-                  {card.meta ? <p className="mt-1 text-xs text-zinc-500">{card.meta}</p> : null}
-                </article>
-              ))}
-            </section>
-
-            {audit ? (
-              <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-                  <div className="max-w-3xl">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                      Profile Conversion Audit
-                    </p>
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <span className="rounded-full border border-white/15 bg-white/[0.05] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white">
-                        {audit.score}/100 score
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-white/15 bg-white/[0.05] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white">
+                      {audit.score}/100 score
+                    </span>
+                    {audit.unknowns.length > 0 ? (
+                      <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
+                        {audit.unknowns.length} unknown signal
+                        {audit.unknowns.length === 1 ? "" : "s"}
                       </span>
-                      {audit.unknowns.length > 0 ? (
-                        <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
-                          {audit.unknowns.length} unknown signal
-                          {audit.unknowns.length === 1 ? "" : "s"}
-                        </span>
-                      ) : null}
-                    </div>
-                    <p className="mt-3 text-lg font-semibold text-white">{audit.headline}</p>
-                    <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
-                      Fix the bio, banner, and pinned post here first so the traffic the app
-                      generates lands on a profile that converts.
-                    </p>
+                    ) : null}
                   </div>
-
-                  <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <div className="flex items-center justify-between text-xs text-zinc-500">
-                      <span>Overall conversion readiness</span>
-                      <span>{audit.score}/100</span>
-                    </div>
-                    <div className="mt-3 h-2 overflow-hidden rounded-full border border-white/10 bg-black/30">
-                      <div
-                        className="h-full rounded-full bg-white/80"
-                        style={{ width: `${Math.max(0, Math.min(100, audit.score))}%` }}
-                      />
-                    </div>
-                    <p className="mt-3 text-xs leading-5 text-zinc-400">
-                      Fingerprint tracks your current bio, banner, and pinned post so the audit
-                      only auto-opens when those signals change.
-                    </p>
-                  </div>
+                  <p className="mt-3 text-lg font-semibold text-white">{audit.headline}</p>
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-300">
+                    Fix the bio, banner, and pinned post here first so the traffic the app
+                    generates lands on a profile that converts.
+                  </p>
                 </div>
 
-                <div className="mt-5 grid gap-3 xl:grid-cols-3">
-                  {audit.steps.map((step) => (
-                    <article
-                      key={step.key}
-                      className="rounded-2xl border border-white/10 bg-black/20 p-4"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-white">{step.title}</p>
-                          <p className="mt-2 text-sm leading-6 text-zinc-300">{step.summary}</p>
-                        </div>
-                        <span
-                          className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${getAuditStatusTone(step.status)}`}
-                        >
-                          {formatAuditStatusLabel(step.status)}
-                        </span>
-                      </div>
-
-                      <div className="mt-4 flex items-center gap-3">
-                        <div className="h-2 flex-1 overflow-hidden rounded-full border border-white/10 bg-black/30">
-                          <div
-                            className="h-full rounded-full bg-white/80"
-                            style={{ width: `${Math.max(0, Math.min(100, step.score))}%` }}
-                          />
-                        </div>
-                        <span className="text-xs font-semibold text-zinc-200">
-                          {step.score}
-                        </span>
-                      </div>
-
-                      <ul className="mt-4 space-y-2 text-sm text-zinc-300">
-                        {(step.findings.length > 0 ? step.findings : [step.summary])
-                          .slice(0, 2)
-                          .map((finding) => (
-                            <li key={finding} className="leading-6">
-                              • {finding}
-                            </li>
-                          ))}
-                      </ul>
-
-                      <p className="mt-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                        {step.actionLabel}
-                      </p>
-                    </article>
-                  ))}
+                <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="flex items-center justify-between text-xs text-zinc-500">
+                    <span>Overall conversion readiness</span>
+                    <span>{audit.score}/100</span>
+                  </div>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full border border-white/10 bg-black/30">
+                    <div
+                      className="h-full rounded-full bg-white/80"
+                      style={{ width: `${Math.max(0, Math.min(100, audit.score))}%` }}
+                    />
+                  </div>
+                  <p className="mt-3 text-xs leading-5 text-zinc-400">
+                    Fingerprint tracks your current bio, banner, and pinned post so the audit only
+                    auto-opens when those signals change.
+                  </p>
                 </div>
+              </div>
 
-                <div className="mt-5 grid gap-4 xl:grid-cols-3">
-                  <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <div className="flex items-center gap-3">
-                      <Edit3 className="h-4 w-4 text-zinc-500" />
-                      <div>
-                        <p className="text-sm font-semibold text-white">Bio Formula Check</p>
-                        <p className="text-xs text-zinc-500">
-                          [what you do] + [who you help] + [proof or CTA]
-                        </p>
+              <div className="mt-5 grid gap-3 xl:grid-cols-3">
+                {audit.steps.map((step) => (
+                  <article
+                    key={step.key}
+                    className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-white">{step.title}</p>
+                        <p className="mt-2 text-sm leading-6 text-zinc-300">{step.summary}</p>
                       </div>
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {[
-                        {
-                          label: "What you do",
-                          matched: audit.bioFormulaCheck.matchesFormula.what,
-                        },
-                        {
-                          label: "Who you help",
-                          matched: audit.bioFormulaCheck.matchesFormula.who,
-                        },
-                        {
-                          label: "Proof or CTA",
-                          matched: audit.bioFormulaCheck.matchesFormula.proofOrCta,
-                        },
-                      ].map((item) => (
-                        <span
-                          key={item.label}
-                          className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
-                            item.matched
-                              ? "border-emerald-500/30 text-emerald-300"
-                              : "border-rose-500/30 text-rose-300"
-                          }`}
-                        >
-                          {item.label}
-                        </span>
-                      ))}
-                    </div>
-
-                    <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                      <div className="flex items-center justify-between gap-3 text-xs text-zinc-500">
-                        <span>Current bio</span>
-                        <span>{audit.bioFormulaCheck.charCount}/160 chars</span>
-                      </div>
-                      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-300">
-                        {audit.bioFormulaCheck.bio || "No bio is currently set on the profile."}
-                      </p>
-                    </div>
-
-                    {selectedBioAlternative ? (
-                      <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-300">
-                            Selected rewrite
-                          </p>
-                          <span className="text-xs text-emerald-100">
-                            {selectedBioAlternative.text.length}/160 chars
-                          </span>
-                        </div>
-                        <p className="mt-3 text-sm leading-6 text-zinc-100">
-                          {selectedBioAlternative.text}
-                        </p>
-                        <p className="mt-3 text-xs text-emerald-100/80">
-                          Ready to paste into X. Use refine in chat if you want a tighter variant.
-                        </p>
-                      </div>
-                    ) : null}
-
-                    <div className="mt-4 space-y-3">
-                      {audit.bioFormulaCheck.alternatives.map((alternative) => {
-                        const isSelected = selectedBioAlternative?.id === alternative.id;
-                        const isCopied = copiedBioAlternativeId === alternative.id;
-
-                        return (
-                          <div
-                            key={alternative.id}
-                            className={`rounded-2xl border p-4 ${
-                              isSelected
-                                ? "border-white/25 bg-white/[0.06]"
-                                : "border-white/10 bg-white/[0.02]"
-                            }`}
-                          >
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
-                                {alternative.proofMode === "proof"
-                                  ? "Grounded proof"
-                                  : "CTA ending"}
-                              </span>
-                              <span className="text-xs text-zinc-500">
-                                {alternative.text.length}/160 chars
-                              </span>
-                            </div>
-                            <p className="mt-3 text-sm leading-6 text-zinc-200">
-                              {alternative.text}
-                            </p>
-                            <div className="mt-4 flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setSelectedBioAlternativeId(alternative.id)}
-                                className={`rounded-full border px-3 py-1.5 text-xs transition ${
-                                  isSelected
-                                    ? "border-white/25 bg-white/[0.08] text-white"
-                                    : "border-white/10 text-zinc-300 hover:bg-white/[0.04] hover:text-white"
-                                }`}
-                              >
-                                {isSelected ? "Applied to preview" : "Apply"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void (async () => {
-                                    try {
-                                      await navigator.clipboard.writeText(alternative.text);
-                                    } catch {}
-
-                                    setCopiedBioAlternativeId(alternative.id);
-                                    onBioAlternativeCopied(alternative.text);
-                                  })();
-                                }}
-                                className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-xs text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
-                              >
-                                <Copy className="h-3.5 w-3.5" />
-                                <span>{isCopied ? "Copied" : "Copy"}</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => onBioAlternativeRefine(alternative.text)}
-                                className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
-                              >
-                                Refine in chat
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </article>
-
-                  <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <div className="flex items-center gap-3">
-                      <ImageIcon className="h-4 w-4 text-zinc-500" />
-                      <div>
-                        <p className="text-sm font-semibold text-white">Visual Real Estate</p>
-                        <p className="text-xs text-zinc-500">
-                          The header is the biggest conversion surface on the profile.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap items-center gap-2">
                       <span
-                        className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${getAuditStatusTone(
-                          audit.visualRealEstateCheck.status,
-                        )}`}
+                        className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${getAuditStatusTone(step.status)}`}
                       >
-                        {formatAuditStatusLabel(audit.visualRealEstateCheck.status)}
+                        {formatAuditStatusLabel(step.status)}
                       </span>
-                      {audit.visualRealEstateCheck.headerClarity ? (
-                        <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
-                          {formatEnumLabel(audit.visualRealEstateCheck.headerClarity)}
-                        </span>
-                      ) : null}
                     </div>
 
-                    <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                          {audit.visualRealEstateCheck.hasHeaderImage
-                            ? "Current header"
-                            : "Header status"}
-                        </p>
-                        <span className="text-xs text-zinc-500">
-                          {audit.visualRealEstateCheck.hasHeaderImage
-                            ? "Banner found"
-                            : "No banner found"}
-                        </span>
+                    <div className="mt-4 flex items-center gap-3">
+                      <div className="h-2 flex-1 overflow-hidden rounded-full border border-white/10 bg-black/30">
+                        <div
+                          className="h-full rounded-full bg-white/80"
+                          style={{ width: `${Math.max(0, Math.min(100, step.score))}%` }}
+                        />
                       </div>
-
-                      {audit.visualRealEstateCheck.headerImageUrl ? (
-                        <div className="mt-3 overflow-hidden rounded-2xl border border-white/10">
-                          <div
-                            className="aspect-[3/1] w-full bg-cover bg-center"
-                            style={{
-                              backgroundImage: `url(${audit.visualRealEstateCheck.headerImageUrl})`,
-                            }}
-                            role="img"
-                            aria-label="Current X header image"
-                          />
-                        </div>
-                      ) : (
-                        <p className="mt-3 text-sm leading-6 text-zinc-400">
-                          No header image was detected in the latest profile data.
-                        </p>
-                      )}
-                    </div>
-
-                    {audit.visualRealEstateCheck.hasHeaderImage ? (
-                      <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                        <p className="text-sm font-medium text-white">
-                          Does this header clearly communicate a value proposition or proof?
-                        </p>
-                        <p className="mt-2 text-xs leading-5 text-zinc-500">
-                          v1 scores this with presence detection plus your self-check for the
-                          current banner.
-                        </p>
-
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {(["clear", "unclear", "unsure"] as const).map((value) => (
-                            <button
-                              key={value}
-                              type="button"
-                              disabled={pendingHeaderClarity !== null}
-                              onClick={() => {
-                                void (async () => {
-                                  setPendingHeaderClarity(value);
-                                  try {
-                                    await onHeaderClaritySelect(value);
-                                  } finally {
-                                    setPendingHeaderClarity(null);
-                                  }
-                                })();
-                              }}
-                              className={`rounded-full border px-3 py-1.5 text-xs transition ${
-                                audit.visualRealEstateCheck.headerClarity === value
-                                  ? "border-white/25 bg-white/[0.08] text-white"
-                                  : "border-white/10 text-zinc-300 hover:bg-white/[0.04] hover:text-white"
-                              } disabled:cursor-not-allowed disabled:opacity-60`}
-                            >
-                              {pendingHeaderClarity === value
-                                ? "Saving..."
-                                : formatEnumLabel(value)}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-
-                  </article>
-
-                  <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <div className="flex items-center gap-3">
-                      <Pin className="h-4 w-4 text-zinc-500" />
-                      <div>
-                        <p className="text-sm font-semibold text-white">Pinned Tweet Validator</p>
-                        <p className="text-xs text-zinc-500">
-                          Treat the pinned post like the featured authority story.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <span
-                        className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${getAuditStatusTone(
-                          audit.pinnedTweetCheck.status,
-                        )}`}
-                      >
-                        {formatAuditStatusLabel(audit.pinnedTweetCheck.status)}
-                      </span>
-                      <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
-                        {formatEnumLabel(audit.pinnedTweetCheck.category)}
-                      </span>
-                      {formatPinnedAgeLabel(audit.pinnedTweetCheck.ageDays) ? (
-                        <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
-                          {formatPinnedAgeLabel(audit.pinnedTweetCheck.ageDays)}
-                        </span>
-                      ) : null}
-                    </div>
-
-                    <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                          {audit.pinnedTweetCheck.pinnedPost
-                            ? "Current pinned post"
-                            : "Pinned post"}
-                        </p>
-                        {audit.pinnedTweetCheck.pinnedPost?.url ? (
-                          <a
-                            href={audit.pinnedTweetCheck.pinnedPost.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-2 text-xs text-zinc-400 transition hover:text-white"
-                          >
-                            <span>Open on X</span>
-                            <ArrowUpRight className="h-3.5 w-3.5" />
-                          </a>
-                        ) : null}
-                      </div>
-
-                      {audit.pinnedTweetCheck.pinnedPost ? (
-                        <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-300">
-                          {audit.pinnedTweetCheck.pinnedPost.text}
-                        </p>
-                      ) : (
-                        <p className="mt-3 text-sm leading-6 text-zinc-400">
-                          No pinned post was found in the latest profile capture.
-                        </p>
-                      )}
+                      <span className="text-xs font-semibold text-zinc-200">{step.score}</span>
                     </div>
 
                     <ul className="mt-4 space-y-2 text-sm text-zinc-300">
-                      {(audit.pinnedTweetCheck.findings.length > 0
-                        ? audit.pinnedTweetCheck.findings
-                        : [audit.pinnedTweetCheck.summary]
-                      )
-                        .slice(0, 3)
+                      {(step.findings.length > 0 ? step.findings : [step.summary])
+                        .slice(0, 2)
                         .map((finding) => (
                           <li key={finding} className="leading-6">
                             • {finding}
@@ -725,609 +577,923 @@ export function ProfileAnalysisDialog(props: ProfileAnalysisDialogProps) {
                         ))}
                     </ul>
 
-                    <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                      <button
-                        type="button"
-                        onClick={() => onPinnedPromptStart("origin_story")}
-                        className="rounded-2xl border border-white/10 px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
-                      >
-                        Write origin story
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onPinnedPromptStart("core_thesis")}
-                        className="rounded-2xl border border-white/10 px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
-                      >
-                        Write core thesis
-                      </button>
-                    </div>
+                    <p className="mt-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      {step.actionLabel}
+                    </p>
                   </article>
-                </div>
+                ))}
+              </div>
 
-                <div className="mt-5 grid gap-3 xl:grid-cols-3">
-                  <div className="rounded-2xl border border-emerald-500/20 bg-black/20 p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-300">
-                      Strengths
-                    </p>
-                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                      {audit.strengths.length > 0 ? (
-                        audit.strengths.slice(0, 3).map((item) => (
-                          <li key={item} className="leading-6">
-                            • {item}
-                          </li>
-                        ))
-                      ) : (
-                        <li className="text-zinc-500">No strong conversion signals yet.</li>
-                      )}
-                    </ul>
-                  </div>
-
-                  <div className="rounded-2xl border border-amber-500/20 bg-black/20 p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300">
-                      Gaps
-                    </p>
-                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                      {audit.gaps.length > 0 ? (
-                        audit.gaps.slice(0, 3).map((item) => (
-                          <li key={item} className="leading-6">
-                            • {item}
-                          </li>
-                        ))
-                      ) : (
-                        <li className="text-zinc-500">No major conversion gaps flagged.</li>
-                      )}
-                    </ul>
-                  </div>
-
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <div className="flex items-center gap-2">
-                      {audit.unknowns.length > 0 ? (
-                        <CircleHelp className="h-4 w-4 text-zinc-500" />
-                      ) : (
-                        <CheckCircle2 className="h-4 w-4 text-zinc-500" />
-                      )}
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                        Coherence and unknowns
+              <div className="mt-5 grid gap-4 xl:grid-cols-3">
+                <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="flex items-center gap-3">
+                    <Edit3 className="h-4 w-4 text-zinc-500" />
+                    <div>
+                      <p className="text-sm font-semibold text-white">Bio Formula Check</p>
+                      <p className="text-xs text-zinc-500">
+                        [what you do] + [who you help] + [proof or CTA]
                       </p>
                     </div>
-                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                      {(audit.recentPostCoherenceNotes.length > 0
-                        ? audit.recentPostCoherenceNotes
-                        : audit.unknowns.length > 0
-                          ? audit.unknowns
-                          : ["Recent posts are not showing a new coherence note yet."]
-                      )
-                        .slice(0, 3)
-                        .map((item) => (
-                          <li key={item} className="leading-6">
-                            • {item}
-                          </li>
-                        ))}
-                    </ul>
                   </div>
-                </div>
-              </section>
-            ) : null}
 
-            <section>
-              <article className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                      Positioning
-                    </p>
-                    <p className="mt-2 text-sm text-zinc-300">
-                      what this account should be known for right now
-                    </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {[
+                      {
+                        label: "What you do",
+                        matched: audit.bioFormulaCheck.matchesFormula.what,
+                      },
+                      {
+                        label: "Who you help",
+                        matched: audit.bioFormulaCheck.matchesFormula.who,
+                      },
+                      {
+                        label: "Proof or CTA",
+                        matched: audit.bioFormulaCheck.matchesFormula.proofOrCta,
+                      },
+                    ].map((item) => (
+                      <span
+                        key={item.label}
+                        className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+                          item.matched
+                            ? "border-emerald-500/30 text-emerald-300"
+                            : "border-rose-500/30 text-rose-300"
+                        }`}
+                      >
+                        {item.label}
+                      </span>
+                    ))}
                   </div>
-                  <span
-                    className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
-                      analysisPositioningIsTentative
-                        ? "border-amber-500/30 text-amber-300"
-                        : "border-emerald-500/30 text-emerald-300"
-                    }`}
-                  >
-                    {analysisPositioningIsTentative ? "Tentative" : "Stable"}
-                  </span>
-                </div>
 
-                <div className="mt-4 space-y-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
-                      Known for
-                    </p>
-                    <p className="mt-2 text-base font-semibold text-white">
-                      {context.growthStrategySnapshot.knownFor}
-                    </p>
-                    <p className="mt-2 text-sm text-zinc-400">
-                      Attract: {context.growthStrategySnapshot.targetAudience}
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="flex items-center justify-between gap-3 text-xs text-zinc-500">
+                      <span>Current bio</span>
+                      <span>{audit.bioFormulaCheck.charCount}/160 chars</span>
+                    </div>
+                    <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-300">
+                      {audit.bioFormulaCheck.bio || "No bio is currently set on the profile."}
                     </p>
                   </div>
 
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
-                      Core pillars
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {context.growthStrategySnapshot.contentPillars.slice(0, 5).map((pillar) => (
-                        <span
-                          key={pillar}
-                          className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-zinc-300"
-                        >
-                          {pillar}
+                  {selectedBioAlternative ? (
+                    <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-300">
+                          Selected rewrite
+                        </p>
+                        <span className="text-xs text-emerald-100">
+                          {selectedBioAlternative.text.length}/160 chars
                         </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                        Profile cues
+                      </div>
+                      <p className="mt-3 text-sm leading-6 text-zinc-100">
+                        {selectedBioAlternative.text}
                       </p>
-                      <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                        {context.growthStrategySnapshot.profileConversionCues
-                          .slice(0, 3)
-                          .map((cue) => (
-                            <li key={cue} className="leading-6">
-                              • {cue}
-                            </li>
-                          ))}
-                      </ul>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                        Off-brand
+                      <p className="mt-3 text-xs text-emerald-100/80">
+                        Ready to paste into X. Use refine in chat if you want a tighter variant.
                       </p>
-                      <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                        {context.growthStrategySnapshot.offBrandThemes.length > 0 ? (
-                          context.growthStrategySnapshot.offBrandThemes
-                            .slice(0, 3)
-                            .map((item) => (
-                              <li key={item} className="leading-6">
-                                • {item}
-                              </li>
-                            ))
-                        ) : (
-                          <li className="text-zinc-500">no major off-brand themes flagged</li>
-                        )}
-                      </ul>
-                    </div>
-                  </div>
-
-                  {context.growthStrategySnapshot.ambiguities.length > 0 ? (
-                    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] p-4">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300">
-                        Ambiguities
-                      </p>
-                      <ul className="mt-3 space-y-2 text-sm text-zinc-200">
-                        {context.growthStrategySnapshot.ambiguities.slice(0, 3).map((item) => (
-                          <li key={item} className="leading-6">
-                            • {item}
-                          </li>
-                        ))}
-                      </ul>
                     </div>
                   ) : null}
-                </div>
-              </article>
-            </section>
 
-            <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                  Top priorities
-                </p>
-                <p className="mt-2 text-sm text-zinc-300">
-                  biggest gap: {context.strategyDelta.primaryGap}
-                </p>
-              </div>
+                  <div className="mt-4 space-y-3">
+                    {audit.bioFormulaCheck.alternatives.map((alternative) => {
+                      const isSelected = selectedBioAlternative?.id === alternative.id;
+                      const isCopied = copiedBioAlternativeId === alternative.id;
 
-              <div className="mt-4 space-y-2">
-                {analysisPriorityItems.length > 0 ? (
-                  analysisPriorityItems.slice(0, 3).map((item, index) => {
-                    const isExpanded = expandedPriorityIndex === index;
-                    const severityTone =
-                      item.priority === "high"
-                        ? "border-rose-500/30 text-rose-300"
-                        : item.priority === "medium"
-                          ? "border-amber-500/30 text-amber-300"
-                          : "border-emerald-500/30 text-emerald-300";
-
-                    return (
-                      <article
-                        key={`${item.area}-${item.direction}-${index}`}
-                        className="rounded-2xl border border-white/10 bg-black/20"
-                      >
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setExpandedPriorityIndex((current) =>
-                              current === index ? null : index,
-                            )
-                          }
-                          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                      return (
+                        <div
+                          key={alternative.id}
+                          className={`rounded-2xl border p-4 ${
+                            isSelected
+                              ? "border-white/25 bg-white/[0.06]"
+                              : "border-white/10 bg-white/[0.02]"
+                          }`}
                         >
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-white">
-                              {index + 1}. {formatEnumLabel(item.direction)}{" "}
-                              {formatAreaLabel(item.area)}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${severityTone}`}
-                            >
-                              {formatEnumLabel(item.priority)}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
+                              {alternative.proofMode === "proof" ? "Grounded proof" : "CTA ending"}
                             </span>
-                            {isExpanded ? (
-                              <ChevronUp className="h-4 w-4 text-zinc-500" />
-                            ) : (
-                              <ChevronDown className="h-4 w-4 text-zinc-500" />
-                            )}
+                            <span className="text-xs text-zinc-500">
+                              {alternative.text.length}/160 chars
+                            </span>
                           </div>
-                        </button>
-                        {isExpanded ? (
-                          <div className="border-t border-white/10 px-4 py-3">
-                            <p className="text-sm leading-6 text-zinc-300">{item.note}</p>
-                          </div>
-                        ) : null}
-                      </article>
-                    );
-                  })
-                ) : (
-                  <p className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-500">
-                    insufficient data
-                  </p>
-                )}
-              </div>
-            </section>
+                          <p className="mt-3 text-sm leading-6 text-zinc-200">
+                            {alternative.text}
+                          </p>
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedBioAlternativeId(alternative.id)}
+                              className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                                isSelected
+                                  ? "border-white/25 bg-white/[0.08] text-white"
+                                  : "border-white/10 text-zinc-300 hover:bg-white/[0.04] hover:text-white"
+                              }`}
+                            >
+                              {isSelected ? "Applied to preview" : "Apply"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void (async () => {
+                                  try {
+                                    await navigator.clipboard.writeText(alternative.text);
+                                  } catch {}
 
-            <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-              <div className="flex items-center gap-3">
-                <BookOpen className="h-4 w-4 text-zinc-500" />
-                <div>
-                  <p className="text-sm font-semibold text-white">
-                    Recommended playbooks for you
+                                  setCopiedBioAlternativeId(alternative.id);
+                                  onBioAlternativeCopied(alternative.text);
+                                })();
+                              }}
+                              className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-xs text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                              <span>{isCopied ? "Copied" : "Copy"}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onBioAlternativeRefine(alternative.text)}
+                              className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                            >
+                              Refine in chat
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </article>
+
+                <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="flex items-center gap-3">
+                    <ImageIcon className="h-4 w-4 text-zinc-500" />
+                    <div>
+                      <p className="text-sm font-semibold text-white">Visual Real Estate</p>
+                      <p className="text-xs text-zinc-500">
+                        The header is the biggest conversion surface on the profile.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${getAuditStatusTone(
+                        audit.visualRealEstateCheck.status,
+                      )}`}
+                    >
+                      {formatAuditStatusLabel(audit.visualRealEstateCheck.status)}
+                    </span>
+                    {audit.visualRealEstateCheck.headerClarity ? (
+                      <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
+                        {formatEnumLabel(audit.visualRealEstateCheck.headerClarity)}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                        {audit.visualRealEstateCheck.hasHeaderImage
+                          ? "Current header"
+                          : "Header status"}
+                      </p>
+                      <span className="text-xs text-zinc-500">
+                        {audit.visualRealEstateCheck.hasHeaderImage
+                          ? "Banner found"
+                          : "No banner found"}
+                      </span>
+                    </div>
+
+                    {audit.visualRealEstateCheck.headerImageUrl ? (
+                      <div className="mt-3 overflow-hidden rounded-2xl border border-white/10">
+                        <div
+                          className="aspect-[3/1] w-full bg-cover bg-center"
+                          style={{
+                            backgroundImage: `url(${audit.visualRealEstateCheck.headerImageUrl})`,
+                          }}
+                          role="img"
+                          aria-label="Current X header image"
+                        />
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm leading-6 text-zinc-400">
+                        No header image was detected in the latest profile data.
+                      </p>
+                    )}
+                  </div>
+
+                  {audit.visualRealEstateCheck.hasHeaderImage ? (
+                    <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                      <p className="text-sm font-medium text-white">
+                        Does this header clearly communicate a value proposition or proof?
+                      </p>
+                      <p className="mt-2 text-xs leading-5 text-zinc-500">
+                        v1 scores this with presence detection plus your self-check for the current
+                        banner.
+                      </p>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {(["clear", "unclear", "unsure"] as const).map((value) => (
+                          <button
+                            key={value}
+                            type="button"
+                            disabled={pendingHeaderClarity !== null}
+                            onClick={() => {
+                              void (async () => {
+                                setPendingHeaderClarity(value);
+                                try {
+                                  await onHeaderClaritySelect(value);
+                                } finally {
+                                  setPendingHeaderClarity(null);
+                                }
+                              })();
+                            }}
+                            className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                              audit.visualRealEstateCheck.headerClarity === value
+                                ? "border-white/25 bg-white/[0.08] text-white"
+                                : "border-white/10 text-zinc-300 hover:bg-white/[0.04] hover:text-white"
+                            } disabled:cursor-not-allowed disabled:opacity-60`}
+                          >
+                            {pendingHeaderClarity === value
+                              ? "Saving..."
+                              : formatEnumLabel(value)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </article>
+
+                <article className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="flex items-center gap-3">
+                    <Pin className="h-4 w-4 text-zinc-500" />
+                    <div>
+                      <p className="text-sm font-semibold text-white">Pinned Tweet Validator</p>
+                      <p className="text-xs text-zinc-500">
+                        Treat the pinned post like the featured authority story.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <span
+                      className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${getAuditStatusTone(
+                        audit.pinnedTweetCheck.status,
+                      )}`}
+                    >
+                      {formatAuditStatusLabel(audit.pinnedTweetCheck.status)}
+                    </span>
+                    <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
+                      {formatEnumLabel(audit.pinnedTweetCheck.category)}
+                    </span>
+                    {formatPinnedAgeLabel(audit.pinnedTweetCheck.ageDays) ? (
+                      <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
+                        {formatPinnedAgeLabel(audit.pinnedTweetCheck.ageDays)}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                        {audit.pinnedTweetCheck.pinnedPost ? "Current pinned post" : "Pinned post"}
+                      </p>
+                      {audit.pinnedTweetCheck.pinnedPost?.url ? (
+                        <a
+                          href={audit.pinnedTweetCheck.pinnedPost.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-2 text-xs text-zinc-400 transition hover:text-white"
+                        >
+                          <span>Open on X</span>
+                          <ArrowUpRight className="h-3.5 w-3.5" />
+                        </a>
+                      ) : null}
+                    </div>
+
+                    {audit.pinnedTweetCheck.pinnedPost ? (
+                      <div className="mt-3">
+                        {pinnedPostPreview.text ? (
+                          <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-300">
+                            {pinnedPostPreview.text}
+                          </p>
+                        ) : null}
+                        <div className="mt-3">
+                          <InteractivePreviewImage
+                            src={pinnedPostPreview.imageUrl}
+                            alt={`${displayName} pinned post image`}
+                            buttonLabel="Expand pinned post image"
+                            dialogLabel="Expanded pinned post image"
+                            frameClassName="group relative w-full max-w-[400px] overflow-hidden rounded-2xl border border-white/10 bg-black/40 text-left"
+                            imageClassName="aspect-square w-full object-cover"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm leading-6 text-zinc-400">
+                        No pinned post was found in the latest profile capture.
+                      </p>
+                    )}
+                  </div>
+
+                  <ul className="mt-4 space-y-2 text-sm text-zinc-300">
+                    {(audit.pinnedTweetCheck.findings.length > 0
+                      ? audit.pinnedTweetCheck.findings
+                      : [audit.pinnedTweetCheck.summary]
+                    )
+                      .slice(0, 3)
+                      .map((finding) => (
+                        <li key={finding} className="leading-6">
+                          • {finding}
+                        </li>
+                      ))}
+                  </ul>
+
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => onPinnedPromptStart("origin_story")}
+                      className="rounded-2xl border border-white/10 px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                    >
+                      Write origin story
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onPinnedPromptStart("core_thesis")}
+                      className="rounded-2xl border border-white/10 px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                    >
+                      Write core thesis
+                    </button>
+                  </div>
+                </article>
+              </div>
+
+              <div className="mt-5 grid gap-3 xl:grid-cols-3">
+                <div className="rounded-2xl border border-emerald-500/20 bg-black/20 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-300">
+                    Strengths
                   </p>
-                  <p className="text-xs text-zinc-500">
-                    personalized routes based on your stage + gaps
+                  <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                    {audit.strengths.length > 0 ? (
+                      audit.strengths.slice(0, 3).map((item) => (
+                        <li key={item} className="leading-6">
+                          • {item}
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-zinc-500">No strong conversion signals yet.</li>
+                    )}
+                  </ul>
+                </div>
+
+                <div className="rounded-2xl border border-amber-500/20 bg-black/20 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300">
+                    Gaps
                   </p>
+                  <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                    {audit.gaps.length > 0 ? (
+                      audit.gaps.slice(0, 3).map((item) => (
+                        <li key={item} className="leading-6">
+                          • {item}
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-zinc-500">No major conversion gaps flagged.</li>
+                    )}
+                  </ul>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="flex items-center gap-2">
+                    {audit.unknowns.length > 0 ? (
+                      <CircleHelp className="h-4 w-4 text-zinc-500" />
+                    ) : (
+                      <CheckCircle2 className="h-4 w-4 text-zinc-500" />
+                    )}
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      Coherence and unknowns
+                    </p>
+                  </div>
+                  <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                    {(audit.recentPostCoherenceNotes.length > 0
+                      ? audit.recentPostCoherenceNotes
+                      : audit.unknowns.length > 0
+                        ? audit.unknowns
+                        : ["Recent posts are not showing a new coherence note yet."]
+                    )
+                      .slice(0, 3)
+                      .map((item) => (
+                        <li key={item} className="leading-6">
+                          • {item}
+                        </li>
+                      ))}
+                  </ul>
                 </div>
               </div>
+            </section>
+          ) : null}
 
-              <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                {analysisRecommendedPlaybooks.length > 0 ? (
-                  analysisRecommendedPlaybooks.map((recommendation, index) => (
-                    <article
-                      key={`${recommendation.stage}-${recommendation.playbook.id}`}
-                      className={`rounded-2xl border p-4 ${
-                        index === 0
-                          ? "border-white/25 bg-white/[0.06]"
-                          : "border-white/10 bg-black/20"
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
-                          {PLAYBOOK_STAGE_META[recommendation.stage].label}
-                        </span>
-                        {index === 0 ? (
-                          <span className="rounded-full border border-white/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white">
-                            Primary
-                          </span>
-                        ) : (
-                          <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                            Alternate
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-3 text-base font-semibold text-white">
-                        {recommendation.playbook.name}
-                      </p>
-                      <p className="mt-1 text-sm text-zinc-400">
-                        {recommendation.playbook.outcome}
-                      </p>
-                      <p className="mt-3 text-xs text-zinc-300">{recommendation.whyFit}</p>
+          <section>
+            <article className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                    Positioning
+                  </p>
+                  <p className="mt-2 text-sm text-zinc-300">
+                    what this account should be known for right now
+                  </p>
+                </div>
+                <span
+                  className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+                    analysisPositioningIsTentative
+                      ? "border-amber-500/30 text-amber-300"
+                      : "border-emerald-500/30 text-emerald-300"
+                  }`}
+                >
+                  {analysisPositioningIsTentative ? "Tentative" : "Stable"}
+                </span>
+              </div>
 
-                      <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                          Start in 15 min
-                        </p>
-                        <ol className="mt-2 space-y-1.5 text-xs text-zinc-300">
-                          {recommendation.playbook.quickStart.slice(0, 3).map((step, stepIndex) => (
-                            <li key={step} className="leading-5">
-                              {stepIndex + 1}. {step}
+              <div className="mt-4 space-y-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">Known for</p>
+                  <p className="mt-2 text-base font-semibold text-white">
+                    {context.growthStrategySnapshot.knownFor}
+                  </p>
+                  <p className="mt-2 text-sm text-zinc-400">
+                    Attract: {context.growthStrategySnapshot.targetAudience}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
+                    Core pillars
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {context.growthStrategySnapshot.contentPillars.slice(0, 5).map((pillar) => (
+                      <span
+                        key={pillar}
+                        className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-zinc-300"
+                      >
+                        {pillar}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      Profile cues
+                    </p>
+                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                      {context.growthStrategySnapshot.profileConversionCues
+                        .slice(0, 3)
+                        .map((cue) => (
+                          <li key={cue} className="leading-6">
+                            • {cue}
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      Off-brand
+                    </p>
+                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                      {context.growthStrategySnapshot.offBrandThemes.length > 0 ? (
+                        context.growthStrategySnapshot.offBrandThemes
+                          .slice(0, 3)
+                          .map((item) => (
+                            <li key={item} className="leading-6">
+                              • {item}
                             </li>
-                          ))}
-                        </ol>
-                      </div>
+                          ))
+                      ) : (
+                        <li className="text-zinc-500">no major off-brand themes flagged</li>
+                      )}
+                    </ul>
+                  </div>
+                </div>
 
+                {context.growthStrategySnapshot.ambiguities.length > 0 ? (
+                  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300">
+                      Ambiguities
+                    </p>
+                    <ul className="mt-3 space-y-2 text-sm text-zinc-200">
+                      {context.growthStrategySnapshot.ambiguities.slice(0, 3).map((item) => (
+                        <li key={item} className="leading-6">
+                          • {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            </article>
+          </section>
+
+          <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                Top priorities
+              </p>
+              <p className="mt-2 text-sm text-zinc-300">
+                biggest gap: {context.strategyDelta.primaryGap}
+              </p>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {analysisPriorityItems.length > 0 ? (
+                analysisPriorityItems.slice(0, 3).map((item, index) => {
+                  const isExpanded = expandedPriorityIndex === index;
+                  const severityTone =
+                    item.priority === "high"
+                      ? "border-rose-500/30 text-rose-300"
+                      : item.priority === "medium"
+                        ? "border-amber-500/30 text-amber-300"
+                        : "border-emerald-500/30 text-emerald-300";
+
+                  return (
+                    <article
+                      key={`${item.area}-${item.direction}-${index}`}
+                      className="rounded-2xl border border-white/10 bg-black/20"
+                    >
                       <button
                         type="button"
                         onClick={() =>
-                          onOpenGrowthGuideForRecommendation(
-                            recommendation.stage,
-                            recommendation.playbook.id,
-                          )
+                          setExpandedPriorityIndex((current) => (current === index ? null : index))
                         }
-                        className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
                       >
-                        <span>Open in Growth Guide</span>
-                        <ArrowUpRight className="h-3.5 w-3.5" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-white">
+                            {index + 1}. {formatEnumLabel(item.direction)} {formatAreaLabel(item.area)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${severityTone}`}
+                          >
+                            {formatEnumLabel(item.priority)}
+                          </span>
+                          {isExpanded ? (
+                            <ChevronUp className="h-4 w-4 text-zinc-500" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4 text-zinc-500" />
+                          )}
+                        </div>
                       </button>
+                      {isExpanded ? (
+                        <div className="border-t border-white/10 px-4 py-3">
+                          <p className="text-sm leading-6 text-zinc-300">{item.note}</p>
+                        </div>
+                      ) : null}
                     </article>
-                  ))
-                ) : (
-                  <p className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-500">
-                    insufficient data
-                  </p>
-                )}
-              </div>
-            </section>
+                  );
+                })
+              ) : (
+                <p className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-500">
+                  insufficient data
+                </p>
+              )}
+            </div>
+          </section>
 
-            <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+          <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+            <div className="flex items-center gap-3">
+              <BookOpen className="h-4 w-4 text-zinc-500" />
+              <div>
+                <p className="text-sm font-semibold text-white">Recommended playbooks for you</p>
+                <p className="text-xs text-zinc-500">
+                  personalized routes based on your stage + gaps
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              {analysisRecommendedPlaybooks.length > 0 ? (
+                analysisRecommendedPlaybooks.map((recommendation, index) => (
+                  <article
+                    key={`${recommendation.stage}-${recommendation.playbook.id}`}
+                    className={`rounded-2xl border p-4 ${
+                      index === 0
+                        ? "border-white/25 bg-white/[0.06]"
+                        : "border-white/10 bg-black/20"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-300">
+                        {PLAYBOOK_STAGE_META[recommendation.stage].label}
+                      </span>
+                      {index === 0 ? (
+                        <span className="rounded-full border border-white/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white">
+                          Primary
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                          Alternate
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-3 text-base font-semibold text-white">
+                      {recommendation.playbook.name}
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-400">
+                      {recommendation.playbook.outcome}
+                    </p>
+                    <p className="mt-3 text-xs text-zinc-300">{recommendation.whyFit}</p>
+
+                    <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                        Start in 15 min
+                      </p>
+                      <ol className="mt-2 space-y-1.5 text-xs text-zinc-300">
+                        {recommendation.playbook.quickStart.slice(0, 3).map((step, stepIndex) => (
+                          <li key={step} className="leading-5">
+                            {stepIndex + 1}. {step}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onOpenGrowthGuideForRecommendation(
+                          recommendation.stage,
+                          recommendation.playbook.id,
+                        )
+                      }
+                      className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs text-zinc-300 transition hover:bg-white/[0.04] hover:text-white"
+                    >
+                      <span>Open in Growth Guide</span>
+                      <ArrowUpRight className="h-3.5 w-3.5" />
+                    </button>
+                  </article>
+                ))
+              ) : (
+                <p className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-500">
+                  insufficient data
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+            <div className="flex items-center gap-3">
+              <Sparkles className="h-4 w-4 text-zinc-500" />
+              <div>
+                <p className="text-sm font-semibold text-white">What changed from learning</p>
+                <p className="text-xs text-zinc-500">
+                  merged reply + post signals feeding the next strategy pass
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 xl:grid-cols-3">
+              <article className="rounded-2xl border border-emerald-500/20 bg-black/20 p-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-300">
+                  Reinforce
+                </p>
+                <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                  {analysisLearningStrengths.length > 0 ? (
+                    analysisLearningStrengths.map((item) => (
+                      <li key={item} className="leading-6">
+                        • {item}
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-zinc-500">no strong learning signals yet</li>
+                  )}
+                </ul>
+              </article>
+
+              <article className="rounded-2xl border border-amber-500/20 bg-black/20 p-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300">
+                  Deprioritize
+                </p>
+                <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                  {analysisLearningCautions.length > 0 ? (
+                    analysisLearningCautions.map((item) => (
+                      <li key={item} className="leading-6">
+                        • {item}
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-zinc-500">no major caution signals yet</li>
+                  )}
+                </ul>
+              </article>
+
+              <article className="rounded-2xl border border-sky-500/20 bg-black/20 p-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-300">
+                  Experiments
+                </p>
+                <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                  {analysisLearningExperiments.length > 0 ? (
+                    analysisLearningExperiments.map((item) => (
+                      <li key={item} className="leading-6">
+                        • {item}
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-zinc-500">no active experiments yet</li>
+                  )}
+                </ul>
+              </article>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                  Reply loop
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-300">
+                  <span className="rounded-full border border-white/10 px-2.5 py-1">
+                    selection {context.replyInsights?.selectionRate ?? "n/a"}
+                  </span>
+                  <span className="rounded-full border border-white/10 px-2.5 py-1">
+                    post rate {context.replyInsights?.postRate ?? "n/a"}
+                  </span>
+                  <span className="rounded-full border border-white/10 px-2.5 py-1">
+                    observed {context.replyInsights?.observedRate ?? "n/a"}
+                  </span>
+                </div>
+                {analysisReplyConversionHighlights.length > 0 ? (
+                  <div className="mt-4 grid gap-2">
+                    {analysisReplyConversionHighlights.map((item) => (
+                      <div
+                        key={`${item.label}-${item.value}`}
+                        className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-2 text-xs"
+                      >
+                        <span className="uppercase tracking-[0.12em] text-zinc-500">
+                          {item.label}
+                        </span>
+                        <span className="text-right text-zinc-200">{item.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                  Post loop
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-300">
+                  <span className="rounded-full border border-white/10 px-2.5 py-1">
+                    drafts {context.contentInsights?.totalCandidates ?? 0}
+                  </span>
+                  <span className="rounded-full border border-white/10 px-2.5 py-1">
+                    post rate {context.contentInsights?.postRate ?? "n/a"}
+                  </span>
+                  <span className="rounded-full border border-white/10 px-2.5 py-1">
+                    observed {context.contentInsights?.observedRate ?? "n/a"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="grid gap-4 xl:grid-cols-2">
+            <article className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
               <div className="flex items-center gap-3">
-                <Sparkles className="h-4 w-4 text-zinc-500" />
+                <Settings2 className="h-4 w-4 text-zinc-500" />
                 <div>
-                  <p className="text-sm font-semibold text-white">What changed from learning</p>
-                  <p className="text-xs text-zinc-500">
-                    merged reply + post signals feeding the next strategy pass
-                  </p>
+                  <p className="text-sm font-semibold text-white">Voice signals</p>
+                  <p className="text-xs text-zinc-500">how this profile naturally writes</p>
                 </div>
               </div>
 
-              <div className="mt-4 grid gap-3 xl:grid-cols-3">
-                <article className="rounded-2xl border border-emerald-500/20 bg-black/20 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-300">
-                    Reinforce
-                  </p>
-                  <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                    {analysisLearningStrengths.length > 0 ? (
-                      analysisLearningStrengths.map((item) => (
-                        <li key={item} className="leading-6">
-                          • {item}
-                        </li>
-                      ))
-                    ) : (
-                      <li className="text-zinc-500">no strong learning signals yet</li>
-                    )}
-                  </ul>
-                </article>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {analysisVoiceSignalChips.map((chip) => (
+                  <span
+                    key={`${chip.label}-${chip.value}`}
+                    className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-zinc-300"
+                  >
+                    {chip.label}: <span className="text-zinc-100">{chip.value}</span>
+                  </span>
+                ))}
+              </div>
 
-                <article className="rounded-2xl border border-amber-500/20 bg-black/20 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300">
-                    Deprioritize
-                  </p>
-                  <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                    {analysisLearningCautions.length > 0 ? (
-                      analysisLearningCautions.map((item) => (
-                        <li key={item} className="leading-6">
-                          • {item}
-                        </li>
-                      ))
-                    ) : (
-                      <li className="text-zinc-500">no major caution signals yet</li>
-                    )}
-                  </ul>
-                </article>
+              <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                  Style anchor
+                </p>
+                {context.positiveAnchors[0]?.text ? (
+                  <div className="mt-3 rounded-2xl border border-white/10 bg-[#0F0F0F] p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
+                        {context.avatarUrl ? (
+                          <div
+                            className="h-full w-full bg-cover bg-center"
+                            style={{ backgroundImage: `url(${context.avatarUrl})` }}
+                            role="img"
+                            aria-label={`${displayName} profile photo`}
+                          />
+                        ) : (
+                          displayName.charAt(0)
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1">
+                          <span className="truncate text-sm font-bold text-white">
+                            {displayName}
+                          </span>
+                          {isVerifiedAccount ? (
+                            <Image
+                              src="/x-verified.svg"
+                              alt="Verified account"
+                              width={16}
+                              height={16}
+                              className="h-4 w-4 shrink-0"
+                            />
+                          ) : null}
+                        </div>
+                        <span className="text-xs text-zinc-500">@{displayHandle}</span>
+                      </div>
+                    </div>
 
-                <article className="rounded-2xl border border-sky-500/20 bg-black/20 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-300">
-                    Experiments
-                  </p>
-                  <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                    {analysisLearningExperiments.length > 0 ? (
-                      analysisLearningExperiments.map((item) => (
-                        <li key={item} className="leading-6">
-                          • {item}
-                        </li>
-                      ))
-                    ) : (
-                      <li className="text-zinc-500">no active experiments yet</li>
-                    )}
-                  </ul>
-                </article>
+                    <p className="mt-4 whitespace-pre-wrap break-words text-[15px] leading-7 text-zinc-100">
+                      {context.positiveAnchors[0].text}
+                    </p>
+
+                    <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                      <span>
+                        {new Date(context.positiveAnchors[0].createdAt).toLocaleDateString()}
+                      </span>
+                      <span>·</span>
+                      <span>
+                        {computeXWeightedCharacterCount(context.positiveAnchors[0].text)}/
+                        {getXCharacterLimitForAccount(context.creatorProfile.identity.isVerified)}{" "}
+                        chars
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-zinc-500">insufficient data</p>
+                )}
+              </div>
+            </article>
+
+            <article className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+              <div className="flex items-center gap-3">
+                <Edit3 className="h-4 w-4 text-zinc-500" />
+                <div>
+                  <p className="text-sm font-semibold text-white">Keep / Avoid</p>
+                  <p className="text-xs text-zinc-500">fast reference while drafting</p>
+                </div>
               </div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                    Reply loop
+                <div className="rounded-2xl border border-emerald-500/25 bg-black/25 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-300">
+                    Keep doing
                   </p>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-300">
-                    <span className="rounded-full border border-white/10 px-2.5 py-1">
-                      selection {context.replyInsights?.selectionRate ?? "n/a"}
-                    </span>
-                    <span className="rounded-full border border-white/10 px-2.5 py-1">
-                      post rate {context.replyInsights?.postRate ?? "n/a"}
-                    </span>
-                    <span className="rounded-full border border-white/10 px-2.5 py-1">
-                      observed {context.replyInsights?.observedRate ?? "n/a"}
-                    </span>
-                  </div>
-                  {analysisReplyConversionHighlights.length > 0 ? (
-                    <div className="mt-4 grid gap-2">
-                      {analysisReplyConversionHighlights.map((item) => (
-                        <div
-                          key={`${item.label}-${item.value}`}
-                          className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-2 text-xs"
-                        >
-                          <span className="uppercase tracking-[0.12em] text-zinc-500">
-                            {item.label}
-                          </span>
-                          <span className="text-right text-zinc-200">{item.value}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
+                  <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                    {analysisKeepList.length > 0 ? (
+                      analysisKeepList.map((item) => (
+                        <li key={item} className="leading-6">
+                          • {item}
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-zinc-500">insufficient data</li>
+                    )}
+                  </ul>
                 </div>
 
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                    Post loop
+                <div className="rounded-2xl border border-amber-500/25 bg-black/25 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-300">
+                    Avoid
                   </p>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-300">
-                    <span className="rounded-full border border-white/10 px-2.5 py-1">
-                      drafts {context.contentInsights?.totalCandidates ?? 0}
-                    </span>
-                    <span className="rounded-full border border-white/10 px-2.5 py-1">
-                      post rate {context.contentInsights?.postRate ?? "n/a"}
-                    </span>
-                    <span className="rounded-full border border-white/10 px-2.5 py-1">
-                      observed {context.contentInsights?.observedRate ?? "n/a"}
-                    </span>
-                  </div>
+                  <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+                    {analysisAvoidList.length > 0 ? (
+                      analysisAvoidList.map((item) => (
+                        <li key={item} className="leading-6">
+                          • {item}
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-zinc-500">insufficient data</li>
+                    )}
+                  </ul>
                 </div>
               </div>
-            </section>
+            </article>
+          </section>
 
-            <section className="grid gap-4 xl:grid-cols-2">
-              <article className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                <div className="flex items-center gap-3">
-                  <Settings2 className="h-4 w-4 text-zinc-500" />
-                  <div>
-                    <p className="text-sm font-semibold text-white">Voice signals</p>
-                    <p className="text-xs text-zinc-500">how this profile naturally writes</p>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {analysisVoiceSignalChips.map((chip) => (
-                    <span
-                      key={`${chip.label}-${chip.value}`}
-                      className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-zinc-300"
-                    >
-                      {chip.label}: <span className="text-zinc-100">{chip.value}</span>
-                    </span>
-                  ))}
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                    Style anchor
-                  </p>
-                  {context.positiveAnchors[0]?.text ? (
-                    <div className="mt-3 rounded-2xl border border-white/10 bg-[#0F0F0F] p-4">
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-zinc-600 to-zinc-800 text-sm font-bold text-white uppercase">
-                          {context.avatarUrl ? (
-                            <div
-                              className="h-full w-full bg-cover bg-center"
-                              style={{ backgroundImage: `url(${context.avatarUrl})` }}
-                              role="img"
-                              aria-label={`${context.creatorProfile.identity.displayName || context.creatorProfile.identity.username} profile photo`}
-                            />
-                          ) : (
-                            (
-                              context.creatorProfile.identity.displayName ||
-                              context.creatorProfile.identity.username ||
-                              "X"
-                            ).charAt(0)
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1">
-                            <span className="truncate text-sm font-bold text-white">
-                              {context.creatorProfile.identity.displayName ||
-                                context.creatorProfile.identity.username}
-                            </span>
-                            {isVerifiedAccount ? (
-                              <Image
-                                src="/x-verified.svg"
-                                alt="Verified account"
-                                width={16}
-                                height={16}
-                                className="h-4 w-4 shrink-0"
-                              />
-                            ) : null}
-                          </div>
-                          <span className="text-xs text-zinc-500">
-                            @{context.creatorProfile.identity.username || accountName || "user"}
-                          </span>
-                        </div>
-                      </div>
-
-                      <p className="mt-4 whitespace-pre-wrap break-words text-[15px] leading-7 text-zinc-100">
-                        {context.positiveAnchors[0].text}
-                      </p>
-
-                      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                        <span>
-                          {new Date(context.positiveAnchors[0].createdAt).toLocaleDateString()}
-                        </span>
-                        <span>·</span>
-                        <span>
-                          {computeXWeightedCharacterCount(context.positiveAnchors[0].text)}/
-                          {getXCharacterLimitForAccount(context.creatorProfile.identity.isVerified)}{" "}
-                          chars
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-sm text-zinc-500">insufficient data</p>
-                  )}
-                </div>
-              </article>
-
-              <article className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-                <div className="flex items-center gap-3">
-                  <Edit3 className="h-4 w-4 text-zinc-500" />
-                  <div>
-                    <p className="text-sm font-semibold text-white">Keep / Avoid</p>
-                    <p className="text-xs text-zinc-500">fast reference while drafting</p>
-                  </div>
-                </div>
-
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-emerald-500/25 bg-black/25 p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-300">
-                      Keep doing
-                    </p>
-                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                      {analysisKeepList.length > 0 ? (
-                        analysisKeepList.map((item) => (
-                          <li key={item} className="leading-6">
-                            • {item}
-                          </li>
-                        ))
-                      ) : (
-                        <li className="text-zinc-500">insufficient data</li>
-                      )}
-                    </ul>
-                  </div>
-
-                  <div className="rounded-2xl border border-amber-500/25 bg-black/25 p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-300">
-                      Avoid
-                    </p>
-                    <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                      {analysisAvoidList.length > 0 ? (
-                        analysisAvoidList.map((item) => (
-                          <li key={item} className="leading-6">
-                            • {item}
-                          </li>
-                        ))
-                      ) : (
-                        <li className="text-zinc-500">insufficient data</li>
-                      )}
-                    </ul>
-                  </div>
-                </div>
-              </article>
-            </section>
-
-            <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-white">Evidence</p>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    posts xpo used for this diagnosis
-                  </p>
-                </div>
+          <section className="rounded-3xl border border-white/10 bg-white/[0.02] p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-white">Evidence</p>
+                <p className="mt-1 text-xs text-zinc-500">posts xpo used for this diagnosis</p>
               </div>
+            </div>
 
-              <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                {analysisEvidencePosts.slice(0, 6).map((post) => {
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              {analysisEvidencePosts.length > 0 ? (
+                analysisEvidencePosts.slice(0, 6).map((post) => {
                   const labelTone =
                     post.label === "Strong anchor"
                       ? "border-emerald-500/30 text-emerald-300"
@@ -1367,13 +1533,19 @@ export function ProfileAnalysisDialog(props: ProfileAnalysisDialogProps) {
                       </div>
                     </article>
                   );
-                })}
-              </div>
-            </section>
-          </div>
+                })
+              ) : (
+                <p className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-500">
+                  insufficient data
+                </p>
+              )}
+            </div>
+          </section>
         </div>
+      </div>
 
-        <div className="flex flex-col gap-3 border-t border-white/10 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="border-t border-white/10 px-4 py-4 sm:px-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-1">
             <p className="text-xs text-zinc-500">
               work in progress: profile analysis is still improving. share feedback so we can
@@ -1398,6 +1570,7 @@ export function ProfileAnalysisDialog(props: ProfileAnalysisDialogProps) {
               </p>
             ) : null}
           </div>
+
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
@@ -1437,5 +1610,23 @@ export function ProfileAnalysisDialog(props: ProfileAnalysisDialogProps) {
         </div>
       </div>
     </div>
+  );
+
+  return (
+    <SplitDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Profile analysis"
+      description={`Review profile conversion surfaces and strategy signals for @${displayHandle}.`}
+      headerSlot={headerSlot}
+      mobilePane="left"
+      leftPane={leftPane}
+      rightPane={rightPane}
+      resizable
+      defaultLeftPaneWidth={42}
+      minLeftPaneWidth={34}
+      maxLeftPaneWidth={58}
+      stackOnMobile
+    />
   );
 }

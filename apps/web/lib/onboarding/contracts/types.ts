@@ -71,6 +71,7 @@ export interface XPublicPost {
 
 export interface XPinnedPost extends XPublicPost {
   url?: string | null;
+  imageUrls?: string[] | null;
 }
 
 export interface EngagementBaseline {

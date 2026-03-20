@@ -1,6 +1,6 @@
 function buildMarkdownProseClassName(paragraphTextClass: string): string {
   return [
-    "space-y-2",
+    "space-y-3",
     "text-sm",
     "leading-7",
     "text-zinc-100",
@@ -15,19 +15,39 @@ function buildMarkdownProseClassName(paragraphTextClass: string): string {
     "[&_code]:px-1.5",
     "[&_code]:py-0.5",
     "[&_del]:text-zinc-500",
+    "[&_h1]:mb-3",
+    "[&_h1]:mt-6",
     "[&_h1]:text-xl",
     "[&_h1]:font-semibold",
+    "[&_h2]:mb-3",
+    "[&_h2]:mt-7",
     "[&_h2]:text-lg",
     "[&_h2]:font-semibold",
+    "[&_h3]:mb-2",
+    "[&_h3]:mt-6",
     "[&_h3]:text-base",
     "[&_h3]:font-semibold",
-    "[&_li]:ml-4",
+    "[&_li]:pl-1",
     "[&_li]:whitespace-pre-wrap",
+    "[&_li>ol]:mt-2",
+    "[&_li>ul]:mt-2",
+    "[&_ol]:my-3",
     "[&_ol]:list-decimal",
+    "[&_ol]:pl-5",
+    "[&_ol]:space-y-2",
+    "[&_ol_ol]:my-2",
+    "[&_ol_ol]:pl-4",
+    "[&_ol_ol]:space-y-1",
     `[&_p]:${paragraphTextClass}`,
     "[&_p]:whitespace-pre-wrap",
     "[&_strong]:font-semibold",
+    "[&_ul]:my-3",
     "[&_ul]:list-disc",
+    "[&_ul]:pl-5",
+    "[&_ul]:space-y-2",
+    "[&_ul_ul]:my-2",
+    "[&_ul_ul]:pl-4",
+    "[&_ul_ul]:space-y-1",
   ].join(" ");
 }
 
@@ -58,24 +78,58 @@ function applyInlineMarkdown(value: string): string {
     );
 }
 
+type ListType = "ul" | "ol";
+
+type ListTree = {
+  type: ListType;
+  items: Array<{
+    content: string;
+    children: ListTree[];
+  }>;
+};
+
+function parseListMarker(rawLine: string): { indent: number; type: ListType; content: string } | null {
+  const match = rawLine.match(/^(\s*)([-*]|\d+\.)\s+(.*)$/);
+  if (!match) {
+    return null;
+  }
+
+  const [, spacing, marker, content] = match;
+  return {
+    indent: Math.floor(spacing.length / 2),
+    type: /^\d+\.$/.test(marker) ? "ol" : "ul",
+    content,
+  };
+}
+
+function renderListTree(node: ListTree): string {
+  const items = node.items
+    .map((item) => {
+      const children = item.children.map((child) => renderListTree(child)).join("");
+      return `<li>${applyInlineMarkdown(item.content)}${children}</li>`;
+    })
+    .join("");
+
+  return `<${node.type}>${items}</${node.type}>`;
+}
+
 export function renderMarkdownToHtml(markdown: string): string {
   const source = escapeHtml(markdown).replace(/\r\n/g, "\n");
   const lines = source.split("\n");
   const html: string[] = [];
-  let listType: "ul" | "ol" | null = null;
-  let listItems: string[] = [];
+  let listRoots: ListTree[] = [];
+  let listStack: Array<{ indent: number; tree: ListTree }> = [];
   let paragraphLines: string[] = [];
 
   const flushList = () => {
-    if (!listType || listItems.length === 0) {
-      listType = null;
-      listItems = [];
+    if (listRoots.length === 0) {
+      listStack = [];
       return;
     }
 
-    html.push(`<${listType}>${listItems.join("")}</${listType}>`);
-    listType = null;
-    listItems = [];
+    html.push(...listRoots.map((tree) => renderListTree(tree)));
+    listRoots = [];
+    listStack = [];
   };
 
   const flushParagraph = () => {
@@ -95,25 +149,48 @@ export function renderMarkdownToHtml(markdown: string): string {
       continue;
     }
 
-    if (/^[-*]\s+/.test(trimmedLine)) {
+    const listMarker = parseListMarker(rawLine);
+    if (listMarker) {
       flushParagraph();
-      const item = applyInlineMarkdown(trimmedLine.replace(/^[-*]\s+/, ""));
-      if (listType !== "ul") {
-        flushList();
-        listType = "ul";
-      }
-      listItems.push(`<li>${item}</li>`);
-      continue;
-    }
+      const targetIndent = Math.max(0, listMarker.indent);
 
-    if (/^\d+\.\s+/.test(trimmedLine)) {
-      flushParagraph();
-      const item = applyInlineMarkdown(trimmedLine.replace(/^\d+\.\s+/, ""));
-      if (listType !== "ol") {
-        flushList();
-        listType = "ol";
+      while (listStack.length > 0 && targetIndent < listStack[listStack.length - 1]!.indent) {
+        listStack.pop();
       }
-      listItems.push(`<li>${item}</li>`);
+
+      let current = listStack[listStack.length - 1];
+      const needsNewTree =
+        !current ||
+        current.indent !== targetIndent ||
+        current.tree.type !== listMarker.type;
+
+      if (needsNewTree) {
+        const tree: ListTree = {
+          type: listMarker.type,
+          items: [],
+        };
+
+        const parent = listStack
+          .slice()
+          .reverse()
+          .find((entry) => entry.indent < targetIndent);
+        if (parent && parent.tree.items.length > 0) {
+          parent.tree.items[parent.tree.items.length - 1]!.children.push(tree);
+        } else {
+          listRoots.push(tree);
+        }
+
+        listStack = [...listStack.filter((entry) => entry.indent < targetIndent), {
+          indent: targetIndent,
+          tree,
+        }];
+        current = listStack[listStack.length - 1];
+      }
+
+      current?.tree.items.push({
+        content: listMarker.content,
+        children: [],
+      });
       continue;
     }
 

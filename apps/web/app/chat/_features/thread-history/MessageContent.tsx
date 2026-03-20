@@ -78,7 +78,11 @@ export function MessageContent(props: MessageContentProps) {
 
   if (role === "user") {
     if (replySourcePreview) {
-      return <ReplySourcePreviewCard preview={replySourcePreview} showExternalCta />;
+      return (
+        <div className="w-full max-w-[600px]">
+          <ReplySourcePreviewCard preview={replySourcePreview} showExternalCta />
+        </div>
+      );
     }
 
     const hasText = content.trim().length > 0;

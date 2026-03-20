@@ -19,6 +19,31 @@ function clipPromptSnippet(value: string, maxLength: number): string {
   return `${normalized.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
 }
 
+function buildPinnedImagePromptContext(artifact: ProfileAnalysisArtifact): string {
+  const analysis = artifact.pinnedPostImageAnalysis;
+  if (!analysis) {
+    return "";
+  }
+
+  const parts = [
+    analysis.strategicSignal ? clipPromptSnippet(analysis.strategicSignal, 160) : "",
+    analysis.readableText
+      ? `Readable text in the image: "${clipPromptSnippet(analysis.readableText, 120)}".`
+      : "",
+    analysis.keyDetails.length > 0
+      ? `Key visual details: ${clipPromptSnippet(analysis.keyDetails.join(", "), 160)}.`
+      : "",
+  ]
+    .map((value) => normalizeText(value))
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return "";
+  }
+
+  return ` Preserve the useful image context from the current pinned post: ${parts.join(" ")}`;
+}
+
 function buildChip(
   label: string,
   value: string,
@@ -53,6 +78,7 @@ function buildBannerChip(): CreatorChatQuickReply {
 function buildPinnedChip(artifact: ProfileAnalysisArtifact): CreatorChatQuickReply {
   const pinnedPreview = artifact.pinnedPost?.text?.trim();
   const pinnedDiagnosis = artifact.audit.pinnedTweetCheck.summary.trim();
+  const pinnedImageContext = buildPinnedImagePromptContext(artifact);
   const direction = [
     artifact.audit.pinnedTweetCheck.promptSuggestions?.originStory,
     artifact.audit.pinnedTweetCheck.promptSuggestions?.coreThesis,
@@ -67,10 +93,10 @@ function buildPinnedChip(artifact: ProfileAnalysisArtifact): CreatorChatQuickRep
     pinnedPreview
       ? `Draft a stronger pinned post as one shortform post, not a thread. Fix this issue from the audit: ${pinnedDiagnosis} Keep the best proof from the current pinned post: "${clipPromptSnippet(pinnedPreview, 220)}".${
           direction ? ` Use this direction from the audit: ${direction}.` : ""
-        }`
+        }${pinnedImageContext}`
       : `Draft a stronger pinned post as one shortform post, not a thread. Fix this issue from the audit: ${pinnedDiagnosis} Introduce me with proof and give new visitors a clear reason to follow.${
           direction ? ` Use this direction from the audit: ${direction}.` : ""
-        }`,
+        }${pinnedImageContext}`,
     {
       explicitIntent: "draft",
     },

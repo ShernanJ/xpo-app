@@ -1,6 +1,7 @@
 "use client";
 
 import type {
+  ContentHubContentType,
   ContentItemRecord,
   ContentItemSummaryRecord,
   ContentStatus,
@@ -30,6 +31,12 @@ export const NO_GROUP_LABEL = "No Group";
 
 export type ContentDateBucketLabel = (typeof DATE_BUCKET_ORDER)[number];
 
+export interface ContentDateGroup {
+  label: ContentDateBucketLabel;
+  items: ContentItemSummaryRecord[];
+  postedCount: number;
+}
+
 export function getContentStatusLabel(status: ContentStatus): string {
   return CONTENT_HUB_STATUS_LABEL[status];
 }
@@ -58,6 +65,39 @@ export function getFullArtifactText(
   }
 
   return getPrimaryPreviewText(item);
+}
+
+export function getContentActivityTimestamp(
+  item: Pick<ContentItemSummaryRecord, "createdAt" | "postedAt">,
+  contentType: ContentHubContentType,
+) {
+  if (contentType === "replies") {
+    return item.postedAt ?? item.createdAt;
+  }
+
+  return item.createdAt;
+}
+
+export function getContentTimestampDescriptor(
+  item: Pick<ContentItemSummaryRecord, "createdAt" | "postedAt">,
+  contentType: ContentHubContentType,
+) {
+  if (contentType !== "replies") {
+    return {
+      label: "Created",
+      value: item.createdAt,
+    };
+  }
+
+  return item.postedAt
+    ? {
+        label: "Posted",
+        value: item.postedAt,
+      }
+    : {
+        label: "Saved",
+        value: item.createdAt,
+      };
 }
 
 export function getSearchableContentText(item: ContentItemSummaryRecord): string {
@@ -118,8 +158,13 @@ export function resolveDateBucketLabel(
 
 export function groupContentItemsByDate(
   items: ContentItemSummaryRecord[],
-  now = new Date(),
+  options?: {
+    contentType?: ContentHubContentType;
+    now?: Date;
+  },
 ) {
+  const contentType = options?.contentType ?? "posts_threads";
+  const now = options?.now ?? new Date();
   const groups = new Map<ContentDateBucketLabel, ContentItemSummaryRecord[]>();
 
   for (const label of DATE_BUCKET_ORDER) {
@@ -127,12 +172,23 @@ export function groupContentItemsByDate(
   }
 
   for (const item of items) {
-    groups.get(resolveDateBucketLabel(item.createdAt, now))?.push(item);
+    groups
+      .get(resolveDateBucketLabel(getContentActivityTimestamp(item, contentType), now))
+      ?.push(item);
   }
 
   return DATE_BUCKET_ORDER.flatMap((label) => {
-    const entries = groups.get(label) ?? [];
-    return entries.length > 0 ? [{ label, items: entries }] : [];
+    const entries = [...(groups.get(label) ?? [])].sort((left, right) =>
+      getContentActivityTimestamp(right, contentType).localeCompare(
+        getContentActivityTimestamp(left, contentType),
+      ),
+    );
+    const postedCount =
+      contentType === "replies"
+        ? entries.filter((item) => Boolean(item.postedAt)).length
+        : 0;
+
+    return entries.length > 0 ? [{ label, items: entries, postedCount }] : [];
   });
 }
 
@@ -217,4 +273,8 @@ export function formatContentTimestamp(value: string) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+export function formatPostedReplyCount(count: number) {
+  return count === 1 ? "1 posted" : `${count} posted`;
 }

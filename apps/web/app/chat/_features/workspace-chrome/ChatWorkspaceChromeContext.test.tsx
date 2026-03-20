@@ -108,15 +108,10 @@ function renderChrome(
   return props;
 }
 
-test("wires header tool actions through the workspace chrome provider", async () => {
-  const user = userEvent.setup();
-  const props = renderChrome();
+test("hides the header tools button", () => {
+  renderChrome();
 
-  await user.click(screen.getByRole("button", { name: "Saved context" }));
-
-  expect(props.setToolsMenuOpen).toHaveBeenCalledWith(false);
-  expect(props.resetSourceMaterialDraft).toHaveBeenCalledTimes(1);
-  expect(props.openSourceMaterials).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("button", { name: /tools/i })).not.toBeInTheDocument();
 });
 
 test("wires sidebar and account actions through the workspace chrome provider", async () => {
@@ -131,7 +126,7 @@ test("wires sidebar and account actions through the workspace chrome provider", 
   await user.click(screen.getByRole("button", { name: /New Chat/i }));
   await user.click(screen.getByRole("button", { name: "Preferences" }));
   await user.click(screen.getByRole("button", { name: "Feedback" }));
-  await user.click(screen.getByRole("button", { name: "Posts & Threads" }));
+  await user.click(screen.getByRole("button", { name: "Drafts" }));
   await user.click(screen.getByRole("button", { name: "Add Account" }));
   await user.click(screen.getByRole("button", { name: "Settings" }));
   await user.click(screen.getByRole("button", { name: "Upgrade to Pro" }));

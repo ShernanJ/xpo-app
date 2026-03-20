@@ -39,6 +39,7 @@ interface SplitDialogProps {
   defaultLeftPaneWidth?: number;
   minLeftPaneWidth?: number;
   maxLeftPaneWidth?: number;
+  stackOnMobile?: boolean;
 }
 
 function clampPaneWidth(value: number, min: number, max: number) {
@@ -64,6 +65,7 @@ export function SplitDialog(props: SplitDialogProps) {
     defaultLeftPaneWidth = 44,
     minLeftPaneWidth = 34,
     maxLeftPaneWidth = 68,
+    stackOnMobile = false,
   } = props;
   const titleId = useId();
   const descriptionId = useId();
@@ -227,7 +229,9 @@ export function SplitDialog(props: SplitDialogProps) {
           ref={panesRef}
           style={panesStyle}
           className={[
-            "relative grid min-h-0 flex-1 grid-cols-1",
+            "relative grid min-h-0 flex-1",
+            stackOnMobile ? "overflow-y-auto md:overflow-hidden" : "",
+            stackOnMobile ? "grid-cols-1 grid-rows-[auto_minmax(0,1fr)]" : "grid-cols-1",
             resizable
               ? "md:[grid-template-columns:var(--split-left-pane-width)_minmax(0,1fr)]"
               : "md:grid-cols-[minmax(320px,44%)_minmax(0,1fr)]",
@@ -237,9 +241,9 @@ export function SplitDialog(props: SplitDialogProps) {
         >
           <section
             className={[
-              "min-h-0 overflow-hidden",
+              stackOnMobile ? "min-h-0 overflow-visible md:overflow-hidden" : "min-h-0 overflow-hidden",
               resizable ? "" : "md:border-r md:border-white/10",
-              mobilePane === "right" ? "hidden md:block" : "block",
+              stackOnMobile ? "block" : mobilePane === "right" ? "hidden md:block" : "block",
               leftPaneClassName ?? "",
             ]
               .filter(Boolean)
@@ -270,8 +274,8 @@ export function SplitDialog(props: SplitDialogProps) {
 
           <section
             className={[
-              "min-h-0 overflow-hidden",
-              mobilePane === "left" ? "hidden md:block" : "block",
+              stackOnMobile ? "min-h-0 overflow-visible md:overflow-hidden" : "min-h-0 overflow-hidden",
+              stackOnMobile ? "block" : mobilePane === "left" ? "hidden md:block" : "block",
               rightPaneClassName ?? "",
             ]
               .filter(Boolean)

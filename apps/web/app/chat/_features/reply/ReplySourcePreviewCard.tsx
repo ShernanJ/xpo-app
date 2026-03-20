@@ -1,15 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import Image from "next/image";
-import { ArrowUpRight, Images, Maximize2, X } from "lucide-react";
+import { ArrowUpRight, Images } from "lucide-react";
 
 import type {
   ReplySourcePreview,
   ReplySourcePreviewMediaItem,
   ReplySourcePreviewPost,
 } from "@/lib/reply-engine/replySourcePreview";
+import { InteractivePreviewImage } from "../shared/InteractivePreviewImage";
 
 interface ReplySourcePreviewCardProps {
   preview: ReplySourcePreview;
@@ -18,11 +17,6 @@ interface ReplySourcePreviewCardProps {
   size?: "default" | "compact";
   showExternalCta?: boolean;
   ctaLabel?: string;
-}
-
-interface ExpandedReplyImage {
-  altText: string | null;
-  url: string;
 }
 
 function getToneClassName(tone: ReplySourcePreviewCardProps["tone"]) {
@@ -64,18 +58,13 @@ function renderAuthorAvatar(
 
 function renderMediaGrid(args: {
   media: ReplySourcePreviewMediaItem[];
-  onOpenImage: (image: ExpandedReplyImage) => void;
   size: NonNullable<ReplySourcePreviewCardProps["size"]>;
 }) {
-  const { media, onOpenImage, size } = args;
+  const { media, size } = args;
   const imageMedia = media.filter(
     (item) => item.type === "image" && typeof item.url === "string" && item.url.trim(),
   );
   const secondaryMedia = media.filter((item) => item.type !== "image" || !item.url);
-  const thumbnailClassName =
-    size === "compact"
-      ? "h-14 w-full cursor-zoom-in object-cover transition duration-200 group-hover:scale-[1.02] md:h-16"
-      : "h-20 w-full cursor-zoom-in object-cover transition duration-200 group-hover:scale-[1.02] md:h-24";
 
   if (imageMedia.length === 0 && secondaryMedia.length === 0) {
     return null;
@@ -84,34 +73,21 @@ function renderMediaGrid(args: {
   return (
     <div className="mt-3 space-y-2.5">
       {imageMedia.length > 0 ? (
-        <div
-          className={`grid gap-2 ${
-            imageMedia.length === 1 ? "grid-cols-1" : "grid-cols-2"
-          }`}
-        >
+        <div className="flex flex-wrap gap-2">
           {imageMedia.slice(0, 4).map((item, index) => (
-            <button
+            <InteractivePreviewImage
               key={`${item.url}-${index}`}
-              type="button"
-              onClick={() =>
-                onOpenImage({
-                  url: item.url ?? "",
-                  altText: item.altText ?? null,
-                })
-              }
-              className="group relative overflow-hidden rounded-2xl border border-white/10 bg-[#050505] text-left transition hover:border-white/20"
-              aria-label={`Expand source image ${index + 1}`}
-            >
-              <img
-                src={item.url ?? ""}
-                alt={item.altText || "Source post image"}
-                className={thumbnailClassName}
-                loading="lazy"
-              />
-              <span className="pointer-events-none absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
-                <Maximize2 className="h-3.5 w-3.5" />
-              </span>
-            </button>
+              src={item.url ?? ""}
+              alt={item.altText || "Source post image"}
+              caption={item.altText ?? null}
+              buttonLabel={`Expand source image ${index + 1}`}
+              dialogLabel="Expanded source image"
+              frameClassName="group relative w-full max-w-[400px] overflow-hidden rounded-2xl border border-white/10 bg-[#050505] text-left transition hover:border-white/20"
+              imageClassName="aspect-square w-full object-cover"
+              overlayClassName={`pointer-events-none absolute right-2 top-2 inline-flex items-center justify-center rounded-full bg-black/65 text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] ${
+                size === "compact" ? "h-8 w-8" : "h-9 w-9"
+              }`}
+            />
           ))}
         </div>
       ) : null}
@@ -137,10 +113,9 @@ function ReplySourcePostCard(props: {
   post: ReplySourcePreviewPost;
   quotePreview?: ReplySourcePreviewPost | null;
   nested?: boolean;
-  onOpenImage: (image: ExpandedReplyImage) => void;
   size: NonNullable<ReplySourcePreviewCardProps["size"]>;
 }) {
-  const { post, quotePreview = null, nested = false, onOpenImage, size } = props;
+  const { post, quotePreview = null, nested = false, size } = props;
   const bodyTextClassName =
     size === "compact"
       ? "text-[13px] leading-5 text-zinc-200"
@@ -194,7 +169,6 @@ function ReplySourcePostCard(props: {
           </p>
           {renderMediaGrid({
             media: post.media,
-            onOpenImage,
             size,
           })}
 
@@ -203,7 +177,6 @@ function ReplySourcePostCard(props: {
               <ReplySourcePostCard
                 post={quotePreview}
                 nested
-                onOpenImage={onOpenImage}
                 size={size}
               />
             </div>
@@ -223,115 +196,44 @@ export function ReplySourcePreviewCard(props: ReplySourcePreviewCardProps) {
     showExternalCta = false,
     ctaLabel = "Reply",
   } = props;
-  const [expandedImage, setExpandedImage] = useState<ExpandedReplyImage | null>(null);
-
-  useEffect(() => {
-    if (!expandedImage) {
-      return;
-    }
-
-    const previousBodyOverflow = document.body.style.overflow;
-    const previousHtmlOverflow = document.documentElement.style.overflow;
-    document.body.style.overflow = "hidden";
-    document.documentElement.style.overflow = "hidden";
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setExpandedImage(null);
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = previousBodyOverflow;
-      document.documentElement.style.overflow = previousHtmlOverflow;
-    };
-  }, [expandedImage]);
-
-  const expandedImageModal =
-    expandedImage && typeof document !== "undefined"
-      ? createPortal(
-          <div
-            className="fixed inset-0 z-[240] flex items-center justify-center bg-black/88 px-4 py-6 backdrop-blur-md"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Expanded source image"
-            onMouseDown={(event) => {
-              if (event.target === event.currentTarget) {
-                setExpandedImage(null);
-              }
-            }}
-          >
-            <div className="relative w-full max-w-6xl">
-              <button
-                type="button"
-                onClick={() => setExpandedImage(null)}
-                className="absolute right-3 top-3 z-10 inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80"
-                aria-label="Close expanded image"
-              >
-                <X className="h-4 w-4" />
-              </button>
-
-              <div className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#050505] p-3 shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
-                <img
-                  src={expandedImage.url}
-                  alt={expandedImage.altText || "Expanded source image"}
-                  className="max-h-[88vh] w-full rounded-[1.2rem] object-contain"
-                />
-                {expandedImage.altText ? (
-                  <p className="px-2 pb-1 pt-3 text-sm leading-6 text-zinc-300">
-                    {expandedImage.altText}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )
-      : null;
 
   return (
-    <>
-      <article
-        className={[
-          size === "compact"
-            ? "rounded-[1.3rem] border px-3 py-3"
-            : "rounded-[1.5rem] border px-4 py-4",
-          getToneClassName(tone),
-          className ?? "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-      >
-        {showExternalCta && preview.sourceUrl ? (
-          <div className="flex items-start justify-end">
-            <a
-              href={preview.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className={`inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] font-medium text-zinc-200 transition hover:bg-white/[0.08] hover:text-white ${
-                size === "compact"
-                  ? "px-2.5 py-1 text-[10px]"
-                  : "px-3 py-1.5 text-[11px]"
-              }`}
-            >
-              {ctaLabel}
-              <ArrowUpRight className="h-3.5 w-3.5" />
-            </a>
-          </div>
-        ) : null}
-
-        <div className={showExternalCta && preview.sourceUrl ? "mt-3" : undefined}>
-          <ReplySourcePostCard
-            post={preview}
-            quotePreview={preview.quotedPost ?? null}
-            onOpenImage={setExpandedImage}
-            size={size}
-          />
+    <article
+      className={[
+        size === "compact"
+          ? "rounded-[1.3rem] border px-3 py-3"
+          : "rounded-[1.5rem] border px-4 py-4",
+        getToneClassName(tone),
+        className ?? "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {showExternalCta && preview.sourceUrl ? (
+        <div className="flex items-start justify-end">
+          <a
+            href={preview.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className={`inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] font-medium text-zinc-200 transition hover:bg-white/[0.08] hover:text-white ${
+              size === "compact"
+                ? "px-2.5 py-1 text-[10px]"
+                : "px-3 py-1.5 text-[11px]"
+            }`}
+          >
+            {ctaLabel}
+            <ArrowUpRight className="h-3.5 w-3.5" />
+          </a>
         </div>
-      </article>
-      {expandedImageModal}
-    </>
+      ) : null}
+
+      <div className={showExternalCta && preview.sourceUrl ? "mt-3" : undefined}>
+        <ReplySourcePostCard
+          post={preview}
+          quotePreview={preview.quotedPost ?? null}
+          size={size}
+        />
+      </div>
+    </article>
   );
 }

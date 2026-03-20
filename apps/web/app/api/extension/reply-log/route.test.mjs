@@ -170,6 +170,7 @@ test("POST returns ok:true when persistence throws after auth and validation", a
         recordCalls.push(payload);
       },
       saveReplyGoldenExample: async () => false,
+      syncPostedReplyDraft: async () => {},
       logExtensionRouteFailure: (payload) => {
         logCalls.push(payload);
       },
@@ -283,6 +284,7 @@ test("POST persists observed metrics and follow conversion outcome metadata", as
         eventCalls.push(payload);
       },
       saveReplyGoldenExample: async () => false,
+      syncPostedReplyDraft: async () => {},
       logExtensionRouteFailure: () => {},
     },
   );
@@ -306,6 +308,58 @@ test("POST persists observed metrics and follow conversion outcome metadata", as
   );
   assert.equal(eventCalls[0]?.properties.profileClicks, 3);
   assert.equal(eventCalls[0]?.properties.followerDelta, 1);
+});
+
+test("POST promotes the matching saved reply draft when a reply is posted", async () => {
+  const syncCalls = [];
+
+  const response = await handleExtensionReplyLogPost(
+    new Request("http://localhost/api/extension/reply-log", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer token_123",
+      },
+      body: JSON.stringify({
+        ...validPayload,
+        event: "posted",
+        copiedReplyText: "original copied text",
+        finalPostedText: "final posted reply text",
+      }),
+    }),
+    {
+      authenticateExtensionRequest: async () => ({
+        user: {
+          id: "user_1",
+          activeXHandle: "standev",
+        },
+      }),
+      resolveExtensionHandleForRequest: async () => ({
+        ok: true,
+        xHandle: "handle_b",
+      }),
+      parseExtensionReplyLogRequest,
+      findReplyOpportunity: async () => null,
+      mergeStoredOpportunityNotes: () => ({}),
+      updateReplyOpportunity: async () => {},
+      recordProductEvent: async () => {},
+      saveReplyGoldenExample: async () => false,
+      syncPostedReplyDraft: async (payload) => {
+        syncCalls.push(payload);
+      },
+      logExtensionRouteFailure: () => {},
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true });
+  assert.equal(syncCalls.length, 1);
+  assert.equal(syncCalls[0]?.userId, "user_1");
+  assert.equal(syncCalls[0]?.xHandle, "handle_b");
+  assert.equal(syncCalls[0]?.replySourcePostId, "post_1");
+  assert.equal(syncCalls[0]?.sourceAuthorHandle, "builder");
+  assert.equal(syncCalls[0]?.finalReplyText, "final posted reply text");
+  assert.equal(syncCalls[0]?.postedAt instanceof Date, true);
 });
 
 test("POST accepts minimal edit-learning payloads and saves changed drafts", async () => {
@@ -347,6 +401,7 @@ test("POST accepts minimal edit-learning payloads and saves changed drafts", asy
         saveCalls.push(payload);
         return true;
       },
+      syncPostedReplyDraft: async () => {},
       logExtensionRouteFailure: () => {},
     },
   );
@@ -395,6 +450,7 @@ test("POST skips Golden Example persistence when the final reply is unchanged", 
         saveCalls.push(payload);
         return true;
       },
+      syncPostedReplyDraft: async () => {},
       logExtensionRouteFailure: () => {},
     },
   );
@@ -439,6 +495,7 @@ test("POST uses the explicitly requested handle instead of session activeXHandle
         eventCalls.push(payload);
       },
       saveReplyGoldenExample: async () => false,
+      syncPostedReplyDraft: async () => {},
       logExtensionRouteFailure: () => {},
     },
   );

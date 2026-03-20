@@ -9,6 +9,7 @@ function createTweetNode(args: {
   createdAt?: string;
   bannerUrl?: string | null;
   pinnedTweetIds?: string[];
+  imageUrls?: string[];
 }) {
   return {
     __typename: "Tweet",
@@ -21,6 +22,17 @@ function createTweetNode(args: {
       reply_count: 3,
       retweet_count: 2,
       quote_count: 1,
+      ...(args.imageUrls?.length
+        ? {
+            extended_entities: {
+              media: args.imageUrls.map((imageUrl, index) => ({
+                id_str: `${args.id}-media-${index}`,
+                type: "photo",
+                media_url_https: imageUrl,
+              })),
+            },
+          }
+        : {}),
     },
     core: {
       user_results: {
@@ -114,6 +126,7 @@ test("parseUserTweetsGraphqlPayload extracts banner and pinned tweet metadata", 
       id: "222",
       text: "Pinned authority thread about profile conversion and AI growth systems.",
       bannerUrl: "https://pbs.twimg.com/profile_banners/123456",
+      imageUrls: ["https://pbs.twimg.com/media/pinned-photo.jpg"],
     }),
   ]);
 
@@ -131,6 +144,9 @@ test("parseUserTweetsGraphqlPayload extracts banner and pinned tweet metadata", 
     parsed.pinnedPost?.url,
     "https://x.com/stan/status/222",
   );
+  assert.deepEqual(parsed.pinnedPost?.imageUrls, [
+    "https://pbs.twimg.com/media/pinned-photo.jpg",
+  ]);
 });
 
 test("parseUserTweetsGraphqlPayload prefers top-level user banner metadata when tweet nodes omit it", () => {

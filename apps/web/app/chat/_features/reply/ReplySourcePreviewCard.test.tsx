@@ -62,7 +62,8 @@ test("renders compact image thumbnails that expand into a modal", async () => {
   const thumbnailImage = screen.getByAltText("Main dashboard screenshot");
 
   expect(expandButton).toBeVisible();
-  expect(thumbnailImage).toHaveClass("h-14", "md:h-16");
+  expect(expandButton.className).toContain("max-w-[400px]");
+  expect(thumbnailImage).toHaveClass("aspect-square");
   expect(screen.queryByText("Tap to expand")).toBeNull();
   expect(screen.queryByRole("dialog", { name: "Expanded source image" })).toBeNull();
 

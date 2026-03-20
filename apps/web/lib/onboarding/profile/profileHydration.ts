@@ -1,4 +1,5 @@
 import type { OnboardingResult, XPinnedPost, XPublicProfile } from "../types.ts";
+import { resolvePinnedPostImageUrls } from "./pinnedPostMedia.ts";
 
 async function resolveDefaultFreshProfile(accountInput: string) {
   const { resolveFreshOnboardingProfilePreview } = await import("./profilePreview.ts");
@@ -48,8 +49,86 @@ function isSamePinnedPost(
   return (
     left.id === right.id &&
     left.text === right.text &&
-    left.createdAt === right.createdAt
+    left.createdAt === right.createdAt &&
+    left.url === right.url &&
+    JSON.stringify(left.imageUrls ?? null) === JSON.stringify(right.imageUrls ?? null)
   );
+}
+
+function normalizePinnedImageUrls(value: string[] | null | undefined): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const normalized = Array.from(
+    new Set(value.map((entry) => entry?.trim()).filter((entry): entry is string => Boolean(entry))),
+  );
+  return normalized.length > 0 ? normalized : null;
+}
+
+function mergePinnedPost(
+  existing: XPinnedPost | null | undefined,
+  incoming: XPinnedPost | null | undefined,
+): XPinnedPost | null {
+  if (!existing && !incoming) {
+    return null;
+  }
+
+  if (!existing) {
+    return incoming ?? null;
+  }
+
+  if (!incoming) {
+    return existing;
+  }
+
+  if (existing.id !== incoming.id) {
+    return incoming;
+  }
+
+  return {
+    ...existing,
+    ...incoming,
+    text: incoming.text || existing.text,
+    createdAt: incoming.createdAt || existing.createdAt,
+    url: incoming.url ?? existing.url ?? null,
+    imageUrls:
+      normalizePinnedImageUrls(incoming.imageUrls) ??
+      normalizePinnedImageUrls(existing.imageUrls),
+  };
+}
+
+async function hydratePinnedPostMedia(
+  onboarding: OnboardingResult,
+  resolveImageUrls: (
+    pinnedPost: XPinnedPost | null | undefined,
+  ) => Promise<string[] | null> = resolvePinnedPostImageUrls,
+): Promise<OnboardingResult> {
+  if (!onboarding.pinnedPost) {
+    return onboarding;
+  }
+
+  if (normalizePinnedImageUrls(onboarding.pinnedPost.imageUrls)) {
+    return onboarding;
+  }
+
+  try {
+    const imageUrls = await resolveImageUrls(onboarding.pinnedPost);
+    const normalizedImageUrls = normalizePinnedImageUrls(imageUrls);
+    if (!normalizedImageUrls) {
+      return onboarding;
+    }
+
+    return {
+      ...onboarding,
+      pinnedPost: {
+        ...onboarding.pinnedPost,
+        imageUrls: normalizedImageUrls,
+      },
+    };
+  } catch {
+    return onboarding;
+  }
 }
 
 export function mergeFreshProfileIntoOnboarding(
@@ -132,7 +211,7 @@ export function mergeLatestScrapeIntoOnboarding(
 
   return {
     ...withFreshProfile,
-    pinnedPost: latestScrape.pinnedPost ?? null,
+    pinnedPost: mergePinnedPost(withFreshProfile.pinnedPost, latestScrape.pinnedPost),
   };
 }
 
@@ -174,18 +253,24 @@ export async function hydrateOnboardingProfileForAnalysis(
       }
     | null
   > = resolveDefaultLatestScrapeCapture,
+  resolvePinnedPostMediaUrls: (
+    pinnedPost: XPinnedPost | null | undefined,
+  ) => Promise<string[] | null> = resolvePinnedPostImageUrls,
 ): Promise<OnboardingResult> {
   const withFreshProfile = await hydrateOnboardingProfile(onboarding, resolveProfile);
   const account = onboarding.account || onboarding.profile.username;
   if (!account) {
-    return withFreshProfile;
+    return hydratePinnedPostMedia(withFreshProfile, resolvePinnedPostMediaUrls);
   }
 
   try {
     const latestScrape = await resolveLatestScrape(account);
-    return mergeLatestScrapeIntoOnboarding(withFreshProfile, latestScrape);
+    return hydratePinnedPostMedia(
+      mergeLatestScrapeIntoOnboarding(withFreshProfile, latestScrape),
+      resolvePinnedPostMediaUrls,
+    );
   } catch {
-    return withFreshProfile;
+    return hydratePinnedPostMedia(withFreshProfile, resolvePinnedPostMediaUrls);
   }
 }
 

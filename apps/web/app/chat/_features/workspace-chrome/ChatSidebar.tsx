@@ -136,7 +136,7 @@ export function ChatSidebar() {
                   className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 transition hover:bg-white/[0.03] hover:text-zinc-200"
                 >
                   <Pin className="h-4 w-4 shrink-0" />
-                  <span>Posts &amp; Threads</span>
+                  <span>Drafts</span>
                 </button>
                 <button
                   type="button"

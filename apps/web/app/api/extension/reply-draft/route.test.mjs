@@ -224,6 +224,63 @@ test("parseExtensionReplyDraftRequest accepts lightweight quotedPost and top-lev
   }
 });
 
+test("parseExtensionReplyDraftRequest accepts source and quoted author display names", () => {
+  const parsed = parseExtensionReplyDraftRequest({
+    tweetId: "11",
+    tweetText: "this works because the example is concrete",
+    authorHandle: "creator",
+    authorDisplayName: "Creator Name",
+    tweetUrl: "https://x.com/creator/status/11",
+    quotedPost: {
+      author: {
+        handle: "@quoted",
+        displayName: "Quoted Name",
+      },
+      text: "proof is usually what makes the reply land",
+    },
+    stage: "0_to_1k",
+    tone: "builder",
+    goal: "followers",
+  });
+
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) {
+    assert.equal(parsed.data.authorDisplayName, "Creator Name");
+    assert.equal(parsed.data.quotedPost?.authorDisplayName, "Quoted Name");
+  }
+});
+
+test("parseExtensionReplyDraftRequest reads nested author display name aliases", () => {
+  const parsed = parseExtensionReplyDraftRequest({
+    post: {
+      postId: "12",
+      text: "the screenshot already did half the persuasion",
+      url: "https://x.com/example/status/12",
+      author: {
+        handle: "@example",
+        name: "Example Person",
+      },
+      quotedPost: {
+        id: "13",
+        text: "screenshots are carrying distribution now",
+        authorName: "Quoted Person",
+        author: {
+          handle: "@quoted_person",
+        },
+      },
+    },
+    stage: "0_to_1k",
+    tone: "builder",
+    goal: "followers",
+  });
+
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) {
+    assert.equal(parsed.data.authorDisplayName, "Example Person");
+    assert.equal(parsed.data.quotedPost?.authorDisplayName, "Quoted Person");
+  }
+});
+
 test("parseExtensionReplyDraftRequest can synthesize tweetUrl from handle and tweetId", () => {
   const parsed = parseExtensionReplyDraftRequest({
     tweetId: "3",

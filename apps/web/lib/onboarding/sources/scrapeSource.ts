@@ -1,4 +1,5 @@
 import { resolveFreshOnboardingProfilePreview } from "../profile/profilePreview";
+import { resolvePinnedPostImageUrls } from "../profile/pinnedPostMedia";
 import {
   isScrapeCaptureExpired,
   readLatestScrapeCaptureByAccount,
@@ -97,11 +98,21 @@ export async function resolveScrapeDataSource(
       : {}),
     isVerified: latestCapture.profile.isVerified || freshPreview?.isVerified || false,
   };
+  const pinnedPostImageUrls =
+    latestCapture.pinnedPost && (!latestCapture.pinnedPost.imageUrls || latestCapture.pinnedPost.imageUrls.length === 0)
+      ? await resolvePinnedPostImageUrls(latestCapture.pinnedPost).catch(() => null)
+      : latestCapture.pinnedPost?.imageUrls ?? null;
+  const pinnedPost = latestCapture.pinnedPost
+    ? {
+        ...latestCapture.pinnedPost,
+        imageUrls: pinnedPostImageUrls,
+      }
+    : null;
 
   return {
     source: "scrape",
     profile,
-    pinnedPost: latestCapture.pinnedPost ?? null,
+    pinnedPost,
     posts: latestCapture.posts.slice(0, MAX_ONBOARDING_ANALYSIS_POSTS),
     replyPosts: (latestCapture.replyPosts ?? []).slice(
       0,

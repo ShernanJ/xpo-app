@@ -3,6 +3,7 @@ import type {
   ProfileAuditState,
 } from "../../agent-v2/core/styleProfile.ts";
 import type { CreatorAgentContext } from "../strategy/agentContext.ts";
+import type { ProfileAnalysisPinnedPostImageAnalysis } from "./pinnedPostImageAnalysis.ts";
 import type { OnboardingResult, XPinnedPost } from "../types.ts";
 
 export type ProfileAuditStepStatus = "pass" | "warn" | "fail" | "unknown";
@@ -14,6 +15,7 @@ export type ProfileAuditPinnedCategory =
   | "authority"
   | "weak"
   | "unknown";
+export type ProfileAuditPinnedProofStrength = "none" | "low" | "medium" | "high";
 
 export interface ProfileAuditBioAlternative {
   id: string;
@@ -66,6 +68,9 @@ export interface PinnedTweetCheck {
   category: ProfileAuditPinnedCategory;
   ageDays: number | null;
   isStale: boolean;
+  visualEvidenceSummary?: string | null;
+  proofStrength?: ProfileAuditPinnedProofStrength;
+  imageAdjusted?: boolean;
   promptSuggestions: {
     originStory: string;
     coreThesis: string;
@@ -131,6 +136,8 @@ const THESIS_PATTERN =
   /\b(the truth is|my thesis|what i believe|most people think|the real reason|here's the thing|the biggest mistake)\b/i;
 const LEAD_MAGNET_PATTERN =
   /\b(template|guide|playbook|checklist|resource|download|free|comment|dm|reply|link in bio|newsletter)\b/i;
+const PINNED_IMAGE_PROOF_PATTERN =
+  /\b(award|winner|won|prize|trophy|cheque|check|grant|certificate|medal|revenue|mrr|arr|dashboard|graph|traction|proof|customers?|users?)\b/i;
 
 function normalizeText(value: string | null | undefined): string {
   return (value || "").trim().replace(/\s+/g, " ");
@@ -539,9 +546,122 @@ function buildPinnedPromptSuggestions(args: {
   };
 }
 
+function buildPinnedImageSignalText(
+  analysis: ProfileAnalysisPinnedPostImageAnalysis | null | undefined,
+): string {
+  if (!analysis) {
+    return "";
+  }
+
+  return normalizeText(
+    [
+      analysis.readableText,
+      analysis.primarySubject,
+      analysis.sceneSummary,
+      analysis.strategicSignal,
+      ...(analysis.keyDetails || []),
+    ].join(" "),
+  ).toLowerCase();
+}
+
+function resolvePinnedProofStrength(
+  analysis: ProfileAnalysisPinnedPostImageAnalysis | null | undefined,
+): ProfileAuditPinnedProofStrength {
+  if (!analysis) {
+    return "none";
+  }
+
+  const signalText = buildPinnedImageSignalText(analysis);
+  let score = 0;
+
+  if (analysis.imageRole === "proof") {
+    score += 4;
+  } else if (analysis.imageRole === "product") {
+    score += 2;
+  } else if (analysis.imageRole === "personal_brand" || analysis.imageRole === "context") {
+    score += 1;
+  }
+
+  if (PINNED_IMAGE_PROOF_PATTERN.test(signalText)) {
+    score += 2;
+  }
+
+  if (/\$\d|\b\d+(?:k|m|b|bn|mm|x|%)\b/i.test(signalText)) {
+    score += 1;
+  }
+
+  if ((analysis.keyDetails || []).length >= 2) {
+    score += 1;
+  }
+
+  if (score >= 6) {
+    return "high";
+  }
+
+  if (score >= 4) {
+    return "medium";
+  }
+
+  return score > 0 ? "low" : "none";
+}
+
+function buildPinnedVisualEvidenceSummary(
+  analysis: ProfileAnalysisPinnedPostImageAnalysis | null | undefined,
+): string | null {
+  if (!analysis) {
+    return null;
+  }
+
+  const parts = [
+    normalizeText(analysis.sceneSummary),
+    analysis.readableText.trim()
+      ? `Visible text: "${truncate(analysis.readableText, 120)}".`
+      : null,
+    normalizeText(analysis.strategicSignal),
+  ].filter((value): value is string => Boolean(value));
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  return unique(parts).join(" ");
+}
+
+function resolvePinnedCategoryFromImage(args: {
+  baseCategory: ProfileAuditPinnedCategory;
+  pinnedText: string;
+  pinnedPostImageAnalysis?: ProfileAnalysisPinnedPostImageAnalysis | null;
+  proofStrength: ProfileAuditPinnedProofStrength;
+}): ProfileAuditPinnedCategory {
+  if (!args.pinnedPostImageAnalysis || args.proofStrength === "none") {
+    return args.baseCategory;
+  }
+
+  const combinedSignal = normalizeText(
+    `${args.pinnedText} ${buildPinnedImageSignalText(args.pinnedPostImageAnalysis)}`,
+  ).toLowerCase();
+  const looksLikeMilestone = MILESTONE_PATTERN.test(combinedSignal) ||
+    /\b(award|winner|won|prize|trophy|cheque|check|grant|certificate|medal)\b/i.test(
+      combinedSignal,
+    );
+
+  if (args.baseCategory === "weak" || args.baseCategory === "unknown") {
+    if (args.proofStrength === "high") {
+      return looksLikeMilestone ? "milestone" : "authority";
+    }
+
+    if (args.proofStrength === "medium") {
+      return "authority";
+    }
+  }
+
+  return args.baseCategory;
+}
+
 function buildPinnedTweetCheck(args: {
   onboarding: OnboardingResult;
   context: CreatorAgentContext;
+  pinnedPostImageAnalysis?: ProfileAnalysisPinnedPostImageAnalysis | null;
 }): PinnedTweetCheck {
   const pinnedPost = args.onboarding.pinnedPost ?? null;
   const findings: string[] = [];
@@ -558,6 +678,9 @@ function buildPinnedTweetCheck(args: {
         category: "unknown",
         ageDays: null,
         isStale: false,
+        visualEvidenceSummary: null,
+        proofStrength: "none",
+        imageAdjusted: false,
         promptSuggestions,
       };
     }
@@ -571,12 +694,24 @@ function buildPinnedTweetCheck(args: {
       category: "weak",
       ageDays: null,
       isStale: false,
+      visualEvidenceSummary: null,
+      proofStrength: "none",
+      imageAdjusted: false,
       promptSuggestions,
     };
   }
 
   const text = normalizeText(pinnedPost.text);
-  const category = classifyPinnedPost(text);
+  const proofStrength = resolvePinnedProofStrength(args.pinnedPostImageAnalysis);
+  const visualEvidenceSummary = buildPinnedVisualEvidenceSummary(args.pinnedPostImageAnalysis);
+  const baseCategory = classifyPinnedPost(text);
+  const category = resolvePinnedCategoryFromImage({
+    baseCategory,
+    pinnedText: text,
+    pinnedPostImageAnalysis: args.pinnedPostImageAnalysis,
+    proofStrength,
+  });
+  const imageAdjusted = category !== baseCategory;
   const ageDays = computePinnedAgeDays(pinnedPost);
   const isStale = ageDays !== null && ageDays > 180;
   const strategyTerms = buildStrategyTerms(args.context);
@@ -584,10 +719,26 @@ function buildPinnedTweetCheck(args: {
   let score = 48;
   let status: ProfileAuditStepStatus = "warn";
 
+  if (visualEvidenceSummary) {
+    findings.push(
+      `The pinned image adds ${proofStrength} proof value: ${visualEvidenceSummary}`,
+    );
+  }
+
   if (fitMatches.length > 0) {
     score += 18;
     findings.push(
       `The pinned post reinforces ${fitMatches.slice(0, 2).join(" / ")}, so it supports the positioning model.`,
+    );
+  } else if (proofStrength === "high") {
+    score -= 4;
+    findings.push(
+      "The pinned post does not restate the current positioning clearly, but the image still carries strong authority proof.",
+    );
+  } else if (proofStrength === "medium") {
+    score -= 8;
+    findings.push(
+      "The pinned post does not restate the positioning clearly, so the proof image is carrying more of the conversion load than the copy.",
     );
   } else {
     score -= 14;
@@ -606,16 +757,50 @@ function buildPinnedTweetCheck(args: {
   if (text.length >= 180) {
     score += 8;
   } else if (text.length < 80) {
-    score -= 10;
-    findings.push("The pinned post is too thin to act like a strong featured story.");
+    if (proofStrength === "high") {
+      findings.push(
+        "The pinned copy is short, but the visual proof keeps it from reading like a throwaway asset.",
+      );
+    } else if (proofStrength === "medium") {
+      score -= 4;
+      findings.push(
+        "The pinned copy is short, so the image proof needs clearer packaging around it.",
+      );
+    } else {
+      score -= 10;
+      findings.push("The pinned post is too thin to act like a strong featured story.");
+    }
   }
 
   if (ageDays !== null && ageDays > 365) {
-    score -= 24;
-    findings.push(`The pinned post is ${ageDays} days old, which makes it feel stale as a profile anchor.`);
+    if (proofStrength === "high") {
+      score -= 8;
+      findings.push(
+        `The pinned post is ${ageDays} days old, so the proof is strong but the packaging may be stale.`,
+      );
+    } else if (proofStrength === "medium") {
+      score -= 14;
+      findings.push(
+        `The pinned post is ${ageDays} days old, so it should be refreshed around the proof it already has.`,
+      );
+    } else {
+      score -= 24;
+      findings.push(
+        `The pinned post is ${ageDays} days old, which makes it feel stale as a profile anchor.`,
+      );
+    }
   } else if (ageDays !== null && ageDays > 180) {
-    score -= 10;
-    findings.push(`The pinned post is ${ageDays} days old, so it should be pressure-tested against the current positioning.`);
+    if (proofStrength === "high") {
+      score -= 4;
+      findings.push(
+        `The pinned post is ${ageDays} days old, so the proof still helps but the framing should be pressure-tested against the current positioning.`,
+      );
+    } else {
+      score -= 10;
+      findings.push(
+        `The pinned post is ${ageDays} days old, so it should be pressure-tested against the current positioning.`,
+      );
+    }
   }
 
   score = clampScore(score);
@@ -629,7 +814,9 @@ function buildPinnedTweetCheck(args: {
     status === "pass"
       ? "The pinned post looks strong enough to function as a featured authority asset."
       : status === "warn"
-        ? "The pinned post is usable, but it should be tightened or refreshed."
+        ? proofStrength === "high" || proofStrength === "medium"
+          ? "The pinned post carries real proof, but the copy or freshness should be tightened."
+          : "The pinned post is usable, but it should be tightened or refreshed."
         : "The pinned post is weak or stale enough to hurt profile conversion.";
 
   return {
@@ -641,6 +828,9 @@ function buildPinnedTweetCheck(args: {
     category,
     ageDays,
     isStale,
+    visualEvidenceSummary,
+    proofStrength,
+    imageAdjusted,
     promptSuggestions,
   };
 }
@@ -685,6 +875,7 @@ export function buildProfileConversionAudit(args: {
   onboarding: OnboardingResult;
   context: CreatorAgentContext;
   profileAuditState?: ProfileAuditState | null;
+  pinnedPostImageAnalysis?: ProfileAnalysisPinnedPostImageAnalysis | null;
 }): ProfileConversionAudit {
   const strategyTerms = buildStrategyTerms(args.context);
   const coherence = buildCoherenceNotes({

@@ -173,5 +173,31 @@ test("renders the attached image under the draft preview text", () => {
     />,
   );
 
+  expect(screen.getByRole("button", { name: "Expand draft image 1" })).toHaveClass("max-w-[400px]");
   expect(screen.getByAltText("draft.png")).toBeVisible();
+});
+
+test("keeps the inline draft preview constrained to the X-style card width", () => {
+  render(
+    <InlineDraftPreviewCard
+      identity={{
+        avatarUrl: null,
+        displayName: "Stanley",
+        username: "stanley",
+      }}
+      previewState={previewState}
+      isVerifiedAccount={false}
+      isMainChatLocked={false}
+      hasCopiedDraft={false}
+      revealClassName=""
+      shouldAnimateLines={false}
+      onOpenDraftEditor={vi.fn()}
+      onRequestRevision={vi.fn()}
+      onToggleExpanded={vi.fn()}
+      onCopy={vi.fn()}
+      onShare={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByText("Hello world").closest("article")).toHaveClass("max-w-[600px]");
 });

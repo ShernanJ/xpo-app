@@ -24,6 +24,7 @@ export async function POST(
         id: draftId,
         userId,
         xHandle,
+        contentType: "all",
       }).then((draft) =>
         draft
           ? {
@@ -38,6 +39,7 @@ export async function POST(
         id: draftId,
         userId,
         xHandle,
+        contentType: "all",
         requireIndexedMessage: true,
         data: {
           status: "PUBLISHED",

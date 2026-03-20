@@ -679,12 +679,14 @@ function ReplyArtifactSections(props: {
     return (
       <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
         {replySourcePreview ? (
-          <ReplySourcePreviewCard
-            preview={replySourcePreview}
-            tone="reply"
-            size="compact"
-            showExternalCta
-          />
+          <div className="w-full max-w-[600px]">
+            <ReplySourcePreviewCard
+              preview={replySourcePreview}
+              tone="reply"
+              size="compact"
+              showExternalCta
+            />
+          </div>
         ) : (
           <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-3">
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">

@@ -97,6 +97,7 @@ export interface ExtensionReplyQuotedPost {
   tweetId?: string | null;
   tweetText: string;
   authorHandle?: string | null;
+  authorDisplayName?: string | null;
   tweetUrl?: string | null;
 }
 
@@ -147,6 +148,7 @@ export interface ExtensionReplyDraftRequest {
   tweetId: string;
   tweetText: string;
   authorHandle: string;
+  authorDisplayName?: string | null;
   tweetUrl: string;
   postType?: ExtensionOpportunityPostType | null;
   quotedPost?: ExtensionReplyQuotedPost | null;

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { buildProfileConversionAudit } from "./profile/profileConversionAudit.ts";
+import type { ProfileAnalysisPinnedPostImageAnalysis } from "./profile/pinnedPostImageAnalysis.ts";
 
 function createAudit(args?: {
   bio?: string;
@@ -16,6 +17,7 @@ function createAudit(args?: {
   followersCount?: number;
   isVerified?: boolean;
   source?: "scrape" | "x_api" | "mock";
+  pinnedPostImageAnalysis?: ProfileAnalysisPinnedPostImageAnalysis | null;
   profileAuditState?: {
     lastDismissedFingerprint: string | null;
     headerClarity: "clear" | "unclear" | "unsure" | null;
@@ -65,6 +67,7 @@ function createAudit(args?: {
       },
     } as never,
     profileAuditState: args?.profileAuditState ?? null,
+    pinnedPostImageAnalysis: args?.pinnedPostImageAnalysis ?? null,
   });
 }
 
@@ -143,6 +146,41 @@ test("profile conversion audit fails a stale and weak pinned post", () => {
 
   assert.equal(audit.pinnedTweetCheck.status, "fail");
   assert.equal(audit.pinnedTweetCheck.isStale, true);
+});
+
+test("profile conversion audit upgrades a short pinned post when the image carries strong proof", () => {
+  const audit = createAudit({
+    pinnedPost: {
+      id: "post-4",
+      text: "holy fucking cinema.",
+      createdAt: "2026-01-26T12:00:00.000Z",
+      url: "https://x.com/stan/status/post-4",
+    },
+    pinnedPostImageAnalysis: {
+      imageRole: "proof",
+      readableText: "First Prize Winner $20k CAD",
+      primarySubject: "winner holding a cheque and trophies",
+      sceneSummary: "Photo of the creator holding a first-prize cheque beside trophies.",
+      strategicSignal:
+        "The image gives first-time visitors concrete proof of a public win and real authority.",
+      keyDetails: ["first prize winner", "$20k CAD cheque", "trophies"],
+    },
+    profileAuditState: {
+      lastDismissedFingerprint: null,
+      headerClarity: "clear",
+      headerClarityAnsweredAt: "2026-03-10T10:00:00.000Z",
+      headerClarityBannerUrl: "https://pbs.twimg.com/profile_banners/123/1500x500",
+    },
+  });
+
+  assert.equal(audit.pinnedTweetCheck.proofStrength, "high");
+  assert.equal(audit.pinnedTweetCheck.imageAdjusted, true);
+  assert.notEqual(audit.pinnedTweetCheck.category, "weak");
+  assert.notEqual(audit.pinnedTweetCheck.status, "fail");
+  assert.equal(
+    audit.pinnedTweetCheck.visualEvidenceSummary?.includes("First Prize Winner $20k CAD"),
+    true,
+  );
 });
 
 test("bio alternatives fall back to CTA endings when grounded proof is missing", () => {

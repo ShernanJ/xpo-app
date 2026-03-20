@@ -514,13 +514,47 @@ function sortAndLimitPosts(postsById: Map<string, XPublicPost>): XPublicPost[] {
     .slice(0, MAX_PARSED_SCRAPE_POSTS);
 }
 
+function extractTweetImageUrls(tweetNode: Record<string, unknown>): string[] {
+  const legacy = asRecord(tweetNode.legacy);
+  const extendedMedia = asRecord(legacy?.extended_entities)?.media;
+  const entityMedia = asRecord(legacy?.entities)?.media;
+  const mediaEntries = [
+    ...(Array.isArray(extendedMedia) ? extendedMedia : []),
+    ...(Array.isArray(entityMedia) ? entityMedia : []),
+  ];
+  const urls = mediaEntries
+    .map((entryValue) => {
+      const entry = asRecord(entryValue);
+      const mediaType = asString(entry?.type);
+      const mediaUrl =
+        asString(entry?.media_url_https) ??
+        asString(entry?.media_url) ??
+        asString(asRecord(entry?.original_info)?.url);
+
+      if (!mediaUrl) {
+        return null;
+      }
+
+      if (mediaType && mediaType !== "photo") {
+        return null;
+      }
+
+      return mediaUrl;
+    })
+    .filter((value): value is string => Boolean(value));
+
+  return Array.from(new Set(urls));
+}
+
 function buildPinnedPost(
   post: XPublicPost,
   username: string,
+  imageUrls: string[] = [],
 ): XPinnedPost {
   return {
     ...post,
     url: `https://x.com/${username}/status/${post.id}`,
+    imageUrls: imageUrls.length > 0 ? imageUrls : null,
   };
 }
 
@@ -697,6 +731,26 @@ export function parseUserTweetsGraphqlPayload(params: {
         findPostByTweetId(payloadTweetNodes, id, accountNormalized)
     )
     .find((value): value is XPublicPost => Boolean(value));
+  const pinnedPostImageUrls = (() => {
+    if (!pinnedPostCandidate) {
+      return [];
+    }
+
+    const pinnedNode =
+      pinnedTimelineTweetNode ??
+      payloadTweetNodes.find((node) => {
+        const legacy = asRecord(node.legacy);
+        return (
+          asString(legacy?.id_str) === pinnedPostCandidate.id ||
+          asString(node.rest_id) === pinnedPostCandidate.id ||
+          asString(node.id_str) === pinnedPostCandidate.id ||
+          asString(node.id) === pinnedPostCandidate.id
+        );
+      }) ??
+      null;
+
+    return pinnedNode ? extractTweetImageUrls(pinnedNode) : [];
+  })();
 
   return {
     profile: {
@@ -704,7 +758,11 @@ export function parseUserTweetsGraphqlPayload(params: {
       username: accountNormalized ?? profile.username,
     },
     pinnedPost: pinnedPostCandidate
-      ? buildPinnedPost(pinnedPostCandidate, accountNormalized ?? profile.username)
+      ? buildPinnedPost(
+          pinnedPostCandidate,
+          accountNormalized ?? profile.username,
+          pinnedPostImageUrls,
+        )
       : null,
     posts,
     replyPosts: sortAndLimitPosts(replyPostsById),

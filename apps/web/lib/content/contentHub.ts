@@ -16,7 +16,7 @@ export const INDEXED_CONTENT_OUTPUT_SHAPES = [
 export type GlobalContentOutputShape = (typeof GLOBAL_CONTENT_OUTPUT_SHAPES)[number];
 export type ReplyContentOutputShape = (typeof REPLY_CONTENT_OUTPUT_SHAPES)[number];
 export type IndexedContentOutputShape = (typeof INDEXED_CONTENT_OUTPUT_SHAPES)[number];
-export type ContentHubContentType = "posts_threads" | "replies";
+export type ContentHubContentType = "posts_threads" | "replies" | "all";
 
 type FolderRecord = {
   id: string;
@@ -193,9 +193,45 @@ export function isIndexedContentOutputShape(
 function resolveContentOutputShapes(
   contentType?: ContentHubContentType | null,
 ): IndexedContentOutputShape[] {
+  if (contentType === "all") {
+    return [...INDEXED_CONTENT_OUTPUT_SHAPES];
+  }
+
   return contentType === "replies"
     ? [...REPLY_CONTENT_OUTPUT_SHAPES]
     : [...GLOBAL_CONTENT_OUTPUT_SHAPES];
+}
+
+function buildIndexedMessageConstraint(
+  contentType?: ContentHubContentType | null,
+  requireIndexedMessage = true,
+): Prisma.DraftCandidateWhereInput {
+  if (requireIndexedMessage === false) {
+    return {};
+  }
+
+  if (contentType === "replies") {
+    return {};
+  }
+
+  if (contentType === "all") {
+    return {
+      OR: [
+        {
+          outputShape: {
+            in: [...REPLY_CONTENT_OUTPUT_SHAPES],
+          },
+        },
+        {
+          messageId: { not: null },
+        },
+      ],
+    };
+  }
+
+  return {
+    messageId: { not: null },
+  };
 }
 
 function toFolderRecord(folder: {
@@ -359,7 +395,10 @@ function buildContentWhere(args: {
     ...(args.status ? { status: args.status as never } : {}),
     ...(args.onlyLatest === false ? {} : { isLatestVersion: true }),
     ...(args.requireUnpublished ? { publishedTweetId: null } : {}),
-    ...(args.requireIndexedMessage === false ? {} : { messageId: { not: null } }),
+    ...buildIndexedMessageConstraint(
+      args.contentType,
+      args.requireIndexedMessage !== false,
+    ),
   };
 
   return where;
@@ -770,6 +809,7 @@ export async function updateContentItemForWorkspace(args: {
   id: string;
   userId: string;
   xHandle?: string | null;
+  contentType?: ContentHubContentType | null;
   data: Prisma.DraftCandidateUncheckedUpdateInput;
   requireIndexedMessage?: boolean;
 }) {
@@ -779,6 +819,7 @@ export async function updateContentItemForWorkspace(args: {
       ...buildContentWhere({
         userId: args.userId,
         xHandle: args.xHandle,
+        contentType: args.contentType,
         requireIndexedMessage: args.requireIndexedMessage,
       }),
     },

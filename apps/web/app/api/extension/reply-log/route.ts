@@ -8,6 +8,7 @@ import { logExtensionRouteFailure } from "../../../../lib/extension/http.ts";
 import { mergeStoredOpportunityNotes } from "../../../../lib/extension/opportunityBatch.ts";
 import { recordProductEvent } from "../../../../lib/productEvents.ts";
 import { saveReplyGoldenExample } from "../../../../lib/reply-engine/goldenExamples.ts";
+import { syncPostedExtensionReplyDraft } from "../../../../lib/extension/savedReplyDrafts.ts";
 import { parseExtensionReplyLogRequest } from "./route.logic.ts";
 import { handleExtensionReplyLogPost } from "./route.handler.ts";
 
@@ -44,6 +45,9 @@ export async function POST(request: NextRequest) {
     },
     recordProductEvent,
     saveReplyGoldenExample,
+    syncPostedReplyDraft: async (args) => {
+      await syncPostedExtensionReplyDraft(args);
+    },
     logExtensionRouteFailure,
   });
 }

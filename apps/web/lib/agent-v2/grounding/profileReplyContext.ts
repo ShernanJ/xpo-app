@@ -8,6 +8,14 @@ import type {
   HookPattern,
 } from "../../onboarding/contracts/types.ts";
 
+export interface ProfileReplyTopicInsight {
+  label: string;
+  confidence: "high" | "medium" | "low";
+  kind: "theme" | "proof" | "positioning";
+  evidenceSnippets: string[];
+  source: "recent_posts" | "profile_surface" | "mixed";
+}
+
 export interface ProfileReplyPostComparison {
   basis: "previous_best_7d" | "baseline_average_engagement" | null;
   referenceEngagementTotal: number | null;
@@ -34,6 +42,7 @@ export interface ProfileReplyContext {
   contentPillars: string[];
   stage: string | null;
   goal: string | null;
+  topicInsights?: ProfileReplyTopicInsight[];
   topicBullets: string[];
   recentPostSnippets: string[];
   pinnedPost: string | null;
@@ -58,6 +67,37 @@ const THEME_ALIASES: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\bcompany\b/i, label: "Company-building lessons" },
   { pattern: /\bproduct\b/i, label: "Product lessons from the build process" },
   { pattern: /\bai\b|\bartificial intelligence\b/i, label: "Practical AI lessons" },
+];
+
+const TOPIC_INSIGHT_STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "for",
+  "from",
+  "into",
+  "its",
+  "just",
+  "not",
+  "the",
+  "this",
+  "that",
+  "their",
+  "them",
+  "they",
+  "with",
+  "year",
+  "years",
+  "till",
+  "will",
+]);
+
+const LOW_LEVERAGE_RECENT_SIGNAL_PATTERNS = [
+  /\b(sf|nyc|toronto|la|london|vancouver)\b.{0,24}\b(one week|weekend|week)\b/i,
+  /^holy fucking cinema\b/i,
+  /\bplease\b.*\bneed this\b/i,
+  /🥹|😭|😂|🤣|lol|lmao/i,
 ];
 
 function normalizeLine(value: string): string {
@@ -155,8 +195,52 @@ function summarizeRecentPostToBullet(text: string): string | null {
   return truncateSnippet(firstClause, 84);
 }
 
+function isLowLeverageRecentSignal(value: string): boolean {
+  const normalized = normalizeLine(value).replace(/https?:\/\/\S+/gi, "").trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+
+  if (LOW_LEVERAGE_RECENT_SIGNAL_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return true;
+  }
+
+  if (/^(please|anyone|someone)\b/i.test(normalized)) {
+    return true;
+  }
+
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+  if (
+    wordCount <= 6 &&
+    !/\b(gpu|infra|inference|engineer|builders?|growth|distribution|proof|revenue|mrr|arr|founder|startup|ai|product)\b/i.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function collectRecentPosts(
+  onboardingResult?: Partial<OnboardingResult> | null,
+): XPublicPost[] {
+  return Array.isArray(onboardingResult?.recentPosts)
+    ? onboardingResult.recentPosts.filter(
+        (post): post is XPublicPost =>
+          Boolean(post) &&
+          typeof post === "object" &&
+          !Array.isArray(post) &&
+          typeof post.text === "string" &&
+          typeof post.createdAt === "string" &&
+          typeof post.metrics === "object" &&
+          post.metrics !== null,
+      )
+    : [];
+}
+
 function collectRecentPostSnippets(onboardingResult?: Partial<OnboardingResult> | null): string[] {
-  const posts = Array.isArray(onboardingResult?.recentPosts) ? onboardingResult.recentPosts : [];
+  const posts = collectRecentPosts(onboardingResult);
 
   return dedupeLines(
     posts
@@ -179,7 +263,11 @@ function collectTopicBullets(args: {
     ...(args.creatorProfileHints?.contentPillars || []),
   ]
     .map((value) => sanitizeThemeCandidate(value))
-    .filter((value): value is string => Boolean(value));
+    .filter(
+      (value): value is string =>
+        Boolean(value) &&
+        (value.includes(" ") || !TOPIC_INSIGHT_STOPWORDS.has(value.toLowerCase())),
+    );
 
   const recentPostCandidates = Array.isArray(args.onboardingResult?.recentPosts)
     ? args.onboardingResult.recentPosts
@@ -188,10 +276,246 @@ function collectTopicBullets(args: {
             ? summarizeRecentPostToBullet(post.text)
             : null,
         )
-        .filter((value): value is string => Boolean(value))
-    : [];
+        .filter(
+          (value): value is string =>
+            Boolean(value) &&
+            !/\b(i|my|me|we|our)\b/i.test(value) &&
+            !isLowLeverageRecentSignal(value),
+        )
+      : [];
 
   return dedupeLines([...pillarCandidates, ...recentPostCandidates]).slice(0, 4);
+}
+
+function normalizeTopicInsightLabel(value: string): string | null {
+  const sanitized = sanitizeThemeCandidate(value);
+  if (sanitized) {
+    if (!sanitized.includes(" ")) {
+      return null;
+    }
+    return sanitized;
+  }
+
+  const normalized = normalizeLine(value)
+    .replace(/^"+|"+$/g, "")
+    .replace(/[.?!:;]+$/g, "")
+    .trim();
+  if (!normalized) {
+    return null;
+  }
+
+  if (/\b(i|my|me|we|our)\b/i.test(normalized)) {
+    return null;
+  }
+
+  const tokens = normalized
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 3 && !TOPIC_INSIGHT_STOPWORDS.has(token));
+  if (tokens.length < 2) {
+    return null;
+  }
+
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function tokenizeTopicInsightLabel(value: string): string[] {
+  return normalizeLine(value)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 3 && !TOPIC_INSIGHT_STOPWORDS.has(token));
+}
+
+function buildTopicEvidenceSnippets(args: {
+  label: string;
+  recentPosts: XPublicPost[];
+  seedSnippets?: string[];
+}): string[] {
+  const normalizedLabel = normalizeLine(args.label).toLowerCase();
+  const labelTokens = tokenizeTopicInsightLabel(args.label);
+  const evidenceFromPosts = dedupeLines(
+    args.recentPosts
+      .filter((post) => {
+        const normalizedPost = normalizeLine(post.text).toLowerCase();
+        if (!normalizedPost) {
+          return false;
+        }
+
+        if (normalizedPost.includes(normalizedLabel)) {
+          return true;
+        }
+
+        const matches = labelTokens.filter((token) => normalizedPost.includes(token)).length;
+        const requiredMatches = labelTokens.length >= 4 ? 2 : 1;
+        return matches >= requiredMatches;
+      })
+      .map((post) => truncateSnippet(post.text, 120)),
+  );
+
+  return dedupeLines([...(args.seedSnippets || []), ...evidenceFromPosts]).slice(0, 2);
+}
+
+function resolveTopicInsightConfidence(args: {
+  label: string;
+  evidenceCount: number;
+  source: "recent_posts" | "mixed";
+}): ProfileReplyTopicInsight["confidence"] {
+  const tokenCount = tokenizeTopicInsightLabel(args.label).length;
+  if (args.evidenceCount >= 2 && tokenCount >= 2 && args.source === "recent_posts") {
+    return "high";
+  }
+
+  if (args.evidenceCount >= 2 || tokenCount >= 2) {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function buildTopicInsights(args: {
+  creatorAgentContext?: CreatorAgentContext | null;
+  creatorProfileHints?: CreatorProfileHints | null;
+  onboardingResult?: Partial<OnboardingResult> | null;
+}): ProfileReplyTopicInsight[] {
+  const recentPosts = collectRecentPosts(args.onboardingResult);
+  const candidates = new Map<
+    string,
+    {
+      sources: Set<"recent_posts" | "profile_surface" | "mixed">;
+      kinds: Set<ProfileReplyTopicInsight["kind"]>;
+      seedSnippets: string[];
+    }
+  >();
+  const registerCandidate = (
+    rawLabel: string | null,
+    source: "recent_posts" | "profile_surface" | "mixed",
+    kind: ProfileReplyTopicInsight["kind"],
+    seedSnippet?: string | null,
+  ) => {
+    const label = rawLabel ? normalizeTopicInsightLabel(rawLabel) : null;
+    if (!label) {
+      return;
+    }
+
+    const current = candidates.get(label) ?? {
+      sources: new Set<"recent_posts" | "profile_surface" | "mixed">(),
+      kinds: new Set<ProfileReplyTopicInsight["kind"]>(),
+      seedSnippets: [],
+    };
+    current.sources.add(source);
+    current.kinds.add(kind);
+    if (seedSnippet) {
+      current.seedSnippets.push(seedSnippet);
+    }
+    candidates.set(label, current);
+  };
+
+  const knownFor = args.creatorProfileHints?.knownFor?.trim() ||
+    args.creatorAgentContext?.growthStrategySnapshot.knownFor?.trim() ||
+    null;
+  const bio =
+    typeof args.onboardingResult?.profile === "object" &&
+      args.onboardingResult?.profile &&
+      !Array.isArray(args.onboardingResult.profile) &&
+      typeof args.onboardingResult.profile.bio === "string"
+      ? args.onboardingResult.profile.bio.trim()
+      : "";
+
+  registerCandidate(knownFor, "profile_surface", "positioning", knownFor);
+  if (bio && !isLowLeverageRecentSignal(bio)) {
+    registerCandidate(knownFor || bio, "profile_surface", "positioning", bio);
+  }
+
+  for (const pillar of [
+    ...(args.creatorAgentContext?.creatorProfile.topics.contentPillars || []),
+    ...(args.creatorProfileHints?.contentPillars || []),
+  ]) {
+    registerCandidate(pillar, "mixed", "theme", pillar);
+  }
+
+  for (const post of recentPosts) {
+    if (isLowLeverageRecentSignal(post.text)) {
+      continue;
+    }
+    const snippet = truncateSnippet(post.text, 120);
+    registerCandidate(summarizeRecentPostToBullet(post.text), "recent_posts", "theme", snippet);
+  }
+
+  const insights = Array.from(candidates.entries())
+    .map(([label, candidate]) => {
+      const source: "recent_posts" | "profile_surface" | "mixed" =
+        candidate.sources.size === 1 && candidate.sources.has("recent_posts")
+          ? "recent_posts"
+          : candidate.sources.size === 1 && candidate.sources.has("profile_surface")
+            ? "profile_surface"
+          : "mixed";
+      const evidenceSnippets = buildTopicEvidenceSnippets({
+        label,
+        recentPosts,
+        seedSnippets: candidate.seedSnippets,
+      });
+      if (evidenceSnippets.length === 0) {
+        return null;
+      }
+
+      const confidence = resolveTopicInsightConfidence({
+        label,
+        evidenceCount: evidenceSnippets.length,
+        source: source === "profile_surface" ? "mixed" : source,
+      });
+      const kind: ProfileReplyTopicInsight["kind"] = candidate.kinds.has("proof")
+        ? "proof"
+        : candidate.kinds.has("positioning")
+          ? "positioning"
+          : "theme";
+      const confidenceWeight =
+        confidence === "high" ? 3 : confidence === "medium" ? 2 : 1;
+      const sourceWeight = source === "recent_posts" ? 2 : 1;
+      const specificityWeight = label.includes(" ") ? 2 : 1;
+      const kindWeight = kind === "proof" ? 4 : kind === "positioning" ? 3 : 2;
+
+      return {
+        label,
+        confidence,
+        kind,
+        evidenceSnippets,
+        source,
+        score:
+          kindWeight * 10 +
+          confidenceWeight * 10 +
+          sourceWeight * 4 +
+          specificityWeight * 2 +
+          evidenceSnippets.length,
+      };
+    })
+    .filter((insight): insight is ProfileReplyTopicInsight & { score: number } => Boolean(insight))
+    .sort((left, right) => right.score - left.score || left.label.length - right.label.length)
+    .slice(0, 3)
+    .map(({ score: _score, ...insight }) => insight);
+
+  if (insights.length > 0) {
+    return insights;
+  }
+
+  const fallbackSnippet = collectRecentPostSnippets(args.onboardingResult)[0];
+  const fallbackLabel = fallbackSnippet
+    ? normalizeTopicInsightLabel(summarizeRecentPostToBullet(fallbackSnippet) || fallbackSnippet)
+    : null;
+  if (!fallbackSnippet || !fallbackLabel) {
+    return [];
+  }
+
+  return [
+    {
+      label: fallbackLabel,
+      confidence: "low",
+      kind: "theme",
+      evidenceSnippets: [fallbackSnippet],
+      source: "recent_posts",
+    },
+  ];
 }
 
 function findRepresentativePost(args: {
@@ -461,6 +785,11 @@ export function buildProfileReplyContext(args: BuildProfileReplyContextArgs): Pr
       ? truncateSnippet(onboarding.pinnedPost.text, 180)
       : null;
 
+  const topicInsights = buildTopicInsights({
+    creatorAgentContext: args.creatorAgentContext,
+    creatorProfileHints: args.creatorProfileHints,
+    onboardingResult: onboarding,
+  });
   const topicBullets = collectTopicBullets({
     creatorAgentContext: args.creatorAgentContext,
     creatorProfileHints: args.creatorProfileHints,
@@ -479,6 +808,7 @@ export function buildProfileReplyContext(args: BuildProfileReplyContextArgs): Pr
       knownFor ||
       targetAudience ||
       contentPillars.length > 0 ||
+      topicInsights.length > 0 ||
       topicBullets.length > 0 ||
       recentPostSnippets.length > 0 ||
       strongestPost ||
@@ -499,7 +829,11 @@ export function buildProfileReplyContext(args: BuildProfileReplyContextArgs): Pr
     contentPillars,
     stage: stage && !/^unknown$/i.test(stage) ? stage : null,
     goal: goal && !/^audience growth$/i.test(goal) ? goal : null,
-    topicBullets,
+    topicInsights,
+    topicBullets: dedupeLines([
+      ...topicInsights.map((insight) => insight.label),
+      ...topicBullets,
+    ]).slice(0, 4),
     recentPostSnippets,
     pinnedPost,
     recentPostCount,

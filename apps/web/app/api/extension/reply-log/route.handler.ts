@@ -103,6 +103,14 @@ interface ReplyLogHandlerDeps {
     text: string;
     source?: string;
   }): Promise<boolean>;
+  syncPostedReplyDraft(args: {
+    userId: string;
+    xHandle: string;
+    replySourcePostId: string;
+    sourceAuthorHandle: string;
+    finalReplyText?: string | null;
+    postedAt?: Date;
+  }): Promise<void>;
   logExtensionRouteFailure(args: {
     route: string;
     userId?: string | null;
@@ -342,6 +350,18 @@ export async function handleExtensionReplyLogPost(
             : {}),
           notes: nextNotes,
         },
+      });
+    }
+
+    if (parsed.data.event === "posted") {
+      await deps.syncPostedReplyDraft({
+        userId: auth.user.id,
+        xHandle,
+        replySourcePostId: parsed.data.postId,
+        sourceAuthorHandle: parsed.data.authorHandle,
+        finalReplyText:
+          parsed.data.finalPostedText ?? parsed.data.copiedReplyText ?? null,
+        postedAt: new Date(),
       });
     }
 

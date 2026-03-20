@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
         await listContentItemsForWorkspace({
           userId,
           xHandle,
+          contentType: "all",
           take: 100,
           sortBy: "createdAt",
         })

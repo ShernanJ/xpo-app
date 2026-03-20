@@ -1,19 +1,12 @@
 "use client";
 
 import Image from "next/image";
-import { ArrowUpRight, Hammer } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 
 import { useChatHeaderChrome } from "./ChatWorkspaceChromeContext";
 
 export function ChatHeader() {
-  const {
-    toolsMenuRef,
-    toolsMenuOpen,
-    onToggleToolsMenu,
-    onToggleSidebar,
-    onOpenCompanionApp,
-    tools,
-  } = useChatHeaderChrome();
+  const { onToggleSidebar, onOpenCompanionApp } = useChatHeaderChrome();
 
   return (
     <header className="shrink-0 border-b border-white/10 px-4 py-3 sm:px-6">
@@ -39,35 +32,6 @@ export function ChatHeader() {
           />
         </div>
         <div className="flex items-center justify-end gap-3">
-          <div ref={toolsMenuRef} className="relative">
-            <button
-              type="button"
-              onClick={onToggleToolsMenu}
-              className={`inline-flex cursor-pointer items-center gap-1 rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] transition-all hover:-translate-y-0.5 ${
-                toolsMenuOpen
-                  ? "border-white/20 bg-white/[0.06] text-white hover:border-white/30 hover:bg-white/[0.09]"
-                  : "border-white/10 text-zinc-300 hover:border-white/20 hover:bg-white/[0.04] hover:text-white"
-              }`}
-            >
-              <span>Tools</span>
-              <Hammer className="h-3.5 w-3.5" />
-            </button>
-            {toolsMenuOpen ? (
-              <div className="absolute right-0 top-[calc(100%+0.65rem)] z-30 w-56 rounded-3xl border border-white/10 bg-[#101010] p-2 shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
-                {tools.map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={item.onSelect}
-                    className="flex w-full cursor-pointer items-center justify-between rounded-2xl px-3 py-2.5 text-left text-sm text-zinc-300 transition hover:bg-white/[0.05] hover:text-white"
-                  >
-                    <span>{item.label}</span>
-                    <ArrowUpRight className="h-3.5 w-3.5 text-zinc-500" />
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
           <button
             type="button"
             onClick={onOpenCompanionApp}

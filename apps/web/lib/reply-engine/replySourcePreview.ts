@@ -139,6 +139,7 @@ export function buildReplySourcePreviewFromContext(args: {
     author:
       args.primaryAuthor ||
       buildReplySourcePreviewAuthor({
+        displayName: args.sourceContext.primaryPost.authorDisplayName,
         username: args.sourceContext.primaryPost.authorHandle,
       }),
     text: args.sourceContext.primaryPost.text,
@@ -150,6 +151,7 @@ export function buildReplySourcePreviewFromContext(args: {
           author:
             args.quotedAuthor ||
             buildReplySourcePreviewAuthor({
+              displayName: args.sourceContext.quotedPost.authorDisplayName,
               username: args.sourceContext.quotedPost.authorHandle,
             }),
           text: args.sourceContext.quotedPost.text,

@@ -115,13 +115,16 @@ const LOW_SIGNAL_ENTITY_WORDS = new Set([
   "time",
   "today",
   "tomorrow",
+  "till",
   "week",
   "weeks",
+  "will",
   "win",
   "write",
   "writes",
   "writing",
   "wrote",
+  "year",
   "years",
 ]);
 

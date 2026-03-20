@@ -178,9 +178,26 @@ function normalizeQuotedPost(...values: unknown[]) {
               quoted.authorUsername,
               author?.handle,
               author?.username,
-            )
+              )
               .trim()
               .replace(/^@+/, ""),
+          }
+        : {}),
+      ...(readString(
+        quoted.authorDisplayName,
+        quoted.authorName,
+        quoted.name,
+        author?.displayName,
+        author?.name,
+      )
+        ? {
+            authorDisplayName: readString(
+              quoted.authorDisplayName,
+              quoted.authorName,
+              quoted.name,
+              author?.displayName,
+              author?.name,
+            ).trim(),
           }
         : {}),
       ...(readString(quoted.tweetUrl, quoted.postUrl, quoted.url)
@@ -239,6 +256,16 @@ const ExtensionReplyDraftRequestSchema = z
         post?.authorHandle,
         candidate?.authorHandle,
       );
+    const authorDisplayName = readString(
+      value.authorDisplayName,
+      value.authorName,
+      value.displayName,
+      value.name,
+      author?.displayName,
+      author?.name,
+      post?.authorDisplayName,
+      candidate?.authorDisplayName,
+    );
     const tweetUrlInput =
       readString(
         value.tweetUrl,
@@ -387,6 +414,11 @@ const ExtensionReplyDraftRequestSchema = z
       tweetId: tweetId.trim(),
       tweetText: tweetText.trim(),
       authorHandle: authorHandle.trim().replace(/^@+/, ""),
+      ...(authorDisplayName.trim()
+        ? {
+            authorDisplayName: authorDisplayName.trim(),
+          }
+        : {}),
       tweetUrl: synthesizedTweetUrl.trim(),
       ...(postType ? { postType } : {}),
       ...(quotedPost ? { quotedPost } : {}),

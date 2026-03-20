@@ -1,9 +1,11 @@
 "use client";
 
+import { useMemo } from "react";
 import Image from "next/image";
 import { BadgeCheck, Pin } from "lucide-react";
 
 import type { ProfileAnalysisArtifact } from "@/lib/chat/profileAnalysisArtifact";
+import { InteractivePreviewImage } from "../shared/InteractivePreviewImage";
 
 function formatCount(value: number): string {
   if (value >= 1_000_000) {
@@ -34,13 +36,52 @@ function getInitials(name: string): string {
   return (parts.map((part) => part[0]).join("") || "?").toUpperCase();
 }
 
+function resolvePinnedPostPreview(artifact: ProfileAnalysisArtifact): {
+  text: string;
+  imageUrl: string | null;
+} {
+  const text = artifact.pinnedPost?.text?.trim() || "";
+
+  if (!text) {
+    return {
+      text: "",
+      imageUrl: artifact.pinnedPost?.imageUrls?.[0] ?? null,
+    };
+  }
+
+  const explicitImageUrl = artifact.pinnedPost?.imageUrls?.[0] ?? null;
+  const trailingTcoMatch = text.match(/https?:\/\/t\.co\/\S+$/i);
+  const imageUrl = explicitImageUrl ?? trailingTcoMatch?.[0] ?? null;
+
+  return {
+    text: imageUrl
+      ? text
+          .replace(/https?:\/\/t\.co\/\S+/gi, "")
+          .replace(/\s+/g, " ")
+          .trim()
+      : text,
+    imageUrl,
+  };
+}
+
 export function InlineProfileAnalysisCard(props: {
   artifact: ProfileAnalysisArtifact;
+  layout?: "inline" | "panel";
 }) {
-  const { artifact } = props;
+  const { artifact, layout = "inline" } = props;
+  const pinnedPostPreview = useMemo(() => resolvePinnedPostPreview(artifact), [artifact]);
 
   return (
-    <div className="mt-4 mb-6 overflow-hidden rounded-[26px] border border-white/10 bg-[#0a0a0a] shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
+    <div
+      data-layout={layout}
+      className={[
+        "w-full overflow-hidden rounded-[26px] border border-white/10 bg-[#0a0a0a] shadow-[0_18px_60px_rgba(0,0,0,0.35)]",
+        layout === "inline" ? "max-w-[600px]" : "",
+        layout === "inline" ? "mb-6 mt-4" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <div className="relative aspect-[3/1] overflow-hidden bg-[linear-gradient(135deg,#0f172a,#111827_55%,#1f2937)]">
         {artifact.profile.headerImageUrl ? (
           <Image
@@ -127,9 +168,25 @@ export function InlineProfileAnalysisCard(props: {
             <Pin className="h-3.5 w-3.5" />
             Pinned Post
           </div>
-          <p className="mt-3 text-sm leading-6 text-zinc-100">
-            {artifact.pinnedPost?.text || "No pinned post found on the latest profile snapshot."}
-          </p>
+          <div className="mt-3">
+            {pinnedPostPreview.text ? (
+              <p className="text-sm leading-6 text-zinc-100">{pinnedPostPreview.text}</p>
+            ) : !pinnedPostPreview.imageUrl ? (
+              <p className="text-sm leading-6 text-zinc-100">
+                {artifact.pinnedPost?.text || "No pinned post found on the latest profile snapshot."}
+              </p>
+            ) : null}
+            <div className="mt-3">
+              <InteractivePreviewImage
+                src={pinnedPostPreview.imageUrl}
+                alt={`${artifact.profile.name} pinned post image`}
+                buttonLabel="Expand pinned post image"
+                dialogLabel="Expanded pinned post image"
+                frameClassName="group relative w-full max-w-[400px] overflow-hidden rounded-2xl border border-white/10 bg-black/40 text-left"
+                imageClassName="aspect-square w-full object-cover"
+              />
+            </div>
+          </div>
           {artifact.pinnedPost?.createdAt ? (
             <p className="mt-2 text-xs text-zinc-500">
               Posted {new Date(artifact.pinnedPost.createdAt).toLocaleDateString()}

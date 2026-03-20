@@ -10,6 +10,7 @@ import {
   type SetStateAction,
 } from "react";
 
+import { markHandleJustOnboarded } from "@/lib/chat/workspaceStartupSession";
 import type { XPublicProfile } from "@/lib/onboarding/types";
 
 interface ValidationError {
@@ -391,6 +392,7 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
         setAvailableHandles((current) =>
           current.includes(normalizedAddAccount) ? current : [...current, normalizedAddAccount],
         );
+        markHandleJustOnboarded(normalizedAddAccount);
         setReadyAccountHandle(normalizedAddAccount);
       } catch (error) {
         console.error(error);

@@ -27,6 +27,7 @@ export interface ReplySourcePost {
   url: string | null;
   text: string;
   authorHandle: string | null;
+  authorDisplayName?: string | null;
   postType: ExtensionOpportunityPostType;
 }
 
@@ -35,6 +36,7 @@ export interface ReplySourceQuotedPost {
   url: string | null;
   text: string;
   authorHandle: string | null;
+  authorDisplayName?: string | null;
 }
 
 export interface ReplySourceImage {

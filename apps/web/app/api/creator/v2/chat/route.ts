@@ -114,6 +114,7 @@ function lowerCaseFirst(value: string): string {
 
 function resolveProgressTopic(args: {
   profileReplyContext?: {
+    topicInsights?: Array<{ label?: string | null }>;
     topicBullets?: string[];
   } | null;
   creatorProfileHints?: {
@@ -121,6 +122,11 @@ function resolveProgressTopic(args: {
     knownFor?: string | null;
   } | null;
 }): string | null {
+  const topicInsight = normalizeProgressCopy(args.profileReplyContext?.topicInsights?.[0]?.label);
+  if (topicInsight) {
+    return topicInsight;
+  }
+
   const topicBullet = normalizeProgressCopy(args.profileReplyContext?.topicBullets?.[0]);
   if (topicBullet) {
     return topicBullet;
@@ -160,6 +166,7 @@ function buildRouteProgressCopy(args: {
     contentPillars?: string[];
   } | null;
   profileReplyContext?: {
+    topicInsights?: Array<{ label?: string | null }>;
     topicBullets?: string[];
     recentPostCount?: number;
   } | null;
@@ -1181,6 +1188,7 @@ async function handleChatRouteRequest(args: {
           onboarding: onboardingResult,
           audit: growthOsPayload.profileConversionAudit,
           memory: storedMemory,
+          creatorAgentContext,
           profileReplyContext,
           generateNarrative: generateProfileAnalysisNarrative,
         }),

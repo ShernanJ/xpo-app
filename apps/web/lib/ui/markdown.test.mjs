@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { renderMarkdownToHtml, renderStreamingMarkdownToHtml } from "./markdown.ts";
+import {
+  assistantMarkdownClassName,
+  renderMarkdownToHtml,
+  renderStreamingMarkdownToHtml,
+} from "./markdown.ts";
 
 test("markdown renderer preserves headings, lists, links, and emphasis", () => {
   const html = renderMarkdownToHtml(`# heading
@@ -47,6 +51,24 @@ tweet 2`);
   assert.equal(html.includes("<p>tweet 1<br />tweet 2</p>"), true);
 });
 
+test("markdown renderer preserves one level of nested unordered and ordered lists", () => {
+  const html = renderMarkdownToHtml(`- Lead signal
+  - Evidence one
+  - Evidence two
+1. Fix the bio
+   - Make the audience explicit
+   - Add proof`);
+
+  assert.equal(
+    html.includes("<ul><li>Lead signal<ul><li>Evidence one</li><li>Evidence two</li></ul></li></ul>"),
+    true,
+  );
+  assert.equal(
+    html.includes("<ol><li>Fix the bio<ul><li>Make the audience explicit</li><li>Add proof</li></ul></li></ol>"),
+    true,
+  );
+});
+
 test("streaming markdown renderer preserves formatting before completion", () => {
   const html = renderStreamingMarkdownToHtml(`- first item
 - second item
@@ -73,4 +95,13 @@ Then send the link back.`);
   );
   assert.equal(html.includes("<ol><li>Open the docs</li><li>Compare the plan</li></ol>"), true);
   assert.equal(html.includes("<p>Then send the link back.</p>"), true);
+});
+
+test("assistant markdown classes add readable section rhythm and list indentation", () => {
+  assert.equal(assistantMarkdownClassName.includes("[&_h2]:mt-7"), true);
+  assert.equal(assistantMarkdownClassName.includes("[&_ul]:pl-5"), true);
+  assert.equal(assistantMarkdownClassName.includes("[&_ol]:pl-5"), true);
+  assert.equal(assistantMarkdownClassName.includes("[&_ul]:space-y-2"), true);
+  assert.equal(assistantMarkdownClassName.includes("[&_ul_ul]:pl-4"), true);
+  assert.equal(assistantMarkdownClassName.includes("[&_li>ul]:mt-2"), true);
 });

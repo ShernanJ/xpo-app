@@ -28,6 +28,11 @@ function normalizeWhitespace(value: string | null | undefined): string {
   return (value || "").trim().replace(/\s+/g, " ");
 }
 
+function normalizeDisplayName(value: string | null | undefined): string | null {
+  const normalized = normalizeWhitespace(value);
+  return normalized || null;
+}
+
 function normalizePostType(value: string | null | undefined): ExtensionOpportunityPostType {
   if (
     value === "original" ||
@@ -70,6 +75,7 @@ export function buildReplySourceContextFromExtensionRequest(
       url: normalizeUrl(request.tweetUrl),
       text: request.tweetText.trim(),
       authorHandle: normalizeHandle(request.authorHandle),
+      authorDisplayName: normalizeDisplayName(request.authorDisplayName),
       postType: normalizePostType(request.postType),
     },
     quotedPost: request.quotedPost?.tweetText?.trim()
@@ -78,6 +84,7 @@ export function buildReplySourceContextFromExtensionRequest(
           url: normalizeUrl(request.quotedPost.tweetUrl),
           text: request.quotedPost.tweetText.trim(),
           authorHandle: normalizeHandle(request.quotedPost.authorHandle),
+          authorDisplayName: normalizeDisplayName(request.quotedPost.authorDisplayName),
         }
       : null,
     media:
@@ -109,6 +116,7 @@ export function buildReplySourceContextFromOpportunityCandidate(
       url: normalizeUrl(candidate.url),
       text: candidate.text.trim(),
       authorHandle: normalizeHandle(candidate.author.handle),
+      authorDisplayName: normalizeDisplayName(candidate.author.name),
       postType: normalizePostType(candidate.postType),
     },
     quotedPost: null,

@@ -11,7 +11,11 @@ import type {
   ContentItemRecord,
   ContentItemSummaryRecord,
 } from "./contentHubTypes";
-import { NO_GROUP_LABEL, formatContentTimestamp } from "./contentHubViewState";
+import {
+  NO_GROUP_LABEL,
+  formatContentTimestamp,
+  getContentTimestampDescriptor,
+} from "./contentHubViewState";
 import { ReplySourcePreviewCard } from "../reply/ReplySourcePreviewCard";
 
 interface MinimalXPostPreviewProps {
@@ -63,6 +67,9 @@ export function MinimalXPostPreview(props: MinimalXPostPreviewProps) {
   const copyResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const replySourcePreview = item.artifact?.replySourcePreview ?? null;
   const isReplyDraft = item.artifact?.kind === "reply_candidate" && Boolean(replySourcePreview);
+  const replyTimestampDescriptor = isReplyDraft
+    ? getContentTimestampDescriptor(item, "replies")
+    : null;
 
   useEffect(() => {
     return () => {
@@ -225,7 +232,9 @@ export function MinimalXPostPreview(props: MinimalXPostPreviewProps) {
               <span className="truncate text-xs text-zinc-500">@{identity.username}</span>
               <span className="text-xs text-zinc-600">·</span>
               <span className="text-xs text-zinc-500">
-                {item.postedAt ? formatContentTimestamp(item.postedAt) : "Just now"}
+                {replyTimestampDescriptor
+                  ? formatContentTimestamp(replyTimestampDescriptor.value)
+                  : formatContentTimestamp(item.createdAt)}
               </span>
             </div>
 

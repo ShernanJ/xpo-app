@@ -50,7 +50,7 @@ export function InlineReplyDraftPreviewCard(
   return (
     <div className="mt-4 border-t border-white/10 pt-4">
       <article
-        className={`rounded-[1.7rem] border bg-[#070707] p-4 transition-[border-color,box-shadow,background-color] duration-300 ${
+        className={`w-full max-w-[600px] rounded-[1.7rem] border bg-[#070707] p-4 transition-[border-color,box-shadow,background-color] duration-300 ${
           isFocused
             ? "border-white/45 shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_0_34px_rgba(255,255,255,0.12)]"
             : "border-white/10 hover:border-white/20 hover:bg-[#0C0C0C]"

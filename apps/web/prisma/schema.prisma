@@ -440,6 +440,7 @@ model DraftCandidate {
   id               String               @id @default(cuid())
   userId           String
   xHandle          String?
+  replySourcePostId String?
   threadId         String?
   messageId        String?
   runId            String?
@@ -474,6 +475,7 @@ model DraftCandidate {
 
   @@index([userId, xHandle, reviewStatus, createdAt])
   @@index([userId, xHandle, status, isLatestVersion, updatedAt])
+  @@index([userId, xHandle, replySourcePostId, status])
   @@index([revisionChainId, isLatestVersion])
   @@index([threadId, createdAt])
   @@index([messageId])

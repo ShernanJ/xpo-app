@@ -41,6 +41,8 @@ import {
   NO_GROUP_LABEL,
   buildPublishedTweetHref,
   formatContentTimestamp,
+  formatPostedReplyCount,
+  getContentTimestampDescriptor,
   getContentStatusLabel,
   groupContentItemsByDate,
   groupContentItemsByGroup,
@@ -69,6 +71,7 @@ interface ContentHubInlineDialogProps {
 
 interface ContentHubListItemButtonProps {
   item: ContentItemSummaryRecord;
+  contentType: ContentHubContentType;
   isSelected: boolean;
   onSelect: (itemId: string) => void;
 }
@@ -190,7 +193,8 @@ function ContentHubInlineDialog(props: ContentHubInlineDialogProps) {
 }
 
 function ContentHubListItemButton(props: ContentHubListItemButtonProps) {
-  const { item, isSelected, onSelect } = props;
+  const { item, contentType, isSelected, onSelect } = props;
+  const timestampDescriptor = getContentTimestampDescriptor(item, contentType);
 
   return (
     <button
@@ -208,7 +212,7 @@ function ContentHubListItemButton(props: ContentHubListItemButtonProps) {
           {getContentStatusLabel(item.status)}
         </span>
         <span className="hidden whitespace-nowrap sm:inline">
-          {formatContentTimestamp(item.createdAt)}
+          {formatContentTimestamp(timestampDescriptor.value)}
         </span>
       </span>
     </button>
@@ -264,8 +268,8 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
 
   const sortedFolders = useMemo(() => sortFoldersByName(folders), [folders]);
   const dateGroups = useMemo(
-    () => groupContentItemsByDate(filteredItems),
-    [filteredItems],
+    () => groupContentItemsByDate(filteredItems, { contentType }),
+    [contentType, filteredItems],
   );
   const statusGroups = useMemo(
     () => groupContentItemsByStatus(filteredItems),
@@ -286,6 +290,9 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
   const mobileDialogPane =
     isPreviewPaneVisibleOnMobile ? "right" : "left";
   const selectedItemAction = activeItem ? actionById[activeItem.id] ?? null : null;
+  const activeItemTimestampDescriptor = activeItem
+    ? getContentTimestampDescriptor(activeItem, contentType)
+    : null;
 
   useEffect(() => {
     if (!open) {
@@ -414,18 +421,31 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
   }
 
   function renderSectionedList(
-    groups: Array<{ id?: string | null; label: string; items: ContentItemSummaryRecord[] }>,
+    groups: Array<{
+      id?: string | null;
+      label: string;
+      items: ContentItemSummaryRecord[];
+      postedCount?: number;
+    }>,
   ) {
     return (
       <div className="space-y-3">
         {groups.map((group) => (
           <section key={group.id ?? group.label}>
-            <div className="px-3 pb-1.5 pt-2 text-sm text-zinc-500">{group.label}</div>
+            <div className="flex items-center justify-between gap-3 px-3 pb-1.5 pt-2 text-sm text-zinc-500">
+              <span>{group.label}</span>
+              {isReplyTab && typeof group.postedCount === "number" ? (
+                <span className="text-xs text-zinc-600">
+                  {formatPostedReplyCount(group.postedCount)}
+                </span>
+              ) : null}
+            </div>
             <div className="space-y-1">
               {group.items.map((item) => (
                 <ContentHubListItemButton
                   key={item.id}
                   item={item}
+                  contentType={contentType}
                   isSelected={selectedItemId === item.id}
                   onSelect={selectItem}
                 />
@@ -708,9 +728,12 @@ export function ContentHubDialog(props: ContentHubDialogProps) {
                             {activeItem.title}
                           </h3>
                         </div>
-                        <p className="mt-2 text-sm leading-6 text-zinc-500">
-                          Created {formatContentTimestamp(activeItem.createdAt)}
-                        </p>
+                        {activeItemTimestampDescriptor ? (
+                          <p className="mt-2 text-sm leading-6 text-zinc-500">
+                            {activeItemTimestampDescriptor.label}{" "}
+                            {formatContentTimestamp(activeItemTimestampDescriptor.value)}
+                          </p>
+                        ) : null}
                       </div>
 
                       <div className="min-w-0 max-w-full flex-[1_1_17.5rem]">

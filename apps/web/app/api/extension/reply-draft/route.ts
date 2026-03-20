@@ -31,6 +31,8 @@ import {
   looksAcceptableReplyDraft,
   verifyReplyClaims,
 } from "@/lib/reply-engine/index";
+import { buildReplySourcePreviewFromContext } from "@/lib/reply-engine/replySourcePreview";
+import { persistGeneratedExtensionReplyDraft } from "@/lib/extension/savedReplyDrafts";
 import { parseExtensionReplyDraftRequest } from "./route.logic";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -339,8 +341,6 @@ export async function POST(request: NextRequest) {
           controller.enqueue(encoder.encode(resolvedDraft.draft));
         }
 
-        controller.close();
-
         const notes = [
           ...generation.notes,
           ...replyInsights.bestSignals.slice(0, 1),
@@ -348,6 +348,9 @@ export async function POST(request: NextRequest) {
           `Reply mode: ${promptPacket.preflightResult.recommended_reply_mode}`,
           `Golden examples: ${promptPacket.goldenExamples.filter((example) => example.source === "golden_example").length}`,
         ].slice(0, 4);
+        const replySourcePreview = buildReplySourcePreviewFromContext({
+          sourceContext: promptPacket.sourceContext,
+        });
         const generatedOption = {
           id: "draft-1",
           label: parsed.data.tone === "bold" ? "bold" : "safe",
@@ -355,9 +358,18 @@ export async function POST(request: NextRequest) {
           ...(generation.intent ? { intent: generation.intent } : {}),
           replyMode: promptPacket.preflightResult.recommended_reply_mode,
         };
-
-        void (async () => {
-          try {
+        const persistenceTasks = [
+          persistGeneratedExtensionReplyDraft({
+            userId: auth.user.id,
+            xHandle: userContext.xHandle,
+            replySourcePostId: parsed.data.tweetId,
+            sourcePostText: parsed.data.tweetText,
+            sourceAuthorHandle: parsed.data.authorHandle,
+            replyText: resolvedDraft.draft,
+            replySourcePreview,
+            voiceTarget: promptPacket.voiceTarget,
+          }),
+          (async () => {
             await upsertReplyOpportunityLifecycle({
               userId: auth.user.id,
               xHandle: userContext.xHandle,
@@ -407,10 +419,17 @@ export async function POST(request: NextRequest) {
                 streamAccepted,
               },
             });
-          } catch (error) {
-            console.error("Failed to persist extension reply generation:", error);
+          })(),
+        ];
+
+        controller.close();
+
+        const persistenceResults = await Promise.allSettled(persistenceTasks);
+        for (const result of persistenceResults) {
+          if (result.status === "rejected") {
+            console.error("Failed to persist extension reply generation:", result.reason);
           }
-        })();
+        }
       } catch (error) {
         console.error("Failed to stream extension reply draft:", error);
         controller.error(error);

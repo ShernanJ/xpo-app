@@ -14,7 +14,9 @@ vi.mock("next/image", () => ({
   default: (props: ImgHTMLAttributes<HTMLImageElement>) => <img {...props} />,
 }));
 
-function buildItem(): ContentItemRecord {
+function buildItem(overrides: Partial<ContentItemRecord> = {}): ContentItemRecord {
+  const { artifact: artifactOverride, ...itemOverrides } = overrides;
+
   return {
     id: "item_1",
     title: "Thread preview",
@@ -81,10 +83,12 @@ function buildItem(): ContentItemRecord {
       voiceTarget: null,
       noveltyNotes: [],
       threadFramingStyle: null,
+      ...(artifactOverride ?? {}),
     },
     createdAt: "2026-03-17T10:00:00.000Z",
     updatedAt: "2026-03-17T10:00:00.000Z",
     postedAt: null,
+    ...itemOverrides,
   };
 }
 
@@ -151,7 +155,18 @@ test("renders reply drafts with the source tweet preview", () => {
     title: "Reply draft",
     status: "DRAFT",
     createdAt: "2026-03-19T10:00:00.000Z",
-    content: "reply draft body",
+    preview: {
+      primaryText: "reply draft body",
+      threadPostCount: 1,
+      isThread: false,
+    },
+    artifact: {
+      ...buildItem().artifact!,
+      content: "reply draft body",
+      posts: [],
+      characterCount: 16,
+      weightedCharacterCount: 16,
+    },
   });
 
   render(
@@ -188,4 +203,5 @@ test("renders reply drafts with the source tweet preview", () => {
     "https://x.com/elkelk/status/2034751673290350617",
   );
   expect(screen.getByText("Perfect algo pull")).toBeVisible();
+  expect(screen.queryByText("Just now")).not.toBeInTheDocument();
 });

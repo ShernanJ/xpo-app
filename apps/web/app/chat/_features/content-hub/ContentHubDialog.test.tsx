@@ -139,6 +139,73 @@ function buildSummaryItem(args: {
   };
 }
 
+function buildReplySummaryItem(args: {
+  id: string;
+  title: string;
+  status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  createdAt: string;
+  replyText: string;
+  sourceHandle: string;
+  postedAt?: string | null;
+  messageId?: string | null;
+}) {
+  return {
+    id: args.id,
+    title: args.title,
+    sourcePrompt: `${args.title} prompt`,
+    sourcePlaybook: "extension_reply",
+    outputShape: "reply_candidate",
+    threadId: null,
+    messageId: args.messageId ?? null,
+    status: args.status,
+    reviewStatus: args.status === "PUBLISHED" ? "posted" : "pending",
+    folderId: null,
+    folder: null,
+    publishedTweetId: args.status === "PUBLISHED" ? `${args.id}_tweet` : null,
+    createdAt: args.createdAt,
+    updatedAt: args.postedAt ?? args.createdAt,
+    postedAt: args.postedAt ?? null,
+    preview: {
+      primaryText: args.replyText,
+      threadPostCount: 1,
+      isThread: false,
+    },
+    artifact: {
+      id: `${args.id}-artifact`,
+      title: args.title,
+      kind: "reply_candidate",
+      content: args.replyText,
+      posts: [],
+      characterCount: args.replyText.length,
+      weightedCharacterCount: args.replyText.length,
+      maxCharacterLimit: 280,
+      isWithinXLimit: true,
+      supportAsset: null,
+      mediaAttachments: [],
+      groundingSources: [],
+      groundingMode: null,
+      groundingExplanation: null,
+      betterClosers: [],
+      replyPlan: [],
+      voiceTarget: null,
+      noveltyNotes: [],
+      threadFramingStyle: null,
+      replySourcePreview: {
+        postId: `${args.id}-source`,
+        sourceUrl: `https://x.com/${args.sourceHandle}/status/${args.id}-source`,
+        author: {
+          displayName: args.sourceHandle,
+          username: args.sourceHandle,
+          avatarUrl: null,
+          isVerified: false,
+        },
+        text: `Source post from @${args.sourceHandle}`,
+        media: [],
+      },
+    },
+  };
+}
+
 async function openBrowseMode(user: ReturnType<typeof userEvent.setup>, label: string) {
   await user.click(screen.getAllByRole("button", { name: label })[0]);
 }
@@ -481,6 +548,91 @@ test("keeps the search bar and browse-mode controls visible after selecting a pr
   expect(screen.getAllByRole("button", { name: "Date" }).length).toBeGreaterThan(0);
   expect(screen.getAllByRole("button", { name: "Status" }).length).toBeGreaterThan(0);
   expect(screen.getAllByRole("button", { name: "Group" }).length).toBeGreaterThan(0);
+});
+
+test("renders message-less replies in date view with posted counts and reply-specific timestamps", async () => {
+  const user = userEvent.setup();
+  const fetchWorkspace = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const method = init?.method ?? "GET";
+
+    if (method === "GET" && url === "/api/creator/v2/content") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          items: [],
+        },
+      });
+    }
+
+    if (method === "GET" && url === "/api/creator/v2/content?contentType=replies") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          items: [
+            buildReplySummaryItem({
+              id: "reply_posted",
+              title: "@builder - useful layer",
+              status: "PUBLISHED",
+              createdAt: buildRelativeIso(-3),
+              postedAt: buildRelativeIso(0),
+              replyText: "useful layer",
+              sourceHandle: "builder",
+              messageId: null,
+            }),
+            buildReplySummaryItem({
+              id: "reply_draft",
+              title: "@maker - second layer",
+              status: "DRAFT",
+              createdAt: buildRelativeIso(0),
+              replyText: "second layer",
+              sourceHandle: "maker",
+              messageId: null,
+            }),
+          ],
+        },
+      });
+    }
+
+    if (method === "GET" && url === "/api/creator/v2/folders") {
+      return createJsonResponse({
+        ok: true,
+        data: {
+          folders: [],
+        },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${method} ${url}`);
+  });
+
+  render(
+    <ContentHubDialog
+      open
+      onOpenChange={vi.fn()}
+      fetchWorkspace={fetchWorkspace}
+      initialHandle="standev"
+      identity={{
+        displayName: "Stanley",
+        username: "standev",
+        avatarUrl: null,
+      }}
+      isVerifiedAccount
+    />,
+  );
+
+  await user.click(screen.getAllByRole("button", { name: "Replies" })[0]);
+
+  expect((await screen.findAllByText("@builder - useful layer")).length).toBeGreaterThan(0);
+  expect(screen.getByText("@maker - second layer")).toBeVisible();
+  expect(screen.getByText("Today")).toBeVisible();
+  expect(screen.getByText("1 posted")).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: /@builder - useful layer/i }));
+
+  expect(
+    screen.getByText((_, element) => element?.textContent?.startsWith("Posted ") ?? false),
+  ).toBeVisible();
 });
 
 test("renders a single mobile back action in the header while previewing a draft", async () => {

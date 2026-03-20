@@ -148,6 +148,42 @@ test("mergeLatestScrapeIntoOnboarding refreshes the pinned post from the latest 
   assert.equal(hydrated.pinnedPost?.id, "2010284331479249364");
 });
 
+test("mergeLatestScrapeIntoOnboarding preserves the current pinned post but upgrades its media fields", () => {
+  const onboarding = {
+    ...createOnboarding("https://pbs.twimg.com/profile_images/existing_400x400.jpg"),
+    pinnedPost: {
+      id: "2010284331479249364",
+      text: "I’m planning to be more intentional on Twitter in 2026.",
+      createdAt: "2026-01-11T09:35:08.000Z",
+      metrics: {
+        likeCount: 580,
+        replyCount: 102,
+        repostCount: 29,
+        quoteCount: 1,
+      },
+      url: "https://x.com/stan/status/2010284331479249364",
+      imageUrls: null,
+    },
+  } satisfies OnboardingResult;
+
+  const hydrated = mergeLatestScrapeIntoOnboarding(onboarding, {
+    profile: {
+      avatarUrl: onboarding.profile.avatarUrl,
+      bio: onboarding.profile.bio,
+      headerImageUrl: onboarding.profile.headerImageUrl,
+      isVerified: false,
+    },
+    pinnedPost: {
+      ...onboarding.pinnedPost,
+      imageUrls: ["https://pbs.twimg.com/media/pinned-photo.jpg"],
+    },
+  });
+
+  assert.deepEqual(hydrated.pinnedPost?.imageUrls, [
+    "https://pbs.twimg.com/media/pinned-photo.jpg",
+  ]);
+});
+
 test("hydrateOnboardingProfileForAnalysis merges live profile fields and latest scrape pinned post", async () => {
   const onboarding = createOnboarding("https://pbs.twimg.com/profile_images/existing_400x400.jpg");
 
@@ -185,4 +221,34 @@ test("hydrateOnboardingProfileForAnalysis merges live profile fields and latest 
   assert.equal(hydrated.profile.headerImageUrl, "https://pbs.twimg.com/profile_banners/123/1500x500");
   assert.equal(hydrated.profile.isVerified, true);
   assert.equal(hydrated.pinnedPost?.id, "2010284331479249364");
+});
+
+test("hydrateOnboardingProfileForAnalysis resolves missing pinned media when the latest scrape still lacks it", async () => {
+  const onboarding = {
+    ...createOnboarding("https://pbs.twimg.com/profile_images/existing_400x400.jpg"),
+    pinnedPost: {
+      id: "2010284331479249364",
+      text: "holy fucking cinema. https://t.co/Fqnj4ifTfI",
+      createdAt: "2026-01-11T09:35:08.000Z",
+      metrics: {
+        likeCount: 580,
+        replyCount: 102,
+        repostCount: 29,
+        quoteCount: 1,
+      },
+      url: "https://x.com/stan/status/2010284331479249364",
+      imageUrls: null,
+    },
+  } satisfies OnboardingResult;
+
+  const hydrated = await hydrateOnboardingProfileForAnalysis(
+    onboarding,
+    async () => null,
+    async () => null,
+    async () => ["https://pbs.twimg.com/media/pinned-photo.jpg"],
+  );
+
+  assert.deepEqual(hydrated.pinnedPost?.imageUrls, [
+    "https://pbs.twimg.com/media/pinned-photo.jpg",
+  ]);
 });
