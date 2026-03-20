@@ -245,6 +245,7 @@ export function resolveReplyTurnState(args: {
         : null,
     shouldResetReplyWorkflow: shouldClearReplyWorkflow({
       activeReplyContext: args.activeReplyContext,
+      userMessage: args.effectiveMessage,
       turnSource: args.turnSource,
       replyParseResult,
       replyContinuation,

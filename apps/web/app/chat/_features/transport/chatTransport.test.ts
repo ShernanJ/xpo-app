@@ -137,6 +137,74 @@ test("prepareAssistantReplyTransport carries selected draft context for revision
   assert.equal(prepared.pendingStatusPlan?.workflow, "revise_draft");
 });
 
+test("prepareAssistantReplyTransport treats regenerate as a selected-draft revision", () => {
+  const prepared = prepareAssistantReplyTransport({
+    prompt: "regenerate",
+    history: [],
+    runId: "run-regen-1",
+    threadId: "thread-regen-1",
+    workspaceHandle: "stan",
+    selectedDraftContext: {
+      messageId: "reply-msg-1",
+      versionId: "reply-ver-1",
+      content: "current reply draft",
+      source: "assistant_generated",
+      createdAt: "2026-03-20T12:00:00.000Z",
+      revisionChainId: "reply-chain-1",
+    },
+    strategyInputs: baseStrategyInputs,
+    toneInputs: baseToneInputs,
+  });
+
+  assert.equal(prepared.shouldSkip, false);
+  assert.equal(prepared.effectiveIntent, "edit");
+  assert.equal(prepared.transportRequest?.intent, "edit");
+  assert.equal(prepared.transportRequest?.selectedDraftContext?.versionId, "reply-ver-1");
+  assert.equal(prepared.pendingStatusPlan?.workflow, "revise_draft");
+});
+
+test("prepareAssistantReplyTransport treats typoed regenerate and reply-chip edits as revisions", () => {
+  const typoPrepared = prepareAssistantReplyTransport({
+    prompt: "renerate",
+    history: [],
+    runId: "run-regen-2",
+    threadId: "thread-regen-2",
+    workspaceHandle: "stan",
+    selectedDraftContext: {
+      messageId: "reply-msg-2",
+      versionId: "reply-ver-2",
+      content: "another reply draft",
+      source: "assistant_revision",
+      createdAt: "2026-03-20T12:05:00.000Z",
+      revisionChainId: "reply-chain-2",
+    },
+    strategyInputs: baseStrategyInputs,
+    toneInputs: baseToneInputs,
+  });
+  const chipPrepared = prepareAssistantReplyTransport({
+    prompt: "make it bolder",
+    history: [],
+    runId: "run-regen-3",
+    threadId: "thread-regen-3",
+    workspaceHandle: "stan",
+    selectedDraftContext: {
+      messageId: "reply-msg-3",
+      versionId: "reply-ver-3",
+      content: "bolder reply draft",
+      source: "assistant_generated",
+      createdAt: "2026-03-20T12:10:00.000Z",
+      revisionChainId: "reply-chain-3",
+    },
+    strategyInputs: baseStrategyInputs,
+    toneInputs: baseToneInputs,
+  });
+
+  assert.equal(typoPrepared.transportRequest?.intent, "edit");
+  assert.equal(typoPrepared.transportRequest?.selectedDraftContext?.versionId, "reply-ver-2");
+  assert.equal(chipPrepared.transportRequest?.intent, "edit");
+  assert.equal(chipPrepared.transportRequest?.selectedDraftContext?.versionId, "reply-ver-3");
+});
+
 test("prepareAssistantReplyTransport preserves thread format overrides on selected-draft revisions", () => {
   const selectedDraftContext = {
     messageId: "msg-2",

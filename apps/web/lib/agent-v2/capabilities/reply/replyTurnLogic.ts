@@ -150,6 +150,21 @@ const REPLY_DRAFT_SELECTION_PATTERNS = [
 const REPLY_DRAFT_FOLLOWUP_PATTERNS = [
   /\b(?:make|turn|keep)\b.*\b(?:bolder|bold|warmer|warm|softer|gentler|less harsh|less aggressive|shorter|shorten|tighter|trim|longer|expand)\b/,
   /\b(?:bolder|bold|warmer|warm|softer|gentler|less harsh|less aggressive|shorter|shorten|tighter|trim|longer|expand)\b/,
+  /^(?:re)?generate(?:\s+(?:it|that|this|reply|draft))?[.?!]*$/,
+  /^(?:renerate|regen)(?:\s+(?:it|that|this|reply|draft))?[.?!]*$/,
+  /^(?:(?:can|could|would)\s+you\s+)?(?:edit|revise|rewrite|reword|tweak|adjust|polish|refine|rework|rephrase|fix|change|improve)(?:\s+(?:it|that|this|reply|draft|version))?[.?!]*$/,
+  /\b(?:edit|revise|rewrite|reword|tweak|adjust|polish|refine|rework|rephrase|fix|change|improve)\b.*\b(?:reply|draft|version|it|that|this)\b/,
+  /^(?:try again|another one|another version|different version|new version)(?:\s+(?:please|for me))?[.?!]*$/,
+];
+
+const REPLY_WORKFLOW_REFERENCE_PATTERNS = [
+  /\bwhat does (?:that|this|the) (?:reply|draft)\b/,
+  /\bwhat do you mean\b.*\b(?:reply|draft)\b/,
+  /\bwhy does (?:that|this|the) (?:reply|draft)\b/,
+  /\bhow does (?:that|this|the) (?:reply|draft)\b/,
+  /\bexplain\b.*\b(?:reply|draft)\b/,
+  /\bbreak down\b.*\b(?:reply|draft)\b/,
+  /\bmeaning\b.*\b(?:reply|draft)\b/,
 ];
 
 const URL_PATTERN =
@@ -429,6 +444,11 @@ function normalizeFollowUp(value: string): string {
   return normalizeWhitespace(value).toLowerCase();
 }
 
+function looksLikeReplyWorkflowReference(value: string): boolean {
+  const normalized = normalizeFollowUp(value);
+  return REPLY_WORKFLOW_REFERENCE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
 function resolveReplyOptionIndex(
   userMessage: string,
   optionCount: number,
@@ -512,6 +532,7 @@ export function resolveReplyContinuation(args: {
 
 export function shouldClearReplyWorkflow(args: {
   activeReplyContext: ActiveReplyContext | null | undefined;
+  userMessage: string;
   turnSource: "free_text" | "ideation_pick" | "quick_reply" | "draft_action" | "reply_action";
   replyParseResult: EmbeddedReplyParseResult;
   replyContinuation: ReplyContinuationResult | null;
@@ -525,6 +546,10 @@ export function shouldClearReplyWorkflow(args: {
   }
 
   if (args.replyContinuation) {
+    return false;
+  }
+
+  if (looksLikeReplyWorkflowReference(args.userMessage)) {
     return false;
   }
 

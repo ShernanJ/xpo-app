@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import { resolveProgressTopic } from "./_lib/response/routeProgressTopic.ts";
 
 import {
   buildChatRoutePersistencePlan,
@@ -184,6 +185,26 @@ test("streamed progress event sanitization keeps safe dynamic copy", () => {
       label: "Looking through recent posts from @stan",
       explanation: "This helps pull in recurring themes, like hiring playbooks.",
     },
+  );
+});
+
+test("resolveProgressTopic falls back to a safe creator hint when recent topics are noisy", () => {
+  assert.equal(
+    resolveProgressTopic({
+      profileReplyContext: {
+        topicInsights: [
+          {
+            label: "asian men in toronto all dress the same https://t.co/mock-image",
+          },
+        ],
+        topicBullets: ["asian men in toronto all dress the same httpp"],
+      },
+      creatorProfileHints: {
+        contentPillars: ["Growth and distribution lessons"],
+        knownFor: "Toronto creator culture",
+      },
+    }),
+    "Growth and distribution lessons",
   );
 });
 
@@ -771,6 +792,54 @@ test("buildReplyAssistantMessageData preserves reply artifacts and context packe
   assert.equal(mapped.requestTrace.clientTurnId, "turn_reply_1");
   assert.equal(mapped.contextPacket.replyRef?.kind, "reply_options");
   assert.equal(mapped.contextPacket.replyParse?.parseReason, "reply_request_with_embedded_post");
+});
+
+test("buildReplyAssistantMessageData versions revised reply drafts against the selected version", () => {
+  const mapped = buildReplyAssistantMessageData({
+    reply: "tightened the reply without changing the core point.",
+    outputShape: "reply_candidate",
+    surfaceMode: "generate_full_output",
+    quickReplies: [],
+    memory: baseMemory,
+    routingDiagnostics: {
+      turnSource: "reply_action",
+      artifactKind: "reply_option_select",
+      planSeedSource: "message",
+      replyHandlingBypassedReason: null,
+      resolvedWorkflow: "reply_to_post",
+    },
+    clientTurnId: "turn_reply_revision_1",
+    threadTitle: "Reply thread",
+    selectedDraftContext: parseSelectedDraftContext({
+      messageId: "assistant-reply-1",
+      versionId: "version-prev",
+      content: "older reply draft",
+      source: "assistant_generated",
+      createdAt: "2026-03-20T14:00:00.000Z",
+      maxCharacterLimit: 280,
+      revisionChainId: "revision-chain-reply-1",
+    }),
+    replyArtifacts: {
+      kind: "reply_draft",
+      sourceText: "original post body",
+      sourceUrl: "https://x.com/example/status/1",
+      authorHandle: "example",
+      options: [{ id: "draft_1", label: "Draft 1", text: "newer reply draft" }],
+      notes: [],
+      selectedOptionId: "draft_1",
+    },
+    replyParse: {
+      detected: true,
+      confidence: "high",
+      needsConfirmation: false,
+      parseReason: "reply_draft_revised",
+    },
+  });
+
+  assert.equal(mapped.draftVersions?.[0]?.source, "assistant_revision");
+  assert.equal(mapped.draftVersions?.[0]?.basedOnVersionId, "version-prev");
+  assert.equal(mapped.previousVersionSnapshot?.versionId, "version-prev");
+  assert.equal(mapped.revisionChainId, "revision-chain-reply-1");
 });
 
 test("planMainAssistantTurnProductEvents derives draft analytics and clarification prompts from mapped data", () => {
@@ -1432,6 +1501,7 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
   let persistedArgs = null;
   let dispatchedArgs = null;
   const routingTrace = createBaseRoutingTrace();
+  const expectedReplyThreadTitle = "Reply to @example - agree with...";
 
   const response = await finalizeReplyTurnWithDeps(
     {
@@ -1513,7 +1583,7 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
         persistedArgs = args;
         return {
           assistantMessageId: "assistant-msg-reply",
-          updatedThreadTitle: "Updated Reply Thread",
+          updatedThreadTitle: expectedReplyThreadTitle,
           tracePatch: {
             workerExecutions: [
               {
@@ -1537,7 +1607,7 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
                 groupId: null,
                 details: {
                   threadId: "thread-reply-1",
-                  updatedTitle: "Updated Reply Thread",
+                  updatedTitle: expectedReplyThreadTitle,
                 },
               },
             ],
@@ -1545,7 +1615,7 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
               assistantMessageId: "assistant-msg-reply",
               thread: {
                 threadId: "thread-reply-1",
-                updatedTitle: "Updated Reply Thread",
+                updatedTitle: expectedReplyThreadTitle,
                 titleChanged: true,
               },
               memory: {
@@ -1570,6 +1640,7 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
         dispatchedArgs = args;
       },
       buildChatSuccessResponse,
+      resolveReplySelectedDraftContext: async () => null,
     },
   );
 
@@ -1578,6 +1649,8 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
     persistedArgs.assistantMessageData.reply,
     "ran with option 2 and tightened it into a full reply.",
   );
+  assert.equal(persistedArgs.assistantMessageData.threadTitle, expectedReplyThreadTitle);
+  assert.equal(persistedArgs.threadUpdate.title, expectedReplyThreadTitle);
   assert.deepEqual(
     persistedArgs.buildMemoryUpdate("assistant-msg-reply"),
     {
@@ -1612,7 +1685,7 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
 
   const json = await response.json();
   assert.equal(json.ok, true);
-  assert.equal(json.data.threadTitle, "Updated Reply Thread");
+  assert.equal(json.data.threadTitle, expectedReplyThreadTitle);
   assert.equal(json.data.messageId, "assistant-msg-reply");
   assert.equal(json.data.newThreadId, "thread-reply-1");
   assert.equal(json.data.replyArtifacts.kind, "reply_draft");
@@ -1620,6 +1693,121 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
   assert.equal(json.data.routingTrace.workerExecutions.at(-1).worker, "update_chat_thread");
   assert.equal(json.data.routingTrace.persistedStateChanges.assistantMessageId, "assistant-msg-reply");
   assert.equal(json.data.routingTrace.persistedStateChanges.memory.selectedReplyOptionId, "option_2");
+});
+
+test("finalizeReplyTurnWithDeps versions revised replies against the active reply draft", async () => {
+  let persistedArgs = null;
+
+  await finalizeReplyTurnWithDeps(
+    {
+      preparedTurn: {
+        plannedTurn: {
+          reply: "regenerated the reply and kept the point grounded.",
+          outputShape: "reply_candidate",
+          surfaceMode: "generate_full_output",
+          quickReplies: [],
+          activeReplyContext: {
+            sourceText: "Founders should write every day even if nobody reads it yet.",
+            sourceUrl: "https://x.com/example/status/1",
+            authorHandle: "example",
+            quotedUserAsk: "how should i reply?",
+            confidence: "high",
+            parseReason: "reply_draft_revised",
+            awaitingConfirmation: false,
+            stage: "1k_to_10k",
+            tone: "builder",
+            goal: "followers",
+            opportunityId: "chat-reply-1",
+            latestReplyOptions: [],
+            latestReplyDraftOptions: [],
+            selectedReplyOptionId: "option_2",
+          },
+          selectedReplyOptionId: "option_2",
+          replyArtifacts: {
+            kind: "reply_draft",
+            sourceText: "Founders should write every day even if nobody reads it yet.",
+            sourceUrl: "https://x.com/example/status/1",
+            authorHandle: "example",
+            options: [
+              {
+                id: "option_2",
+                label: "Option 2",
+                text: "new reply draft revision",
+              },
+            ],
+            notes: [],
+            selectedOptionId: "option_2",
+          },
+          replyParse: {
+            detected: true,
+            confidence: "high",
+            needsConfirmation: false,
+            parseReason: "reply_draft_revised",
+          },
+          eventType: "chat_reply_draft_revised",
+        },
+        routingTrace: createBaseRoutingTrace(),
+      },
+      storedMemory: {
+        ...baseMemory,
+        activeReplyArtifactRef: {
+          messageId: "assistant-reply-1",
+          kind: "reply_draft",
+        },
+      },
+      routingDiagnostics: {
+        turnSource: "reply_action",
+        artifactKind: null,
+        planSeedSource: "message",
+        replyHandlingBypassedReason: null,
+        resolvedWorkflow: "reply_to_post",
+      },
+      clientTurnId: "turn_reply_revision_1",
+      defaultThreadTitle: "New Chat",
+      storedThreadId: "thread-reply-1",
+      storedThreadTitle: "Reply Thread",
+      requestedThreadId: "",
+      userId: "user-reply-1",
+      activeHandle: "stan",
+      loadBilling: async () => ({ creditsRemaining: 8 }),
+      recordProductEvent: async () => null,
+    },
+    {
+      persistAssistantTurn: async (args) => {
+        persistedArgs = args;
+        return {
+          assistantMessageId: "assistant-msg-reply-revision",
+          updatedThreadTitle: "Reply Thread",
+          tracePatch: null,
+        };
+      },
+      buildReplyAssistantMessageData,
+      planReplyAssistantTurnProductEvents,
+      dispatchPlannedProductEvents: () => {},
+      buildChatSuccessResponse,
+      resolveReplySelectedDraftContext: async () =>
+        parseSelectedDraftContext({
+          messageId: "assistant-reply-1",
+          versionId: "version-prev",
+          content: "older reply draft",
+          source: "assistant_generated",
+          createdAt: "2026-03-20T14:00:00.000Z",
+          maxCharacterLimit: 280,
+          revisionChainId: "revision-chain-reply-1",
+        }),
+    },
+  );
+
+  assert.equal(persistedArgs.assistantMessageData.draftVersions?.[0]?.source, "assistant_revision");
+  assert.equal(
+    persistedArgs.assistantMessageData.draftVersions?.[0]?.basedOnVersionId,
+    "version-prev",
+  );
+  assert.equal(
+    persistedArgs.assistantMessageData.previousVersionSnapshot?.versionId,
+    "version-prev",
+  );
+  assert.equal(persistedArgs.assistantMessageData.revisionChainId, "revision-chain-reply-1");
 });
 
 test("finalizeMainAssistantTurnWithDeps keeps prepared turns separate from route persistence and response assembly", async () => {

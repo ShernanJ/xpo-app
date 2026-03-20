@@ -1014,7 +1014,10 @@ function ChatPageContent() {
       isStreaming: true,
     }),
   });
-  const isMainChatLocked = isSending || isDraftInspectorLoading;
+  const [isReplyDraftRegenerating, setIsReplyDraftRegenerating] = useState(false);
+  const isDraftEditorActionLoading =
+    isDraftInspectorLoading || isReplyDraftRegenerating;
+  const isMainChatLocked = isSending || isDraftEditorActionLoading;
   const isWorkspaceReadyForPrompts = Boolean(
     context && contract && activeStrategyInputs && activeToneInputs,
   );
@@ -1135,6 +1138,22 @@ function ChatPageContent() {
     interruptAssistantReply,
     requestAssistantReply,
   } = assistantReplyOrchestrator;
+  const regenerateReplyDraft = useCallback(async () => {
+    if (selectedDraftArtifact?.kind !== "reply_candidate") {
+      return;
+    }
+
+    setIsReplyDraftRegenerating(true);
+    try {
+      await requestAssistantReply({
+        prompt: "regenerate",
+        appendUserMessage: false,
+        turnSource: "reply_action",
+      });
+    } finally {
+      setIsReplyDraftRegenerating(false);
+    }
+  }, [requestAssistantReply, selectedDraftArtifact]);
   const {
     latestAssistantMessageId,
     handleAngleSelect,
@@ -2145,8 +2164,9 @@ function ChatPageContent() {
         }
         editorDraftText={editorDraftText}
         onChangeEditorDraftText={setEditorDraftText}
-        isDraftInspectorLoading={isDraftInspectorLoading}
+        isDraftInspectorLoading={isDraftEditorActionLoading}
         runDraftInspector={runDraftInspector}
+        regenerateReplyDraft={regenerateReplyDraft}
         hasCopiedDraftEditorText={hasCopiedDraftEditorText}
         copyDraftEditor={copyDraftEditor}
         onShareDraftEditor={shareDraftEditorToX}

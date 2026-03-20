@@ -5,6 +5,7 @@ import type { SourceMaterialAsset } from "../source-materials/sourceMaterialsSta
 import type { DraftArtifactDetails } from "@/lib/onboarding/draftArtifacts";
 import type { ProfileAnalysisArtifact } from "@/lib/chat/profileAnalysisArtifact";
 import type { AgentProgressRun } from "@/lib/chat/agentProgress";
+import type { V2ChatIntent } from "@/lib/agent-v2/contracts/chat";
 import type { SelectedAngleFormatHint } from "../../../../lib/agent-v2/contracts/turnContract.ts";
 import type {
   ChatMediaAttachmentRef,
@@ -295,14 +296,7 @@ export interface ChatMessage {
   agentProgress?: AgentProgressRun | null;
 }
 
-export type ChatIntent =
-  | "coach"
-  | "ideate"
-  | "plan"
-  | "planner_feedback"
-  | "draft"
-  | "review"
-  | "edit";
+export type ChatIntent = V2ChatIntent;
 
 export type ChatContentFocus =
   | "project_showcase"

@@ -7,6 +7,7 @@ import {
   type KeyboardEventHandler,
 } from "react";
 
+import type { V2ChatIntent } from "../../../../lib/agent-v2/contracts/chat";
 import type {
   ChatArtifactContext,
   SelectedAngleFormatHint,
@@ -35,7 +36,7 @@ type RequestAssistantReplyFn<TStrategyInputs, TToneInputs, TContentFocus extends
     includeUserMessageInHistory?: boolean;
     turnSource?: "ideation_pick" | "reply_action" | "free_text";
     artifactContext?: ChatArtifactContext | null;
-    intent?: "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit";
+    intent?: V2ChatIntent;
     formatPreferenceOverride?: "shortform" | "longform" | "thread" | null;
     appendUserMessage: boolean;
     strategyInputOverride?: TStrategyInputs;
@@ -186,7 +187,7 @@ export function useComposerInteractions<
       prompt: string,
       options?: {
         contentFocusOverride?: TContentFocus | null;
-        intentOverride?: "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit";
+        intentOverride?: V2ChatIntent;
         formatPreferenceOverride?: "shortform" | "longform" | "thread" | null;
         artifactContextOverride?: ChatArtifactContext | null;
       },
@@ -283,9 +284,10 @@ export function useComposerInteractions<
         setErrorMessage(null);
       }
 
-      await submitComposerPrompt(quickReplyUpdate.nextDraftInput, {
+      await submitComposerPrompt(quickReplyUpdate.submissionPrompt, {
         contentFocusOverride:
           quickReplyUpdate.nextActiveContentFocus ?? activeContentFocus,
+        intentOverride: quickReply.explicitIntent,
       });
     },
     [

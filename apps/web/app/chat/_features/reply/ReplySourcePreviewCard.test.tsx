@@ -31,6 +31,11 @@ const preview = {
   conversation: null,
 };
 
+const multilinePreview = {
+  ...preview,
+  text: "Perfect algo pull\nwith a second line that should stay hidden while collapsed",
+};
+
 test("renders the author profile photo and verification badge", () => {
   render(<ReplySourcePreviewCard preview={preview} showExternalCta />);
 
@@ -90,4 +95,13 @@ test("closes the expanded image modal when clicking the backdrop", async () => {
   await user.click(dialog);
 
   expect(screen.queryByRole("dialog", { name: "Expanded source image" })).toBeNull();
+});
+
+test("renders only the first source line when collapsed", () => {
+  render(<ReplySourcePreviewCard preview={multilinePreview} size="compact" collapsed />);
+
+  expect(screen.getByText("Perfect algo pull")).toBeVisible();
+  expect(
+    screen.queryByText("with a second line that should stay hidden while collapsed"),
+  ).toBeNull();
 });

@@ -149,6 +149,66 @@ function hasBusinessDomainSignal(text: string) {
   return BUSINESS_DOMAIN_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+export function hasSubstantiveReplySourceText(text: string): boolean {
+  const normalized = normalizeWhitespace(text);
+  if (!normalized) {
+    return false;
+  }
+
+  const keywordCount = collectKeywords(normalized).length;
+  const sentenceCount = normalized
+    .split(/[.!?](?:\s+|$)/)
+    .map((entry) => entry.trim())
+    .filter(Boolean).length;
+  const hasBusinessSignal = hasBusinessDomainSignal(normalized);
+  const hasConcreteProductOrWorkflowSignal =
+    /@\w+/.test(normalized) ||
+    /\b(ai|agent|workflow|integration|integrated|automation|proposal|notion|page|link|tool|app|product|feature|launch|ship|shipped|using|hooked|builder|system)\b/i.test(
+      normalized,
+    );
+
+  return Boolean(
+    (hasBusinessSignal || hasConcreteProductOrWorkflowSignal) &&
+      (keywordCount >= 8 ||
+        sentenceCount >= 2 ||
+        normalized.length >= 90 ||
+        hasConcreteProductOrWorkflowSignal),
+  );
+}
+
+export function shouldPreferTextOverImageForReply(args: {
+  sourceContext?: ReplySourceContext | null;
+  sourceText?: string | null;
+  visualContext?: ReplyVisualContextSummary | null;
+}): boolean {
+  const visibleText = normalizeWhitespace(args.sourceContext?.primaryPost.text || args.sourceText || "");
+  if (!hasSubstantiveReplySourceText(visibleText) || !args.visualContext) {
+    return false;
+  }
+
+  const imageRole = args.visualContext.imageRole || "none";
+  const imageArtifactType = args.visualContext.imageArtifactType || "unknown";
+  const isScreenshotLike =
+    args.visualContext.sceneType === "screenshot" ||
+    args.visualContext.sceneType === "product_ui" ||
+    imageArtifactType === "real_screenshot";
+  const isImageLedPost =
+    /\b(screenshot|screen shot|image|photo|mockup|ui|see screenshot|see attached|attached image|in the screenshot)\b/i.test(
+      visibleText,
+    );
+  const isNonLiteralImage =
+    imageArtifactType === "parody_ui" ||
+    imageArtifactType === "mockup" ||
+    /\b(parody|mockup|fake ui|concept)\b/i.test(visibleText);
+
+  return Boolean(
+    isScreenshotLike &&
+      !isImageLedPost &&
+      !isNonLiteralImage &&
+      (imageRole === "punchline" || imageRole === "proof" || imageRole === "context"),
+  );
+}
+
 function isEmotionalUpdate(text: string) {
   return EMOTIONAL_UPDATE_PATTERNS.some((pattern) => pattern.test(text));
 }
@@ -218,10 +278,18 @@ export function inferHeuristicReplySourceShape(args: {
       (args.imageSummaryLines?.length || 0) > 0 ||
       (args.sourceContext?.media?.images.length || 0) > 0,
   );
+  const preferTextOverImage = shouldPreferTextOverImageForReply({
+    sourceContext: args.sourceContext || null,
+    sourceText: args.sourceText || null,
+    visualContext: args.visualContext || null,
+  });
   const shortCaption = collectKeywords(visibleText).length <= 4;
   const playfulShortCaption =
     /\b(perfect|insane|wild|crazy|absurd|pull|lmao|lol|lmfao)\b/i.test(visibleText);
 
+  if (preferTextOverImage) {
+    return "strategic_take";
+  }
   if (args.visualContext?.imageRole === "punchline") {
     return "joke_setup";
   }
@@ -298,6 +366,7 @@ function deriveHumorMode(args: {
   sourceShape: ReplyDraftSourceShape;
   imageArtifactType: ReplyImageArtifactType;
   imageRole: string;
+  preferTextOverImage: boolean;
 }): ReplyHumorMode {
   if (args.imageArtifactType === "parody_ui") {
     return "parody";
@@ -311,7 +380,7 @@ function deriveHumorMode(args: {
   if (args.sourceShape === "joke_setup" && /\b(absurd|insane|wild|criminal|illegal)\b/i.test(args.combinedText)) {
     return "absurdist";
   }
-  if (args.sourceShape === "joke_setup" || args.imageRole === "punchline") {
+  if (!args.preferTextOverImage && (args.sourceShape === "joke_setup" || args.imageRole === "punchline")) {
     return "playful";
   }
   if (/\b(lol|lmao|haha|funny|bit)\b/i.test(args.combinedText)) {
@@ -377,10 +446,14 @@ function deriveTarget(args: {
   humorMode: ReplyHumorMode;
   postFrame: ReplyPostFrame;
   imageArtifactType: ReplyImageArtifactType;
+  preferTextOverImage: boolean;
 }): string {
   const readableText = normalizeWhitespace(args.visualContext?.readableText);
   const anchor = normalizeWhitespace(args.visualContext?.imageReplyAnchor);
 
+  if (args.preferTextOverImage) {
+    return collectKeywords(args.sourceText).slice(0, 4).join(" ") || "the visible post";
+  }
   if (args.visualContext?.artifactTargetHint) {
     return args.visualContext.artifactTargetHint;
   }
@@ -508,16 +581,27 @@ export function buildHeuristicSourceInterpretation(args: {
       quotedText: args.quotedText || null,
       visualContext: args.visualContext || null,
     });
+  const preferTextOverImage = shouldPreferTextOverImageForReply({
+    sourceContext: args.sourceContext || null,
+    sourceText: args.sourceText || null,
+    visualContext: args.visualContext || null,
+  });
   const imageArtifactType = deriveImageArtifactType({
     sourceText,
     visualContext: args.visualContext || null,
   });
+  const rawImageRole = args.preflightResult?.image_role || args.visualContext?.imageRole || "none";
+  const effectiveImageRole =
+    preferTextOverImage && (rawImageRole === "punchline" || rawImageRole === "proof")
+      ? "context"
+      : rawImageRole;
   const humorMode = deriveHumorMode({
     sourceText,
     combinedText,
     sourceShape,
     imageArtifactType,
-    imageRole: args.preflightResult?.image_role || args.visualContext?.imageRole || "none",
+    imageRole: effectiveImageRole,
+    preferTextOverImage,
   });
   const postFrame = derivePostFrame({
     sourceText,
@@ -539,6 +623,7 @@ export function buildHeuristicSourceInterpretation(args: {
     humorMode,
     postFrame,
     imageArtifactType,
+    preferTextOverImage,
   });
   const { literalityConfidence, satireConfidence } = deriveConfidence({
     combinedText,

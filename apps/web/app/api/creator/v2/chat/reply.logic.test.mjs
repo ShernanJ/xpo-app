@@ -118,6 +118,30 @@ test("resolveReplyContinuation maps option picks and draft revisions from active
     }),
     { type: "revise_draft", tone: "warm", length: "same" },
   );
+
+  assert.deepEqual(
+    resolveReplyContinuation({
+      userMessage: "regenerate",
+      activeReplyContext,
+    }),
+    { type: "revise_draft", tone: "builder", length: "same" },
+  );
+
+  assert.deepEqual(
+    resolveReplyContinuation({
+      userMessage: "renerate",
+      activeReplyContext,
+    }),
+    { type: "revise_draft", tone: "builder", length: "same" },
+  );
+
+  assert.deepEqual(
+    resolveReplyContinuation({
+      userMessage: "rewrite this reply to sound warmer",
+      activeReplyContext,
+    }),
+    { type: "revise_draft", tone: "warm", length: "same" },
+  );
 });
 
 test("shouldClearReplyWorkflow clears stale reply state on unrelated non-reply turns", () => {
@@ -141,6 +165,7 @@ test("shouldClearReplyWorkflow clears stale reply state on unrelated non-reply t
   assert.equal(
     shouldClearReplyWorkflow({
       activeReplyContext,
+      userMessage: "what are we talking about",
       turnSource: "free_text",
       replyParseResult: {
         classification: "plain_chat",
@@ -154,6 +179,7 @@ test("shouldClearReplyWorkflow clears stale reply state on unrelated non-reply t
   assert.equal(
     shouldClearReplyWorkflow({
       activeReplyContext,
+      userMessage: "make it bolder",
       turnSource: "draft_action",
       replyParseResult: {
         classification: "plain_chat",
@@ -167,6 +193,7 @@ test("shouldClearReplyWorkflow clears stale reply state on unrelated non-reply t
   assert.equal(
     shouldClearReplyWorkflow({
       activeReplyContext,
+      userMessage: "go with option 1",
       turnSource: "free_text",
       replyParseResult: {
         classification: "plain_chat",
@@ -180,6 +207,7 @@ test("shouldClearReplyWorkflow clears stale reply state on unrelated non-reply t
   assert.equal(
     shouldClearReplyWorkflow({
       activeReplyContext,
+      userMessage: "go with option 1",
       turnSource: "reply_action",
       replyParseResult: {
         classification: "plain_chat",
@@ -188,5 +216,22 @@ test("shouldClearReplyWorkflow clears stale reply state on unrelated non-reply t
       replyContinuation: { type: "select_option", optionIndex: 0 },
     }),
     true,
+  );
+
+  assert.equal(
+    shouldClearReplyWorkflow({
+      activeReplyContext: {
+        ...activeReplyContext,
+        latestReplyDraftOptions: [{ id: "draft-1", label: "draft-1", text: "Draft 1" }],
+      },
+      userMessage: "what does that reply even mean",
+      turnSource: "free_text",
+      replyParseResult: {
+        classification: "plain_chat",
+        context: null,
+      },
+      replyContinuation: null,
+    }),
+    false,
   );
 });

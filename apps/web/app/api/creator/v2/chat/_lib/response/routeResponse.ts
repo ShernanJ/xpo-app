@@ -7,6 +7,7 @@ import {
   buildAssistantContextPacket,
   buildInitialDraftVersionPayload,
   type ChatRouteResponseData,
+  type SelectedDraftContext,
 } from "../request/routeLogic.ts";
 import type {
   ChatReplyArtifacts,
@@ -34,6 +35,7 @@ export function buildReplyAssistantMessageData(args: {
   routingDiagnostics: ChatRouteResponseData["routingDiagnostics"];
   clientTurnId: string | null;
   threadTitle: string;
+  selectedDraftContext?: SelectedDraftContext | null;
   replyArtifacts?: ChatReplyArtifacts | null;
   replyParse?: ChatReplyParseEnvelope | null;
   replySourcePreview?: ReplySourcePreview | null;
@@ -48,7 +50,7 @@ export function buildReplyAssistantMessageData(args: {
           draft: primaryReplyDraft,
           outputShape: "reply_candidate",
           supportAsset: null,
-          selectedDraftContext: null,
+          selectedDraftContext: args.selectedDraftContext ?? null,
           replySourcePreview: args.replySourcePreview ?? null,
         })
       : {

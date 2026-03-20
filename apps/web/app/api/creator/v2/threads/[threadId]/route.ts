@@ -14,6 +14,7 @@ import {
   parseJsonBody,
   requireAllowedOrigin,
 } from "@/lib/security/requestValidation";
+import { deleteThreadWithDraftCandidates } from "../_lib/threadDeletion";
 
 function buildActiveTurnPayload(
   turn:
@@ -268,8 +269,19 @@ export async function DELETE(
       return ownedThread.response;
     }
 
-    await prisma.chatThread.delete({
-      where: { id: threadId },
+    await prisma.$transaction(async (tx) => {
+      await deleteThreadWithDraftCandidates(threadId, {
+        deleteDraftCandidates: ({ threadId }) =>
+          tx.draftCandidate.deleteMany({
+            where: { threadId },
+          }),
+        deleteThread: ({ threadId }) =>
+          tx.chatThread
+            .delete({
+              where: { id: threadId },
+            })
+            .then(() => undefined),
+      });
     });
 
     return NextResponse.json({ ok: true, data: { deleted: true } });

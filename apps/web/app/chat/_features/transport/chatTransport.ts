@@ -1,4 +1,7 @@
-import type { DraftFormatPreference } from "../../../../lib/agent-v2/contracts/chat.ts";
+import type {
+  DraftFormatPreference,
+  V2ChatIntent,
+} from "../../../../lib/agent-v2/contracts/chat.ts";
 import {
   buildCreatorChatTransportRequest,
   createClientTurnId,
@@ -22,14 +25,7 @@ import {
   type PendingStatusPlan,
 } from "../composer/pendingStatus.ts";
 
-type ChatIntent =
-  | "coach"
-  | "ideate"
-  | "plan"
-  | "planner_feedback"
-  | "draft"
-  | "review"
-  | "edit";
+type ChatIntent = V2ChatIntent;
 
 export interface DraftVersionSnapshotLike {
   messageId: string;
@@ -229,6 +225,9 @@ function inferSelectedDraftAction(prompt: string): "revise" | "ignore" {
   }
 
   const explicitReviseCues = [
+    "regenerate",
+    "renerate",
+    "regen",
     "why does it say",
     "why does it mention",
     "don't say",
@@ -239,6 +238,10 @@ function inferSelectedDraftAction(prompt: string): "revise" | "ignore" {
     "delete \"",
     "delete '",
     "make it shorter",
+    "make it bolder",
+    "make it less harsh",
+    "less harsh",
+    "bolder",
     "shorten it",
     "tighten this",
     "make this clearer",

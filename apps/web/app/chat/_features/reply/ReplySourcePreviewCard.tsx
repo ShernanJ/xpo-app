@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { ArrowUpRight, Images } from "lucide-react";
+import { ArrowUpRight, ChevronDown, ChevronUp, Images } from "lucide-react";
 
 import type {
   ReplySourcePreview,
@@ -17,6 +17,9 @@ interface ReplySourcePreviewCardProps {
   size?: "default" | "compact";
   showExternalCta?: boolean;
   ctaLabel?: string;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+  toggleAriaLabel?: string;
 }
 
 function getToneClassName(tone: ReplySourcePreviewCardProps["tone"]) {
@@ -25,6 +28,15 @@ function getToneClassName(tone: ReplySourcePreviewCardProps["tone"]) {
   }
 
   return "border-white/10 bg-black/20";
+}
+
+function getCollapsedPreviewText(text: string): string {
+  return (
+    text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? ""
+  );
 }
 
 function renderAuthorAvatar(
@@ -114,12 +126,14 @@ function ReplySourcePostCard(props: {
   quotePreview?: ReplySourcePreviewPost | null;
   nested?: boolean;
   size: NonNullable<ReplySourcePreviewCardProps["size"]>;
+  collapsed?: boolean;
 }) {
-  const { post, quotePreview = null, nested = false, size } = props;
+  const { post, quotePreview = null, nested = false, size, collapsed = false } = props;
   const bodyTextClassName =
     size === "compact"
       ? "text-[13px] leading-5 text-zinc-200"
       : "text-sm leading-6 text-zinc-200";
+  const visibleText = collapsed ? getCollapsedPreviewText(post.text) || "View source post" : post.text;
 
   return (
     <div
@@ -134,7 +148,9 @@ function ReplySourcePostCard(props: {
       <div className={`flex items-start ${size === "compact" ? "gap-2.5" : "gap-3"}`}>
         {renderAuthorAvatar(post, size)}
         <div className="min-w-0 flex-1">
-          <div className={`flex min-w-0 flex-wrap items-center ${size === "compact" ? "gap-1" : "gap-1.5"}`}>
+          <div
+            className={`flex min-w-0 flex-wrap items-center ${size === "compact" ? "gap-1" : "gap-1.5"}`}
+          >
             <span
               className={`truncate font-semibold text-white ${
                 size === "compact" ? "text-[13px]" : "text-sm"
@@ -164,15 +180,19 @@ function ReplySourcePostCard(props: {
             ) : null}
           </div>
 
-          <p className={`mt-2 whitespace-pre-wrap ${bodyTextClassName}`}>
-            {post.text}
+          <p
+            className={`mt-2 ${collapsed ? "whitespace-normal" : "whitespace-pre-wrap"} ${bodyTextClassName}`.trim()}
+          >
+            {visibleText}
           </p>
-          {renderMediaGrid({
-            media: post.media,
-            size,
-          })}
+          {collapsed
+            ? null
+            : renderMediaGrid({
+                media: post.media,
+                size,
+              })}
 
-          {quotePreview ? (
+          {quotePreview && !collapsed ? (
             <div className="mt-3">
               <ReplySourcePostCard
                 post={quotePreview}
@@ -195,11 +215,15 @@ export function ReplySourcePreviewCard(props: ReplySourcePreviewCardProps) {
     size = "default",
     showExternalCta = false,
     ctaLabel = "Reply",
+    collapsed = false,
+    onToggleCollapse,
+    toggleAriaLabel,
   } = props;
 
   return (
     <article
       className={[
+        "relative",
         size === "compact"
           ? "rounded-[1.3rem] border px-3 py-3"
           : "rounded-[1.5rem] border px-4 py-4",
@@ -209,8 +233,22 @@ export function ReplySourcePreviewCard(props: ReplySourcePreviewCardProps) {
         .filter(Boolean)
         .join(" ")}
     >
+      {onToggleCollapse ? (
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          aria-expanded={!collapsed}
+          aria-label={toggleAriaLabel || (collapsed ? "Expand source post preview" : "Collapse source post preview")}
+          className={`absolute right-3 top-3 inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-zinc-400 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 ${
+            size === "compact" ? "h-8 w-8" : "h-9 w-9"
+          }`}
+        >
+          {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+        </button>
+      ) : null}
+
       {showExternalCta && preview.sourceUrl ? (
-        <div className="flex items-start justify-end">
+        <div className={`flex items-start justify-end ${onToggleCollapse ? "pr-10" : ""}`}>
           <a
             href={preview.sourceUrl}
             target="_blank"
@@ -227,11 +265,12 @@ export function ReplySourcePreviewCard(props: ReplySourcePreviewCardProps) {
         </div>
       ) : null}
 
-      <div className={showExternalCta && preview.sourceUrl ? "mt-3" : undefined}>
+      <div className={showExternalCta && preview.sourceUrl ? "mt-3" : onToggleCollapse ? "pr-10" : undefined}>
         <ReplySourcePostCard
           post={preview}
           quotePreview={preview.quotedPost ?? null}
           size={size}
+          collapsed={collapsed}
         />
       </div>
     </article>

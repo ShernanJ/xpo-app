@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import { ArrowUpRight, Check, Copy, Edit3 } from "lucide-react";
 
@@ -24,6 +25,7 @@ interface InlineReplyDraftPreviewCardProps {
   hasCopiedDraft: boolean;
   revealClassName: string;
   shouldAnimateLines: boolean;
+  defaultSourceExpanded?: boolean;
   onOpenDraftEditor: () => void;
   onRequestRevision: (prompt: string) => void;
   onCopy: () => void;
@@ -42,10 +44,12 @@ export function InlineReplyDraftPreviewCard(
     hasCopiedDraft,
     revealClassName,
     shouldAnimateLines,
+    defaultSourceExpanded = true,
     onOpenDraftEditor,
     onRequestRevision,
     onCopy,
   } = props;
+  const [isSourceExpanded, setIsSourceExpanded] = useState(defaultSourceExpanded);
 
   return (
     <div className="mt-4 border-t border-white/10 pt-4">
@@ -129,16 +133,18 @@ export function InlineReplyDraftPreviewCard(
           />
         </button>
 
-        <div className="mt-3 flex items-center gap-1.5 text-xs text-zinc-500">
+        <div className="mt-3 flex items-center text-xs text-zinc-500">
           <span>Just now</span>
-          <span>·</span>
-          <span className="rounded-full border border-emerald-500/15 bg-emerald-500/[0.05] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-200/80">
-            Reply
-          </span>
         </div>
 
         <div className="mt-4">
-          <ReplySourcePreviewCard preview={sourcePreview} tone="reply" size="compact" />
+          <ReplySourcePreviewCard
+            preview={sourcePreview}
+            tone="reply"
+            size="compact"
+            collapsed={!isSourceExpanded}
+            onToggleCollapse={() => setIsSourceExpanded((current) => !current)}
+          />
         </div>
 
         <div className="mt-4 border-t border-white/[0.06] pt-3">

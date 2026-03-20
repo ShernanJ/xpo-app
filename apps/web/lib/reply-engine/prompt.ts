@@ -13,7 +13,10 @@ import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrate
 
 import { analyzeReplySourceVisualContext } from "./context.ts";
 import { retrieveReplyGoldenExamples } from "./goldenExamples.ts";
-import { resolveSourceInterpretation } from "./interpretation.ts";
+import {
+  resolveSourceInterpretation,
+  shouldPreferTextOverImageForReply,
+} from "./interpretation.ts";
 import { resolveReplyConstraintPolicy } from "./policy.ts";
 import { buildReplyDraftPreflightFallback, classifyReplyDraftMode } from "./preflight.ts";
 import { inferReplySourceMode, resolveReplyToneDirection } from "./tone.ts";
@@ -434,7 +437,9 @@ export function buildReplyGroundingPacket(args: {
       ...(args.sourceContext.quotedPost?.text
         ? [`Quoted post text: ${args.sourceContext.quotedPost.text}`]
         : []),
-      ...(args.visualContext?.summaryLines || []).map((line) => `Image context: ${line}`),
+      ...(policy.preferTextOverImage
+        ? ["Screenshot is supporting context only. Keep the reply centered on the visible post text."]
+        : (args.visualContext?.summaryLines || []).map((line) => `Image context: ${line}`)),
       ...(useIntentOverlay && !sourceMode.isPlayful
         ? args.strategy.truthBoundary.inferredThemes.slice(0, 2)
         : []),
@@ -554,13 +559,19 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
       ? "- Quote rule: respond to the visible quote-tweet text first; use the quoted post only as supporting context."
       : "- Reply rule: stay inside the visible post's literal topic and wording.",
     args.visualContext?.summaryLines?.length
-      ? `- Image context available: ${args.visualContext.summaryLines.join(" | ")}`
+      ? policy.preferTextOverImage
+        ? "- Image context available: supporting screenshot only. Keep the reply centered on the visible post text."
+        : `- Image context available: ${args.visualContext.summaryLines.join(" | ")}`
       : "- Image context available: none.",
     args.visualContext?.imageRole && args.visualContext.imageRole !== "none"
-      ? `- Image role: ${args.visualContext.imageRole}`
+      ? policy.preferTextOverImage
+        ? "- Image role: supporting context"
+        : `- Image role: ${args.visualContext.imageRole}`
       : "- Image role: none.",
     args.visualContext?.imageReplyAnchor
-      ? `- Image reply anchor: ${args.visualContext.imageReplyAnchor}`
+      ? policy.preferTextOverImage
+        ? "- Image reply anchor: do not center the reply on OCR details."
+        : `- Image reply anchor: ${args.visualContext.imageReplyAnchor}`
       : "- Image reply anchor: none.",
     "",
     "CLASSIFIER READ:",
@@ -610,6 +621,9 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     interpretation.post_frame === "recruiting_call"
       ? "- The post is a recruiting or open-call pitch. React to the hiring filter, pitch, or vibe in public-reply mode."
       : null,
+    policy.preferTextOverImage
+      ? "- The visible post text already contains the main point. Treat any screenshot as supporting context only."
+      : null,
     policy.imageRole === "punchline"
       ? "- The image is carrying the punchline. Treat it as source material, not decoration."
       : policy.imageRole === "proof"
@@ -642,6 +656,9 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     policy.shouldReferenceImageText
       ? "- Readable in-image text is first-class source material here. Reuse it naturally if it sharpens the reply."
       : "- Do not force a mention of image text unless it clearly matters.",
+    policy.preferTextOverImage
+      ? "- Do not let OCR, chat logs, or screenshot details replace the post's main product/workflow point."
+      : null,
     policy.imageRole === "punchline"
       ? "- Do not default to obvious joke formats like 'x? more like y', winky punchline rewrites, or a full caption explaining why the image is funny."
       : null,
@@ -675,11 +692,13 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     !policy.allowAdvice
       ? "13. Do not tell the author what they should do next."
       : "13. If you give advice, keep it native and directly grounded in the source.",
-    policy.imageRole === "punchline"
-      ? "14. The image is the joke. Reference the visual or OCR naturally instead of ignoring it and inventing a strategy lens."
-      : policy.imageRole === "proof"
-        ? "14. If the image provides proof, keep the reply anchored to that proof instead of drifting generic."
-        : "14. Mention the image only if it genuinely sharpens the reply.",
+    policy.preferTextOverImage
+      ? "14. Keep the reply centered on the visible post text. Do not pivot into screenshot OCR unless the post itself points there."
+      : policy.imageRole === "punchline"
+        ? "14. The image is the joke. Reference the visual or OCR naturally instead of ignoring it and inventing a strategy lens."
+        : policy.imageRole === "proof"
+          ? "14. If the image provides proof, keep the reply anchored to that proof instead of drifting generic."
+          : "14. Mention the image only if it genuinely sharpens the reply.",
     policy.imageRole === "punchline"
       ? "15. Avoid performative joke constructions like 'more like...', big wink-nod phrasing, or turning the OCR into a caption."
       : "15. Keep the phrasing native and unforced.",
@@ -714,6 +733,11 @@ export function buildReplyDraftUserPrompt(args: Pick<
   visualContext?: ReplyVisualContextSummary | null;
   preflightResult?: PreparedReplyPromptPacket["preflightResult"] | null;
 }): string {
+  const preferTextOverImage = shouldPreferTextOverImageForReply({
+    sourceContext: args.sourceContext,
+    visualContext: args.visualContext || null,
+  });
+
   return [
     "Reply target:",
     `Visible post author: @${args.sourceContext.primaryPost.authorHandle || "unknown"}`,
@@ -729,7 +753,9 @@ export function buildReplyDraftUserPrompt(args: Pick<
         ]
       : []),
     ...(args.visualContext?.summaryLines?.length
-      ? ["Image context:", ...args.visualContext.summaryLines.map((line) => `- ${line}`), ""]
+      ? preferTextOverImage
+        ? ["Image note: screenshot is supporting context only. Keep the reply centered on the visible post text.", ""]
+        : ["Image context:", ...args.visualContext.summaryLines.map((line) => `- ${line}`), ""]
       : []),
     ...(args.preflightResult
       ? [

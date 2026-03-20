@@ -12,6 +12,10 @@ import {
   dispatchPlannedProductEvents,
   planReplyAssistantTurnProductEvents,
 } from "../response/routeResponse.ts";
+import {
+  buildSelectedDraftContextFromEntry,
+  type SelectedDraftContext,
+} from "../request/routeLogic.ts";
 
 export interface FinalizeReplyTurnArgs {
   preparedTurn: PreparedHandledReplyTurn;
@@ -45,6 +49,50 @@ export interface ReplyFinalizationDeps {
   planReplyAssistantTurnProductEvents: typeof planReplyAssistantTurnProductEvents;
   dispatchPlannedProductEvents: typeof dispatchPlannedProductEvents;
   buildChatSuccessResponse: typeof buildChatSuccessResponse;
+  resolveReplySelectedDraftContext: (args: {
+    storedThreadId: string | null;
+    storedMemory: V2ConversationMemory;
+  }) => Promise<SelectedDraftContext | null>;
+}
+
+async function resolveReplySelectedDraftContext(args: {
+  storedThreadId: string | null;
+  storedMemory: V2ConversationMemory;
+}): Promise<SelectedDraftContext | null> {
+  if (!args.storedThreadId || args.storedMemory.activeReplyArtifactRef?.kind !== "reply_draft") {
+    return null;
+  }
+
+  const replyMessageId = args.storedMemory.activeReplyArtifactRef.messageId?.trim();
+  if (!replyMessageId) {
+    return null;
+  }
+
+  const replyMessage = await prisma.chatMessage.findUnique({
+    where: { id: replyMessageId },
+    select: {
+      id: true,
+      threadId: true,
+      data: true,
+    },
+  });
+
+  if (
+    !replyMessage ||
+    replyMessage.threadId !== args.storedThreadId ||
+    !replyMessage.data ||
+    typeof replyMessage.data !== "object" ||
+    Array.isArray(replyMessage.data)
+  ) {
+    return null;
+  }
+
+  return buildSelectedDraftContextFromEntry({
+    entry: {
+      id: replyMessage.id,
+      ...(replyMessage.data as Prisma.JsonObject),
+    },
+  });
 }
 
 const DEFAULT_REPLY_FINALIZATION_DEPS: ReplyFinalizationDeps = {
@@ -53,7 +101,27 @@ const DEFAULT_REPLY_FINALIZATION_DEPS: ReplyFinalizationDeps = {
   planReplyAssistantTurnProductEvents,
   dispatchPlannedProductEvents,
   buildChatSuccessResponse,
+  resolveReplySelectedDraftContext,
 };
+
+function normalizeTitleValue(value: string | null | undefined): string {
+  return value?.trim().replace(/\s+/g, " ") ?? "";
+}
+
+function buildReplyThreadTitle(args: {
+  draft: string | null | undefined;
+  authorHandle: string | null | undefined;
+}): string | null {
+  const authorHandle = normalizeTitleValue(args.authorHandle).replace(/^@+/, "").toLowerCase();
+  const draft = normalizeTitleValue(args.draft);
+
+  if (!authorHandle || !draft) {
+    return null;
+  }
+
+  const preview = draft.length > 10 ? `${draft.slice(0, 10)}...` : draft;
+  return `Reply to @${authorHandle} - ${preview}`;
+}
 
 export async function finalizeReplyTurn(
   args: FinalizeReplyTurnArgs,
@@ -70,6 +138,32 @@ export async function finalizeReplyTurnWithDeps(
     activeReplyContext: args.preparedTurn.plannedTurn.activeReplyContext,
     selectedReplyOptionId: args.preparedTurn.plannedTurn.selectedReplyOptionId,
   });
+  const primaryReplyDraft =
+    args.preparedTurn.plannedTurn.replyArtifacts?.kind === "reply_draft"
+      ? args.preparedTurn.plannedTurn.replyArtifacts.options[0]?.text ?? null
+      : null;
+  const generatedReplyThreadTitle =
+    args.preparedTurn.plannedTurn.outputShape === "reply_candidate"
+      ? buildReplyThreadTitle({
+          draft: primaryReplyDraft,
+          authorHandle:
+            args.preparedTurn.plannedTurn.replySourcePreview?.author.username ??
+            args.preparedTurn.plannedTurn.replyArtifacts?.authorHandle ??
+            args.preparedTurn.plannedTurn.activeReplyContext?.authorHandle ??
+            null,
+        })
+      : null;
+  const resolvedThreadTitle =
+    generatedReplyThreadTitle ||
+    args.storedThreadTitle ||
+    args.defaultThreadTitle;
+  const selectedDraftContext =
+    args.preparedTurn.plannedTurn.replyParse?.parseReason === "reply_draft_revised"
+      ? await deps.resolveReplySelectedDraftContext({
+          storedThreadId: args.storedThreadId,
+          storedMemory: args.storedMemory,
+        })
+      : null;
   let mappedData = deps.buildReplyAssistantMessageData({
     reply: args.preparedTurn.plannedTurn.reply,
     outputShape: args.preparedTurn.plannedTurn.outputShape,
@@ -78,7 +172,8 @@ export async function finalizeReplyTurnWithDeps(
     memory: nextMemory,
     routingDiagnostics: args.routingDiagnostics,
     clientTurnId: args.clientTurnId,
-    threadTitle: args.storedThreadTitle || args.defaultThreadTitle,
+    threadTitle: resolvedThreadTitle,
+    selectedDraftContext,
     replyArtifacts: args.preparedTurn.plannedTurn.replyArtifacts || null,
     replyParse: args.preparedTurn.plannedTurn.replyParse || null,
     replySourcePreview: args.preparedTurn.plannedTurn.replySourcePreview || null,
@@ -105,7 +200,10 @@ export async function finalizeReplyTurnWithDeps(
     const persistenceResult = await deps.persistAssistantTurn({
       threadId: args.storedThreadId,
       assistantMessageData: mappedData,
-      threadUpdate: { updatedAt: new Date() },
+      threadUpdate: {
+        updatedAt: new Date(),
+        ...(generatedReplyThreadTitle ? { title: generatedReplyThreadTitle } : {}),
+      },
       contentTitleSyncContext: {
         userId: args.userId,
         xHandle: args.activeHandle,
@@ -159,7 +257,7 @@ export async function finalizeReplyTurnWithDeps(
     applyRuntimePersistenceTracePatch(args.preparedTurn.routingTrace, persistenceResult.tracePatch);
     mappedData = {
       ...mappedData,
-      threadTitle: persistenceResult.updatedThreadTitle || args.defaultThreadTitle,
+      threadTitle: persistenceResult.updatedThreadTitle || resolvedThreadTitle,
     };
 
     if (args.userMessageId && args.preparedTurn.plannedTurn.replySourcePreview) {

@@ -128,6 +128,71 @@ test("classifyReplyDraftMode uses proof screenshots as evidence instead of jokes
   assert.equal(result.should_reference_image_text, true);
 });
 
+test("classifyReplyDraftMode keeps substantive workflow posts text-first even with real screenshots", async () => {
+  const visualContext = {
+    primarySubject: "chat app screenshot",
+    setting: "digital interface",
+    lightingAndMood: "evidentiary and matter-of-fact",
+    readableText:
+      "updated the Notion page. here's what changed: justification back to here's how i'm thinking about it",
+    keyDetails: ["chat transcript screenshot", "notion update summary", "ai workflow transcript"],
+    brandSignals: ["openclaw", "notion"],
+    absurdityMarkers: [],
+    artifactTargetHint: "chat workflow transcript",
+    imageCount: 1,
+    sceneType: "screenshot" as const,
+    imageArtifactType: "real_screenshot" as const,
+    imageRole: "proof" as const,
+    imageReplyAnchor:
+      "updated the Notion page. here's what changed: justification back to here's how i'm thinking about it",
+    shouldReferenceImageText: true,
+    replyRelevance: "high",
+    images: [
+      {
+        imageUrl: null,
+        source: "alt_text" as const,
+        sceneType: "screenshot" as const,
+        imageArtifactType: "real_screenshot" as const,
+        imageRole: "proof" as const,
+        primarySubject: "chat app screenshot",
+        setting: "digital interface",
+        lightingAndMood: "evidentiary and matter-of-fact",
+        readableText:
+          "updated the Notion page. here's what changed: justification back to here's how i'm thinking about it",
+        keyDetails: ["chat transcript screenshot", "notion update summary"],
+        brandSignals: ["openclaw", "notion"],
+        absurdityMarkers: [],
+        artifactTargetHint: "chat workflow transcript",
+        jokeAnchor:
+          "updated the Notion page. here's what changed: justification back to here's how i'm thinking about it",
+        replyRelevance: "high",
+      },
+    ],
+    summaryLines: [
+      "Image scene type: screenshot",
+      "Image artifact type: real_screenshot",
+      "Image role: proof",
+    ],
+  };
+
+  const result = await classifyReplyDraftMode({
+    sourceText:
+      "just hooked sierra, my @OpenClaw ai, up to @NotionHQ. working on a project proposal. voice dumped the ideas in my head and she packaged them into a notion page. sent a link back.",
+    imageSummaryLines: visualContext.summaryLines,
+    visualContext,
+  });
+
+  assert.equal(result.recommended_reply_mode, "insightful_add_on");
+  assert.equal(result.source_shape, "strategic_take");
+  assert.equal(result.image_role, "context");
+  assert.equal(result.should_reference_image_text, false);
+  assert.notEqual(result.interpretation?.target, "chat workflow transcript");
+  assert.equal(
+    /openclaw|notion/i.test(result.interpretation?.target || ""),
+    true,
+  );
+});
+
 test("classifyReplyDraftMode treats parody premium mockups as non-literal satire", async () => {
   const visualContext = await analyzeReplySourceVisualContext({
     primaryPost: {

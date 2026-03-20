@@ -2,13 +2,18 @@ import type { CreatorProfileHints } from "../agent-v2/grounding/groundingPacket.
 import type { ProfileReplyContext } from "../agent-v2/grounding/profileReplyContext.ts";
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
-import { buildExtensionReplyDraft, type ExtensionReplyDraftBuildResult } from "./replyDraft.ts";
+import {
+  buildExtensionReplyDraft,
+  buildReplyDraftGenerationContext,
+  prepareExtensionReplyDraftPromptPacket,
+  type ExtensionReplyDraftBuildResult,
+} from "./replyDraft.ts";
 import { buildExtensionReplyOptions } from "./replyOptions.ts";
 import type { ReplyInsights } from "./replyOpportunities.ts";
 import {
   buildReplySourceContextFromFlatInput,
   generateReplyDraftText,
-  prepareReplyPromptPacket,
+  resolveReplyConstraintPolicy,
   type ReplySourceContext,
 } from "../reply-engine/index.ts";
 import type { CreatorAgentContext } from "../onboarding/strategy/agentContext.ts";
@@ -36,6 +41,26 @@ function normalizeHandle(value: string | null | undefined): string {
 function shouldUseLiveGroqReplyDrafts() {
   return Boolean(process.env.GROQ_API_KEY?.trim()) && !process.argv.includes("--test");
 }
+
+interface ChatReplyDraftDeps {
+  buildReplySourceContextFromFlatInput: typeof buildReplySourceContextFromFlatInput;
+  buildReplyDraftGenerationContext: typeof buildReplyDraftGenerationContext;
+  buildExtensionReplyDraft: typeof buildExtensionReplyDraft;
+  prepareExtensionReplyDraftPromptPacket: typeof prepareExtensionReplyDraftPromptPacket;
+  generateReplyDraftText: typeof generateReplyDraftText;
+  resolveReplyConstraintPolicy: typeof resolveReplyConstraintPolicy;
+  shouldUseLiveGroqReplyDrafts: typeof shouldUseLiveGroqReplyDrafts;
+}
+
+const DEFAULT_CHAT_REPLY_DRAFT_DEPS: ChatReplyDraftDeps = {
+  buildReplySourceContextFromFlatInput,
+  buildReplyDraftGenerationContext,
+  buildExtensionReplyDraft,
+  prepareExtensionReplyDraftPromptPacket,
+  generateReplyDraftText,
+  resolveReplyConstraintPolicy,
+  shouldUseLiveGroqReplyDrafts,
+};
 
 function buildSyntheticCandidate(source: ChatReplySource): ExtensionOpportunityCandidate {
   const sourceContext = buildReplySourceContextFromFlatInput({
@@ -150,6 +175,43 @@ function shortenReplyText(value: string): string {
   return `${trimmed.slice(0, cutoff > 0 ? cutoff : 136).trimEnd()}...`;
 }
 
+function buildChatReplyDraftRequest(args: {
+  source: ChatReplySource;
+  sourceContext: ReplySourceContext;
+  stage: ExtensionReplyDraftRequest["stage"];
+  tone: ExtensionReplyTone;
+  goal: string;
+}): ExtensionReplyDraftRequest {
+  const { source, sourceContext } = args;
+
+  return {
+    tweetId: sourceContext.primaryPost.id || `${source.opportunityId}-post`,
+    tweetText: sourceContext.primaryPost.text,
+    authorHandle: normalizeHandle(sourceContext.primaryPost.authorHandle),
+    tweetUrl:
+      sourceContext.primaryPost.url ||
+      `https://x.com/${normalizeHandle(sourceContext.primaryPost.authorHandle)}/status/${source.opportunityId}`,
+    stage: args.stage,
+    tone: args.tone,
+    goal: args.goal,
+    ...(sourceContext.primaryPost.postType ? { postType: sourceContext.primaryPost.postType } : {}),
+    ...(sourceContext.quotedPost
+      ? {
+          quotedPost: {
+            ...(sourceContext.quotedPost.id ? { tweetId: sourceContext.quotedPost.id } : {}),
+            tweetText: sourceContext.quotedPost.text,
+            ...(sourceContext.quotedPost.authorHandle
+              ? { authorHandle: sourceContext.quotedPost.authorHandle }
+              : {}),
+            ...(sourceContext.quotedPost.url ? { tweetUrl: sourceContext.quotedPost.url } : {}),
+          },
+        }
+      : {}),
+    ...(sourceContext.media ? { media: sourceContext.media } : {}),
+    ...(sourceContext.conversation ? { conversation: sourceContext.conversation } : {}),
+  };
+}
+
 function lengthAdjustDraftOptions(args: {
   response: ReturnType<typeof buildExtensionReplyDraft>["response"];
   length: "same" | "shorter" | "longer";
@@ -204,7 +266,8 @@ export function buildChatReplyOptions(args: {
   };
 }
 
-export async function buildChatReplyDraft(args: {
+export async function buildChatReplyDraftWithDeps(
+  args: {
   source: ChatReplySource;
   userId?: string | null;
   xHandle?: string | null;
@@ -219,48 +282,39 @@ export async function buildChatReplyDraft(args: {
   goal: string;
   selectedIntent?: ExtensionReplyIntentMetadata | null;
   length?: "same" | "shorter" | "longer";
-}): Promise<ExtensionReplyDraftBuildResult> {
-  const sourceContext = buildReplySourceContextFromFlatInput({
+},
+  deps: ChatReplyDraftDeps = DEFAULT_CHAT_REPLY_DRAFT_DEPS,
+): Promise<ExtensionReplyDraftBuildResult> {
+  const sourceContext = deps.buildReplySourceContextFromFlatInput({
     sourceText: args.source.sourceText,
     sourceUrl: args.source.sourceUrl,
     authorHandle: args.source.authorHandle,
     postType: args.source.postType,
     sourceContext: args.source.sourceContext || null,
   });
+  const request = buildChatReplyDraftRequest({
+    source: args.source,
+    sourceContext,
+    stage: args.stage,
+    tone: args.tone,
+    goal: args.goal,
+  });
+  const generation = deps.buildReplyDraftGenerationContext({
+    request,
+    strategy: args.strategy,
+    replyInsights: args.replyInsights,
+    selectedIntent: args.selectedIntent || undefined,
+    sourceContext,
+  });
 
-  const fallback = buildExtensionReplyDraft({
-    request: {
-      tweetId: sourceContext.primaryPost.id || `${args.source.opportunityId}-post`,
-      tweetText: sourceContext.primaryPost.text,
-      authorHandle: normalizeHandle(sourceContext.primaryPost.authorHandle),
-      tweetUrl:
-        sourceContext.primaryPost.url ||
-        `https://x.com/${normalizeHandle(sourceContext.primaryPost.authorHandle)}/status/${args.source.opportunityId}`,
-      stage: args.stage,
-      tone: args.tone,
-      goal: args.goal,
-      ...(sourceContext.primaryPost.postType ? { postType: sourceContext.primaryPost.postType } : {}),
-      ...(sourceContext.quotedPost
-        ? {
-            quotedPost: {
-              ...(sourceContext.quotedPost.id ? { tweetId: sourceContext.quotedPost.id } : {}),
-              tweetText: sourceContext.quotedPost.text,
-              ...(sourceContext.quotedPost.authorHandle
-                ? { authorHandle: sourceContext.quotedPost.authorHandle }
-                : {}),
-              ...(sourceContext.quotedPost.url ? { tweetUrl: sourceContext.quotedPost.url } : {}),
-            },
-          }
-        : {}),
-      ...(sourceContext.media ? { media: sourceContext.media } : {}),
-      ...(sourceContext.conversation ? { conversation: sourceContext.conversation } : {}),
-    },
+  const fallback = deps.buildExtensionReplyDraft({
+    request,
     strategy: args.strategy,
     replyInsights: args.replyInsights,
     selectedIntent: args.selectedIntent || undefined,
   });
 
-  if (!shouldUseLiveGroqReplyDrafts()) {
+  if (!deps.shouldUseLiveGroqReplyDrafts()) {
     return {
       ...fallback,
       response: lengthAdjustDraftOptions({
@@ -273,33 +327,31 @@ export async function buildChatReplyDraft(args: {
   const creatorProfileHints = args.creatorProfileHints || null;
 
   try {
-    const promptPacket = await prepareReplyPromptPacket({
-      sourceContext,
+    const promptPacket = await deps.prepareExtensionReplyDraftPromptPacket({
+      request,
       strategy: args.strategy,
-      tone: args.tone,
-      goal: args.goal,
-      stage: args.stage,
-      selectedIntent: args.selectedIntent || null,
       replyInsights: args.replyInsights,
       styleCard: args.styleCard,
+      generation,
       creatorProfileHints,
       creatorAgentContext: args.creatorAgentContext || null,
       profileReplyContext: args.profileReplyContext || null,
-      groundingPacket: fallback.groundingPacket,
-      maxCharacterLimit: 280,
-      userHandle: args.xHandle || null,
-      retrievalContext:
-        args.userId && args.xHandle
-          ? {
-              userId: args.userId,
-              xHandle: args.xHandle,
-            }
-          : null,
+      userId: args.userId || null,
+      xHandle: args.xHandle || null,
+      sourceContext,
     });
-    const generated = await generateReplyDraftText({
+    const generated = await deps.generateReplyDraftText({
       promptPacket,
     });
     const optionLabel: "safe" | "bold" = args.tone === "bold" ? "bold" : "safe";
+    const effectiveIntent =
+      generation.intent || fallback.response.options[0]?.intent || args.selectedIntent || undefined;
+    const livePolicy = deps.resolveReplyConstraintPolicy({
+      sourceContext,
+      strategy: args.strategy,
+      preflightResult: promptPacket.preflightResult || null,
+      visualContext: promptPacket.visualContext || null,
+    });
 
     const response = {
       options: [
@@ -307,12 +359,14 @@ export async function buildChatReplyDraft(args: {
           id: "draft-1",
           label: optionLabel,
           text: generated.draft,
-          intent: fallback.response.options[0]?.intent || args.selectedIntent || undefined,
+          intent: effectiveIntent,
         },
       ],
       notes: [
         ...(fallback.response.notes || []),
-        generated.visualContext ? "Used image context to sharpen the reply." : null,
+        generated.visualContext && livePolicy.allowImageAnchoring
+          ? "Used image context to sharpen the reply."
+          : null,
         `Voice target: ${generated.voiceTarget.summary}`,
         ...promptPacket.voiceEvidence.summaryLines.slice(0, 2),
       ].filter((entry): entry is string => Boolean(entry)).slice(0, 6),
@@ -335,4 +389,23 @@ export async function buildChatReplyDraft(args: {
       }),
     };
   }
+}
+
+export async function buildChatReplyDraft(args: {
+  source: ChatReplySource;
+  userId?: string | null;
+  xHandle?: string | null;
+  strategy: GrowthStrategySnapshot;
+  styleCard: VoiceStyleCard | null;
+  creatorAgentContext?: CreatorAgentContext | null;
+  creatorProfileHints?: CreatorProfileHints | null;
+  profileReplyContext?: ProfileReplyContext | null;
+  replyInsights?: ReplyInsights | null;
+  stage: ExtensionReplyDraftRequest["stage"];
+  tone: ExtensionReplyTone;
+  goal: string;
+  selectedIntent?: ExtensionReplyIntentMetadata | null;
+  length?: "same" | "shorter" | "longer";
+}): Promise<ExtensionReplyDraftBuildResult> {
+  return buildChatReplyDraftWithDeps(args);
 }

@@ -901,6 +901,7 @@ function DraftArtifactSections(props: {
           hasCopiedDraft={copiedPreviewDraftMessageId === message.id}
           revealClassName={getRevealClassName(draftRevealKey)}
           shouldAnimateLines={shouldAnimateRevealLines(draftRevealKey)}
+          defaultSourceExpanded={message.replyParse?.parseReason !== "reply_draft_revised"}
           onOpenDraftEditor={() => onOpenDraftEditor()}
           onRequestRevision={(prompt) => onRequestDraftCardRevision(prompt)}
           onCopy={() => onCopyPreviewDraft(message.id, draftText)}

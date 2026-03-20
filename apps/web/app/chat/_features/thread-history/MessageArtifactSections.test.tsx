@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 
@@ -586,6 +586,10 @@ test("reply candidates render the dedicated reply preview and use draft revision
     "href",
     "https://x.com/elkelk/status/2034751673290350617",
   );
+  const sourceToggle = screen.getByRole("button", {
+    name: "Collapse source post preview",
+  });
+  expect(sourceToggle).toHaveAttribute("aria-expanded", "true");
   expect(screen.getByText("Perfect algo pull")).toBeVisible();
   expect(screen.queryByText("Reply Drafts")).toBeNull();
 
@@ -599,6 +603,134 @@ test("reply candidates render the dedicated reply preview and use draft revision
     "assistant-reply-1",
     "holy that's the kind of detail that makes you double-check every brand asset.",
   );
+});
+
+test("reply draft revisions collapse the inline source preview by default", () => {
+  render(
+    <MessageArtifactSections
+      message={{
+        id: "assistant-reply-revision-1",
+        role: "assistant",
+        content: "updated the reply and kept it grounded to the same post.",
+        outputShape: "reply_candidate",
+        draft: "this is a tighter revision of the reply.",
+        drafts: ["this is a tighter revision of the reply."],
+        draftArtifacts: [
+          {
+            id: "reply-artifact-revision-1",
+            title: "Reply draft",
+            kind: "reply_candidate",
+            content: "this is a tighter revision of the reply.",
+            posts: [],
+            characterCount: 40,
+            weightedCharacterCount: 40,
+            maxCharacterLimit: 280,
+            isWithinXLimit: true,
+            supportAsset: null,
+            groundingSources: [],
+            groundingMode: null,
+            groundingExplanation: null,
+            betterClosers: [],
+            replyPlan: [],
+            voiceTarget: null,
+            noveltyNotes: [],
+            threadFramingStyle: null,
+            replySourcePreview: {
+              postId: "2034751673290350617",
+              sourceUrl: "https://x.com/elkelk/status/2034751673290350617",
+              author: {
+                displayName: "elkelk",
+                username: "elkelk",
+                avatarUrl: null,
+                isVerified: false,
+              },
+              text: "Perfect algo pull\nwith extra detail that should stay hidden initially",
+              media: [],
+            },
+          },
+        ],
+        draftVersions: [
+          {
+            id: "reply-version-revision-1",
+            content: "this is a tighter revision of the reply.",
+            source: "assistant_revision",
+            createdAt: "2026-03-20T10:00:00.000Z",
+            basedOnVersionId: "reply-version-1",
+            weightedCharacterCount: 40,
+            maxCharacterLimit: 280,
+            supportAsset: null,
+          },
+        ],
+        activeDraftVersionId: "reply-version-revision-1",
+        feedbackValue: null,
+        replyArtifacts: {
+          kind: "reply_draft",
+          sourceText: "Perfect algo pull",
+          sourceUrl: "https://x.com/elkelk/status/2034751673290350617",
+          authorHandle: "elkelk",
+          options: [
+            {
+              id: "rev-1",
+              label: "rev-1",
+              text: "this is a tighter revision of the reply.",
+            },
+          ],
+          notes: [],
+        },
+        replyParse: {
+          detected: true,
+          confidence: "high",
+          needsConfirmation: false,
+          parseReason: "reply_draft_revised",
+        },
+      }}
+      index={0}
+      messagesLength={1}
+      composerCharacterLimit={280}
+      isVerifiedAccount={false}
+      isMainChatLocked={false}
+      showDevTools={false}
+      selectedDraftMessageId={null}
+      selectedDraftVersionId={null}
+      selectedThreadPreviewPostIndex={undefined}
+      expandedInlineThreadPreviewId={null}
+      copiedPreviewDraftMessageId={null}
+      dismissedAutoSavedSource={false}
+      autoSavedSourceUndoPending={false}
+      messageFeedbackPending={false}
+      canRunReplyActions={true}
+      contextIdentity={{
+        username: "stan",
+        displayName: "Stan",
+        avatarUrl: null,
+      }}
+      getRevealClassName={() => ""}
+      shouldAnimateRevealLines={() => false}
+      shouldShowQuickReplies={() => false}
+      shouldShowOptionArtifacts={() => false}
+      shouldShowDraftOutput={() => true}
+      onOpenSourceMaterialEditor={() => {}}
+      onUndoAutoSavedSourceMaterials={() => {}}
+      onSubmitAssistantMessageFeedback={() => {}}
+      onOpenScopedFeedback={() => {}}
+      onQuickReplySelect={() => {}}
+      onAngleSelect={() => {}}
+      onReplyOptionSelect={() => {}}
+      onSelectDraftBundleOption={() => {}}
+      onOpenDraftEditor={() => {}}
+      onRequestDraftCardRevision={() => {}}
+      onToggleExpandedInlineThreadPreview={() => {}}
+      onCopyPreviewDraft={() => {}}
+      onShareDraftEditor={() => {}}
+    />,
+  );
+
+  expect(
+    screen.getByRole("button", { name: "Expand source post preview" }),
+  ).toHaveAttribute("aria-expanded", "false");
+  expect(
+    screen.queryByText("with extra detail that should stay hidden initially"),
+  ).toBeNull();
 });
 
 test("reply candidates keep the legacy footer quick-reply rail hidden", () => {

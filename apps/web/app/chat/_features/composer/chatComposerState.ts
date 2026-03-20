@@ -1,3 +1,4 @@
+import type { V2ChatIntent } from "../../../../lib/agent-v2/contracts/chat";
 import type { SlashCommandDefinition } from "./composerTypes";
 
 export interface ComposerQuickReplyLike<TFocus extends string> {
@@ -11,6 +12,7 @@ export interface ComposerQuickReplyLike<TFocus extends string> {
   value: string;
   label: string;
   suggestedFocus?: TFocus;
+  explicitIntent?: V2ChatIntent;
   angle?: string;
   formatHint?: "post" | "thread";
   supportAsset?: string;
@@ -25,6 +27,7 @@ export type ComposerQuickReplyUpdate<TFocus extends string> =
   | {
       shouldApply: true;
       nextDraftInput: string;
+      submissionPrompt: string;
       nextActiveContentFocus?: TFocus;
       shouldClearError: true;
     };
@@ -61,6 +64,7 @@ export function resolveComposerQuickReplyUpdate<TFocus extends string>(args: {
     return {
       shouldApply: true,
       nextDraftInput: args.quickReply.label,
+      submissionPrompt: args.quickReply.label,
       nextActiveContentFocus: args.quickReply.value as TFocus,
       shouldClearError: true,
     };
@@ -69,6 +73,7 @@ export function resolveComposerQuickReplyUpdate<TFocus extends string>(args: {
   return {
     shouldApply: true,
     nextDraftInput: args.quickReply.label,
+    submissionPrompt: args.quickReply.value,
     ...(args.quickReply.suggestedFocus
       ? { nextActiveContentFocus: args.quickReply.suggestedFocus }
       : {}),

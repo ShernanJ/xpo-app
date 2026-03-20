@@ -65,6 +65,9 @@ function buildBioChip(artifact: ProfileAnalysisArtifact): CreatorChatQuickReply 
     suggestedBio
       ? `Rewrite my X bio to be clearer and more conversion-focused. Use this direction as the starting point: "${suggestedBio}"`
       : "Rewrite my X bio so it clearly says who I help, the outcome, and the proof.",
+    {
+      explicitIntent: "coach",
+    },
   );
 }
 
@@ -72,6 +75,9 @@ function buildBannerChip(): CreatorChatQuickReply {
   return buildChip(
     "Fix banner promise",
     "Give me 3 clearer banner or header copy options in plain language so the value proposition is obvious at a glance.",
+    {
+      explicitIntent: "coach",
+    },
   );
 }
 

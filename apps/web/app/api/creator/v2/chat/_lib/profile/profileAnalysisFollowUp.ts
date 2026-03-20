@@ -26,6 +26,10 @@ type ProfileAnalysisFollowUpQuestion = {
   kind: "answer_question";
 };
 
+type ProfileAnalysisFollowUpBioRewrite = {
+  kind: "rewrite_bio";
+};
+
 type ProfileAnalysisFollowUpNone = {
   kind: "none";
 };
@@ -34,6 +38,7 @@ export type ProfileAnalysisFollowUpInterpretation =
   | ProfileAnalysisFollowUpRerun
   | ProfileAnalysisFollowUpClarify
   | ProfileAnalysisFollowUpQuestion
+  | ProfileAnalysisFollowUpBioRewrite
   | ProfileAnalysisFollowUpNone;
 
 const DIRECT_CORRECTION_PATTERNS = [
@@ -56,6 +61,8 @@ const PROFILE_GOAL_CUES =
 const PROFILE_GOAL_PREFIX =
   /\b(my goal is|the goal is|i want(?: this profile)? to|i'm trying to|im trying to|trying to|optimize for|i care about|this profile should)\b/i;
 const AUDIT_QUESTION_PREFIX = /^(why|how|what|which|can|could|should|do|does|did|is|are)\b/i;
+const BIO_REWRITE_REQUEST_PATTERN =
+  /\b(?:rewrite|redo|tighten|refine|fix|improve)\b[\s\w]{0,24}\b(?:my\s+)?(?:x\s+)?bio\b|\bbio rewrite\b/i;
 
 function normalizeLine(value: string): string {
   return value.trim().replace(/\s+/g, " ");
@@ -197,6 +204,10 @@ export function interpretProfileAnalysisFollowUp(args: {
         analysisCorrectionDetail: correctionDetail,
       }),
     };
+  }
+
+  if (BIO_REWRITE_REQUEST_PATTERN.test(normalized)) {
+    return { kind: "rewrite_bio" };
   }
 
   if (isAuditQuestion(normalized)) {
@@ -364,4 +375,34 @@ export function buildProfileAnalysisQuestionResponse(args: {
       : "The main read is still about clarifying the value prop and packaging the strongest proof better.",
     PROFILE_ANALYSIS_FEEDBACK_PROMPT,
   ].join(" ");
+}
+
+export function buildProfileAnalysisBioRewriteResponse(args: {
+  artifact: ProfileAnalysisArtifact;
+}): string {
+  const currentBio = normalizeLine(args.artifact.profile.bio || "none");
+  const alternatives = args.artifact.audit.bioFormulaCheck.alternatives
+    .map((alternative) => normalizeLine(alternative.text))
+    .filter(Boolean)
+    .slice(0, 3);
+
+  if (alternatives.length === 0) {
+    return [
+      `The current bio is ${formatQuotedSnippet(currentBio, 110)}.`,
+      args.artifact.audit.bioFormulaCheck.summary,
+      "The audit doesn't have a saved rewrite option yet, but the direction is to make the audience, outcome, and proof more explicit.",
+      "If you want, tell me the exact audience you want to attract and I'll tighten it from there.",
+    ].join(" ");
+  }
+
+  const numberedOptions = alternatives
+    .map((alternative, index) => `${index + 1}. ${alternative}`)
+    .join("\n");
+
+  return [
+    `The current bio is ${formatQuotedSnippet(currentBio, 110)}.`,
+    "Here are tighter bio options based on the audit:",
+    numberedOptions,
+    "Which direction feels closest to how you want the profile to convert?",
+  ].join("\n\n");
 }

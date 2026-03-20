@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 
+import type { V2ChatIntent } from "@/lib/agent-v2/contracts/chat";
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import type { ChatArtifactContext } from "../../../../lib/agent-v2/contracts/turnContract";
 import { useComposerInteractions } from "./useComposerInteractions";
@@ -11,7 +12,7 @@ type RequestAssistantReplyMock = (options: {
   displayUserMessage?: string;
   includeUserMessageInHistory?: boolean;
   turnSource?: "ideation_pick" | "reply_action" | "free_text";
-  intent?: "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit";
+  intent?: V2ChatIntent;
   artifactContext?: ChatArtifactContext | null;
   formatPreferenceOverride?: "shortform" | "longform" | "thread" | null;
   appendUserMessage: boolean;
@@ -99,7 +100,7 @@ function buildOptions(
   };
 }
 
-test("handleQuickReplySelect submits the visible chip label immediately", async () => {
+test("handleQuickReplySelect submits the chip value while keeping the label in the composer", async () => {
   const requestAssistantReply = vi.fn<RequestAssistantReplyMock>(async () => undefined);
   const setDraftInput = vi.fn();
   const setErrorMessage = vi.fn();
@@ -133,7 +134,54 @@ test("handleQuickReplySelect submits the visible chip label immediately", async 
   expect(setErrorMessage).toHaveBeenCalledWith(null);
   expect(requestAssistantReply).toHaveBeenCalledWith(
     expect.objectContaining({
-      prompt: "Draft 4 posts",
+      prompt: "draft 4 posts from what you know about me",
+      appendUserMessage: true,
+      turnSource: "free_text",
+    }),
+  );
+});
+
+test("handleQuickReplySelect forwards explicit intent for planner action chips", async () => {
+  const requestAssistantReply = vi.fn<RequestAssistantReplyMock>(async () => undefined);
+  const setDraftInput = vi.fn();
+
+  const { result } = renderHook(() =>
+    useComposerInteractions<
+      { id: string; role: "assistant" | "user"; content: string },
+      {
+        kind: "planner_action";
+        value: string;
+        label: string;
+        explicitIntent: "coach";
+      },
+      { goal: string },
+      { tone: string },
+      ContentFocus
+    >(
+      buildOptions({
+        requestAssistantReply,
+        setDraftInput,
+      }),
+    ),
+  );
+
+  await act(async () => {
+    await result.current.handleQuickReplySelect({
+      kind: "planner_action",
+      value:
+        'Rewrite my X bio to be clearer and more conversion-focused. Use this direction as the starting point: "I help founders turn product lessons into audience growth."',
+      label: "Rewrite bio",
+      explicitIntent: "coach",
+    });
+  });
+
+  expect(setDraftInput).toHaveBeenNthCalledWith(1, "Rewrite bio");
+  expect(setDraftInput).toHaveBeenNthCalledWith(2, "");
+  expect(requestAssistantReply).toHaveBeenCalledWith(
+    expect.objectContaining({
+      prompt:
+        'Rewrite my X bio to be clearer and more conversion-focused. Use this direction as the starting point: "I help founders turn product lessons into audience growth."',
+      intent: "coach",
       appendUserMessage: true,
       turnSource: "free_text",
     }),

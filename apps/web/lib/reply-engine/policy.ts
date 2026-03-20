@@ -10,6 +10,7 @@ import type { ReplySourceContext, ReplyVisualContextSummary } from "./types.ts";
 import {
   inferHeuristicReplySourceShape,
   resolveSourceInterpretation,
+  shouldPreferTextOverImageForReply,
 } from "./interpretation.ts";
 
 const STOPWORDS = new Set([
@@ -109,6 +110,7 @@ export interface ReplyConstraintPolicy {
   imageReplyAnchor: string | null;
   shouldReferenceImageText: boolean;
   allowImageAnchoring: boolean;
+  preferTextOverImage: boolean;
   allowStrategyLens: boolean;
   allowBusinessInference: boolean;
   allowAdvice: boolean;
@@ -232,19 +234,32 @@ export function resolveReplyConstraintPolicy(args: {
   );
   const lowOverlap = lexicalOverlap < 0.12;
   const lexicalOverlapScore = Math.round(lexicalOverlap * 100);
-  const imageRole = args.preflightResult?.image_role || args.visualContext?.imageRole || "none";
+  const rawImageRole = args.preflightResult?.image_role || args.visualContext?.imageRole || "none";
   const imageReplyAnchor =
     args.preflightResult?.image_reply_anchor?.trim() ||
     args.visualContext?.imageReplyAnchor?.trim() ||
     null;
-  const shouldReferenceImageText = Boolean(
-    args.preflightResult?.should_reference_image_text || args.visualContext?.shouldReferenceImageText,
-  );
-  const allowImageAnchoring =
-    shouldReferenceImageText ||
-    imageRole === "punchline" ||
-    imageRole === "proof" ||
-    imageRole === "context";
+  const preferTextOverImage = shouldPreferTextOverImageForReply({
+    sourceContext: args.sourceContext || null,
+    sourceText: args.sourceText || null,
+    visualContext: args.visualContext || null,
+  });
+  const imageRole =
+    preferTextOverImage && (rawImageRole === "punchline" || rawImageRole === "proof")
+      ? "context"
+      : rawImageRole;
+  const shouldReferenceImageText = preferTextOverImage
+    ? false
+    : Boolean(
+        args.preflightResult?.should_reference_image_text ||
+          args.visualContext?.shouldReferenceImageText,
+      );
+  const allowImageAnchoring = preferTextOverImage
+    ? false
+    : shouldReferenceImageText ||
+      imageRole === "punchline" ||
+      imageRole === "proof" ||
+      imageRole === "context";
   const allowPropose = interpretation.allowed_reply_moves.includes("propose");
   const allowAdjacentIdeation = !interpretation.disallowed_reply_moves.includes("adjacent_ideation");
   const allowLiteralProductBrainstorm = !interpretation.disallowed_reply_moves.includes(
@@ -262,6 +277,7 @@ export function resolveReplyConstraintPolicy(args: {
         imageReplyAnchor,
         shouldReferenceImageText,
         allowImageAnchoring,
+        preferTextOverImage,
         allowStrategyLens: false,
         allowBusinessInference: sourceHasBusinessSignal && !lowOverlap,
         allowAdvice: sourceWantsAdvice,
@@ -282,6 +298,7 @@ export function resolveReplyConstraintPolicy(args: {
         imageReplyAnchor,
         shouldReferenceImageText,
         allowImageAnchoring,
+        preferTextOverImage,
         allowStrategyLens: false,
         allowBusinessInference: false,
         allowAdvice: sourceWantsAdvice,
@@ -302,6 +319,7 @@ export function resolveReplyConstraintPolicy(args: {
         imageReplyAnchor,
         shouldReferenceImageText,
         allowImageAnchoring,
+        preferTextOverImage,
         allowStrategyLens: false,
         allowBusinessInference: false,
         allowAdvice: sourceWantsAdvice && sourceHasBusinessSignal && !lowOverlap,
@@ -323,6 +341,7 @@ export function resolveReplyConstraintPolicy(args: {
         imageReplyAnchor,
         shouldReferenceImageText,
         allowImageAnchoring,
+        preferTextOverImage,
         allowStrategyLens: sourceHasBusinessSignal || lexicalOverlap >= 0.12,
         allowBusinessInference: sourceHasBusinessSignal || lexicalOverlap >= 0.12,
         allowAdvice: sourceWantsAdvice || (sourceHasBusinessSignal && lexicalOverlap >= 0.08),

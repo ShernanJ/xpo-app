@@ -2,12 +2,14 @@ import { expect, test } from "vitest";
 
 import {
   PROFILE_ANALYSIS_FEEDBACK_PROMPT,
+  buildProfileAnalysisBioRewriteResponse,
   buildProfileAnalysisQuestionResponse,
   extractPersistedProfileAnalysisArtifact,
   interpretProfileAnalysisFollowUp,
 } from "./profileAnalysisFollowUp";
 import type { ProfileAnalysisArtifact } from "@/lib/chat/profileAnalysisArtifact";
 import type { ProfileReplyContext } from "@/lib/agent-v2/grounding/profileReplyContext";
+import { buildProfileAnalysisQuickReplies } from "@/lib/agent-v2/responses/profileAnalysisQuickReplies";
 
 function createArtifact(): ProfileAnalysisArtifact {
   return {
@@ -86,7 +88,23 @@ function createArtifact(): ProfileAnalysisArtifact {
           who: false,
           proofOrCta: false,
         },
-        alternatives: [],
+        alternatives: [
+          {
+            id: "bio-1",
+            text: "Helping builders turn gpu infra lessons into practical engineering wins.",
+            proofMode: "proof",
+          },
+          {
+            id: "bio-2",
+            text: "Sharing gpu infra systems lessons from real engineering wins at Clover.",
+            proofMode: "proof",
+          },
+          {
+            id: "bio-3",
+            text: "I break down gpu infra lessons for builders shipping real products.",
+            proofMode: "cta",
+          },
+        ],
       },
       visualRealEstateCheck: {
         status: "warn",
@@ -222,6 +240,33 @@ test("interpretProfileAnalysisFollowUp treats a stated goal as a rerun trigger",
   });
 });
 
+test("interpretProfileAnalysisFollowUp routes direct bio rewrite asks into the profile lane", () => {
+  const result = interpretProfileAnalysisFollowUp({
+    userMessage: "rewrite my x bio",
+    topicSummary: "profile analysis",
+  });
+
+  expect(result).toMatchObject({
+    kind: "rewrite_bio",
+  });
+});
+
+test("interpretProfileAnalysisFollowUp recognizes the real profile-analysis rewrite chip payload", () => {
+  const rewriteChip = buildProfileAnalysisQuickReplies(createArtifact()).find(
+    (reply) => reply.label === "Rewrite bio",
+  );
+
+  expect(rewriteChip).toBeDefined();
+  const result = interpretProfileAnalysisFollowUp({
+    userMessage: rewriteChip?.value || "",
+    topicSummary: "profile analysis",
+  });
+
+  expect(result).toMatchObject({
+    kind: "rewrite_bio",
+  });
+});
+
 test("buildProfileAnalysisQuestionResponse answers from the current artifact evidence", () => {
   const response = buildProfileAnalysisQuestionResponse({
     userMessage: "why did you say the strongest post was link-led?",
@@ -231,6 +276,21 @@ test("buildProfileAnalysisQuestionResponse answers from the current artifact evi
 
   expect(response).toContain("shouldn't be described as a link-led post");
   expect(response).toContain("visual proof did the heavy lifting");
+});
+
+test("buildProfileAnalysisBioRewriteResponse returns lightweight bio options from the audit", () => {
+  const response = buildProfileAnalysisBioRewriteResponse({
+    artifact: createArtifact(),
+  });
+
+  expect(response).toContain("Here are tighter bio options based on the audit:");
+  expect(response).toContain(
+    "1. Helping builders turn gpu infra lessons into practical engineering wins.",
+  );
+  expect(response).toContain(
+    "2. Sharing gpu infra systems lessons from real engineering wins at Clover.",
+  );
+  expect(response).not.toContain("Draft a stronger pinned post");
 });
 
 test("extractPersistedProfileAnalysisArtifact reads the saved artifact payload", () => {

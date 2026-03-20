@@ -8,6 +8,7 @@ import type {
   HookPattern,
   PostLinkSignal,
 } from "../../onboarding/contracts/types.ts";
+import { isHumanSafeTopicLabel } from "../responses/draftTopicSelector.ts";
 
 export interface ProfileReplyTopicInsight {
   label: string;
@@ -152,6 +153,10 @@ function isDirectiveLikeTheme(value: string): boolean {
   return /^(?:lean|focus|post|write|avoid|keep|make|share|show|double down|talk)\b/i.test(value);
 }
 
+function stripRawUrls(value: string): string {
+  return normalizeLine(value).replace(/https?:\/\/\S+/gi, "").trim();
+}
+
 function sanitizeThemeCandidate(value: string): string | null {
   const normalized = normalizeLine(value)
     .replace(/^[-*]\s*/, "")
@@ -180,7 +185,7 @@ function sanitizeThemeCandidate(value: string): string | null {
 }
 
 function summarizeRecentPostToBullet(text: string): string | null {
-  const normalized = normalizeLine(text)
+  const normalized = stripRawUrls(text)
     .replace(/^"+|"+$/g, "")
     .trim();
 
@@ -199,7 +204,7 @@ function summarizeRecentPostToBullet(text: string): string | null {
 }
 
 function isLowLeverageRecentSignal(value: string): boolean {
-  const normalized = normalizeLine(value).replace(/https?:\/\/\S+/gi, "").trim().toLowerCase();
+  const normalized = stripRawUrls(value).toLowerCase();
   if (!normalized) {
     return true;
   }
@@ -223,6 +228,10 @@ function isLowLeverageRecentSignal(value: string): boolean {
   }
 
   return false;
+}
+
+function shouldIgnoreRecentPostForTopicExtraction(post: XPublicPost): boolean {
+  return post.linkSignal === "media_only" || isLowLeverageRecentSignal(post.text);
 }
 
 function collectRecentPosts(
@@ -275,6 +284,7 @@ function collectTopicBullets(args: {
 
   const recentPostCandidates = Array.isArray(args.onboardingResult?.recentPosts)
     ? args.onboardingResult.recentPosts
+        .filter((post) => !shouldIgnoreRecentPostForTopicExtraction(post))
         .map((post) =>
           post && typeof post === "object" && !Array.isArray(post) && typeof post.text === "string"
             ? summarizeRecentPostToBullet(post.text)
@@ -285,7 +295,8 @@ function collectTopicBullets(args: {
             typeof value === "string" &&
             value.length > 0 &&
             !/\b(i|my|me|we|our)\b/i.test(value) &&
-            !isLowLeverageRecentSignal(value),
+            !isLowLeverageRecentSignal(value) &&
+            isHumanSafeTopicLabel(value),
         )
       : [];
 
@@ -441,11 +452,17 @@ function buildTopicInsights(args: {
   }
 
   for (const post of recentPosts) {
-    if (isLowLeverageRecentSignal(post.text)) {
+    if (shouldIgnoreRecentPostForTopicExtraction(post)) {
       continue;
     }
+
     const snippet = truncateSnippet(post.text, 120);
-    registerCandidate(summarizeRecentPostToBullet(post.text), "recent_posts", "theme", snippet);
+    const recentPostTopic = summarizeRecentPostToBullet(post.text);
+    if (!recentPostTopic || !isHumanSafeTopicLabel(recentPostTopic)) {
+      continue;
+    }
+
+    registerCandidate(recentPostTopic, "recent_posts", "theme", snippet);
   }
 
   const insights = Array.from(candidates.entries())

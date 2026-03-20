@@ -66,3 +66,60 @@ test("buildProfileReplyContext filters low-signal single-word themes and keeps e
       .length,
   ).toBeGreaterThan(0);
 });
+
+test("buildProfileReplyContext ignores media-only chatter when extracting progress-facing topics", () => {
+  const context = buildProfileReplyContext({
+    onboardingResult: {
+      profile: {
+        username: "shernanjavier",
+        name: "Shernan Javier",
+        bio: "sharing my learnings as i build in public / road to gmi",
+        followersCount: 125,
+        followingCount: 245,
+        createdAt: "2025-08-01T00:00:00.000Z",
+      },
+      pinnedPost: null,
+      recentPosts: [
+        {
+          id: "post-1",
+          text: "asian men in toronto all dress the same https://t.co/mock-image",
+          createdAt: "2026-03-18T00:00:00.000Z",
+          metrics: {
+            likeCount: 94,
+            replyCount: 17,
+            repostCount: 3,
+            quoteCount: 1,
+          },
+          linkSignal: "media_only",
+          imageUrls: ["https://pbs.twimg.com/media/mock-image.jpg"],
+        },
+        {
+          id: "post-2",
+          text: "growth and distribution lessons from running ampm experiments every week",
+          createdAt: "2026-03-17T00:00:00.000Z",
+          metrics: {
+            likeCount: 41,
+            replyCount: 5,
+            repostCount: 4,
+            quoteCount: 0,
+          },
+        },
+      ],
+    } as never,
+    creatorProfileHints: {
+      knownFor: "growth and distribution lessons",
+      targetAudience: "builders in toronto",
+      contentPillars: [],
+    } as never,
+  });
+
+  expect(context).not.toBeNull();
+  expect(context?.topicBullets.some((bullet) => /asian men in toronto/i.test(bullet))).toBe(false);
+  expect(context?.topicBullets.some((bullet) => /https?:\/\//i.test(bullet))).toBe(false);
+  expect(context?.topicInsights?.some((insight) => /asian men in toronto/i.test(insight.label))).toBe(
+    false,
+  );
+  expect(context?.topicInsights?.some((insight) => /growth and distribution/i.test(insight.label))).toBe(
+    true,
+  );
+});

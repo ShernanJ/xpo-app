@@ -7,6 +7,7 @@ import {
   buildHeuristicSourceInterpretation,
   inferHeuristicReplySourceShape,
   resolveSourceInterpretation,
+  shouldPreferTextOverImageForReply,
 } from "./interpretation.ts";
 import type { ReplyVisualContextSummary } from "./types.ts";
 
@@ -185,11 +186,21 @@ function buildHeuristicPreflight(args: {
     imageSummaryLines: args.imageSummaryLines || [],
     visualContext: args.visualContext || null,
   });
-  const imageRole = args.visualContext?.imageRole || "none";
+  const rawImageRole = args.visualContext?.imageRole || "none";
   const imageReplyAnchor = args.visualContext?.imageReplyAnchor || "";
-  const shouldReferenceImageText =
-    args.visualContext?.shouldReferenceImageText ||
-    Boolean(args.visualContext?.readableText && imageRole !== "decorative" && imageRole !== "none");
+  const preferTextOverImage = shouldPreferTextOverImageForReply({
+    sourceText: args.sourceText,
+    visualContext: args.visualContext || null,
+  });
+  const imageRole =
+    preferTextOverImage && (rawImageRole === "punchline" || rawImageRole === "proof")
+      ? "context"
+      : rawImageRole;
+  const shouldReferenceImageText = Boolean(
+    !preferTextOverImage &&
+      (args.visualContext?.shouldReferenceImageText ||
+        Boolean(args.visualContext?.readableText && imageRole !== "decorative" && imageRole !== "none")),
+  );
   const interpretation = buildHeuristicSourceInterpretation({
     sourceText: args.sourceText,
     quotedText: args.quotedText || null,
@@ -224,6 +235,20 @@ function buildHeuristicPreflight(args: {
       image_role: imageRole === "none" ? "punchline" : imageRole,
       image_reply_anchor: imageReplyAnchor,
       should_reference_image_text: shouldReferenceImageText,
+      interpretation,
+    };
+  }
+
+  if (preferTextOverImage) {
+    return {
+      op_tone: "specific",
+      post_intent:
+        "respond to the main product or workflow point in the post text and use the screenshot only as supporting context",
+      recommended_reply_mode: "insightful_add_on",
+      source_shape: "strategic_take",
+      image_role: imageRole,
+      image_reply_anchor: "",
+      should_reference_image_text: false,
       interpretation,
     };
   }
@@ -302,6 +327,49 @@ function buildHeuristicPreflight(args: {
   };
 }
 
+function normalizePreflightForTextFirst(args: {
+  sourceText: string;
+  quotedText?: string | null;
+  visualContext?: ReplyVisualContextSummary | null;
+  result: ReplyDraftPreflightResult;
+}): ReplyDraftPreflightResult {
+  const preferTextOverImage = shouldPreferTextOverImageForReply({
+    sourceText: args.sourceText,
+    visualContext: args.visualContext || null,
+  });
+  if (!preferTextOverImage) {
+    return args.result;
+  }
+
+  return {
+    ...args.result,
+    recommended_reply_mode: "insightful_add_on",
+    source_shape: "strategic_take",
+    image_role:
+      args.result.image_role === "punchline" || args.result.image_role === "proof"
+        ? "context"
+        : args.result.image_role,
+    image_reply_anchor: "",
+    should_reference_image_text: false,
+    interpretation: resolveSourceInterpretation({
+      sourceText: args.sourceText,
+      quotedText: args.quotedText || null,
+      preflightResult: {
+        ...args.result,
+        recommended_reply_mode: "insightful_add_on",
+        source_shape: "strategic_take",
+        image_role:
+          args.result.image_role === "punchline" || args.result.image_role === "proof"
+            ? "context"
+            : args.result.image_role,
+        image_reply_anchor: "",
+        should_reference_image_text: false,
+      },
+      visualContext: args.visualContext || null,
+    }),
+  };
+}
+
 export async function classifyReplyDraftMode(args: {
   sourceText: string;
   quotedText?: string | null;
@@ -354,15 +422,20 @@ export async function classifyReplyDraftMode(args: {
     return buildHeuristicPreflight(args);
   }
 
-  return {
-    ...parsed.data,
-    interpretation: resolveSourceInterpretation({
-      sourceText: args.sourceText,
-      quotedText: args.quotedText || null,
-      preflightResult: parsed.data,
-      visualContext: args.visualContext || null,
-    }),
-  };
+  return normalizePreflightForTextFirst({
+    sourceText: args.sourceText,
+    quotedText: args.quotedText || null,
+    visualContext: args.visualContext || null,
+    result: {
+      ...parsed.data,
+      interpretation: resolveSourceInterpretation({
+        sourceText: args.sourceText,
+        quotedText: args.quotedText || null,
+        preflightResult: parsed.data,
+        visualContext: args.visualContext || null,
+      }),
+    },
+  });
 }
 
 export function normalizeReplyMode(value: unknown): ExtensionReplyMode | null {

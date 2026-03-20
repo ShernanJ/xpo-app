@@ -45,6 +45,7 @@ export interface UseDraftEditorSurfacePropsOptions {
   onChangeEditorDraftText: DraftEditorSurfaceProps["onChangeEditorDraftText"];
   isDraftInspectorLoading: boolean;
   runDraftInspector: () => Promise<void>;
+  regenerateReplyDraft: () => Promise<void>;
   hasCopiedDraftEditorText: boolean;
   copyDraftEditor: (value: string) => Promise<void>;
   onShareDraftEditor: DraftEditorSurfaceProps["onShareDraftEditor"];
@@ -64,7 +65,9 @@ export function useDraftEditorSurfaceProps(
     : !options.draftEditorSerializedContent.trim() || !options.hasDraftEditorChanges;
   const draftInspectorActionLabel = options.isViewingHistoricalDraftVersion
     ? "Compare to Current"
-    : "Analyze this Draft";
+    : isReplyDraft
+      ? "Regenerate"
+      : "Analyze this Draft";
 
   return {
     open: options.open,
@@ -115,6 +118,11 @@ export function useDraftEditorSurfaceProps(
     draftInspectorActionLabel,
     isDraftInspectorLoading: options.isDraftInspectorLoading,
     onRunDraftInspector: () => {
+      if (isReplyDraft) {
+        void options.regenerateReplyDraft();
+        return;
+      }
+
       void options.runDraftInspector();
     },
     hasCopiedDraftEditorText: options.hasCopiedDraftEditorText,

@@ -401,7 +401,7 @@ function normalizeHistoryEntry(entry: unknown): Record<string, unknown> | null {
   };
 }
 
-function buildSelectedDraftContextFromEntry(args: {
+export function buildSelectedDraftContextFromEntry(args: {
   entry: Record<string, unknown>;
   versionId?: string | null;
 }): SelectedDraftContext | null {

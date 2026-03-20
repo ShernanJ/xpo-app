@@ -47,6 +47,7 @@ test("historical draft views keep save-as-new-version enabled and do not revert 
     onChangeEditorDraftText: vi.fn(),
     isDraftInspectorLoading: false,
     runDraftInspector: vi.fn(async () => {}),
+    regenerateReplyDraft: vi.fn(async () => {}),
     hasCopiedDraftEditorText: false,
     copyDraftEditor: vi.fn(async () => {}),
     onShareDraftEditor: vi.fn(),
@@ -63,6 +64,8 @@ test("historical draft views keep save-as-new-version enabled and do not revert 
 });
 
 test("reply drafts switch the editor copy to reply-specific labels", () => {
+  const runDraftInspector = vi.fn(async () => {});
+  const regenerateReplyDraft = vi.fn(async () => {});
   const props = useDraftEditorSurfaceProps({
     identity: {
       avatarUrl: null,
@@ -123,7 +126,8 @@ test("reply drafts switch the editor copy to reply-specific labels", () => {
     editorDraftText: "reply text",
     onChangeEditorDraftText: vi.fn(),
     isDraftInspectorLoading: false,
-    runDraftInspector: vi.fn(async () => {}),
+    runDraftInspector,
+    regenerateReplyDraft,
     hasCopiedDraftEditorText: false,
     copyDraftEditor: vi.fn(async () => {}),
     onShareDraftEditor: vi.fn(),
@@ -132,6 +136,11 @@ test("reply drafts switch the editor copy to reply-specific labels", () => {
   });
 
   expect(props.primaryActionLabel).toBe("Save New Reply Version");
+  expect(props.draftInspectorActionLabel).toBe("Regenerate");
   expect(props.shareActionLabel).toBe("Go to Tweet");
   expect(props.editorMode).toBe("reply");
+
+  props.onRunDraftInspector();
+  expect(regenerateReplyDraft).toHaveBeenCalledTimes(1);
+  expect(runDraftInspector).not.toHaveBeenCalled();
 });

@@ -13,6 +13,7 @@ import {
   capturePostHogException,
 } from "@/lib/posthog/client";
 
+import type { V2ChatIntent } from "../../../../lib/agent-v2/contracts/chat";
 import type {
   ChatArtifactContext,
   ChatTurnSource,
@@ -43,14 +44,7 @@ import {
   type AgentProgressRun,
 } from "../composer/pendingStatus";
 
-type ChatIntent =
-  | "coach"
-  | "ideate"
-  | "plan"
-  | "planner_feedback"
-  | "draft"
-  | "review"
-  | "edit";
+type ChatIntent = V2ChatIntent;
 
 interface ValidationErrorLike {
   message: string;
