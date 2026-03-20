@@ -23,6 +23,12 @@ interface OnboardingRunSuccess {
   persistedAt?: string;
 }
 
+interface OnboardingRunQueued {
+  ok: true;
+  status: "queued";
+  jobId: string;
+}
+
 interface OnboardingRunFailure {
   ok: false;
   code?: "PLAN_REQUIRED";
@@ -30,9 +36,26 @@ interface OnboardingRunFailure {
   data?: {
     billing?: unknown;
   };
+  status?: "failed";
 }
 
-type OnboardingRunResponse = OnboardingRunSuccess | OnboardingRunFailure;
+interface OnboardingJobRunning {
+  ok: true;
+  status: "queued" | "running";
+  jobId: string;
+}
+
+interface OnboardingJobCompleted extends OnboardingRunSuccess {
+  status: "completed";
+  jobId: string;
+}
+
+type OnboardingJobStatusResponse =
+  | OnboardingJobRunning
+  | OnboardingJobCompleted
+  | OnboardingRunFailure;
+
+type OnboardingRunResponse = OnboardingRunSuccess | OnboardingRunQueued | OnboardingRunFailure;
 
 interface WorkspaceLoadResult<TContextData, TContractData> {
   ok: boolean;
@@ -56,6 +79,26 @@ interface UseChatWorkspaceBootstrapOptions<TContextData, TContractData, TStrateg
   applyBillingSnapshot: (billing: unknown) => void;
   onPlanRequired: () => void;
   normalizeAccountHandle: (value: string) => string;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function getFirstErrorMessage(payload: unknown, fallback: string): string {
+  if (!payload || typeof payload !== "object") {
+    return fallback;
+  }
+
+  const errors = "errors" in payload ? payload.errors : undefined;
+  if (!Array.isArray(errors)) {
+    return fallback;
+  }
+
+  const [firstError] = errors as Array<{ message?: unknown }>;
+  return typeof firstError?.message === "string" ? firstError.message : fallback;
 }
 
 export function useChatWorkspaceBootstrap<
@@ -170,11 +213,58 @@ export function useChatWorkspaceBootstrap<
         if (response.status === 403) {
           workspaceBootstrapCallbacksRef.current.onPlanRequired();
         }
-        const errorText =
-          data && !data.ok
-            ? (data.errors[0]?.message ?? "Could not finish setup for this account.")
-            : "Could not finish setup for this account.";
+        const errorText = getFirstErrorMessage(data, "Could not finish setup for this account.");
         setErrorMessage(errorText);
+        return "failed";
+      }
+
+      if (response.status === 202 && "status" in data && data.status === "queued") {
+        for (let attempt = 0; attempt < 90; attempt += 1) {
+          if (attempt > 0) {
+            await sleep(attempt === 1 ? 700 : 1500);
+          }
+
+          if (!isLatestRequest()) {
+            return "failed";
+          }
+
+          const jobResponse = await fetch(`/api/onboarding/jobs/${data.jobId}`, {
+            headers: {
+              "Content-Type": "application/json",
+            },
+            method: "GET",
+            signal,
+          });
+
+          if (!isLatestRequest()) {
+            return "failed";
+          }
+
+          const jobData = (await jobResponse.json().catch(() => null)) as OnboardingJobStatusResponse | null;
+
+          if (jobData?.ok && jobData.status === "completed") {
+            return "succeeded";
+          }
+
+          if (!jobData?.ok) {
+            setErrorMessage(
+              getFirstErrorMessage(
+                jobData,
+                "Could not finish setting up this account automatically.",
+              ),
+            );
+            return "failed";
+          }
+
+          if (!jobResponse.ok && jobData.status !== "running" && jobData.status !== "queued") {
+            setErrorMessage("Could not finish setting up this account automatically.");
+            return "failed";
+          }
+        }
+
+        setErrorMessage(
+          "Setup is taking longer than expected. Refresh chat in a few seconds.",
+        );
         return "failed";
       }
 

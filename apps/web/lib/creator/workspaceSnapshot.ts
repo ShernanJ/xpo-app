@@ -1,5 +1,3 @@
-import { cache } from "react";
-
 import {
   StyleCardSchema,
   type ProfileAuditState,
@@ -242,31 +240,17 @@ async function loadCreatorWorkspaceSnapshotImpl(
   };
 }
 
-const loadCreatorWorkspaceSnapshotCached = cache(
-  async (
-    serializedArgs: string,
-  ): Promise<CreatorWorkspaceSnapshotResult> => {
-    const args = JSON.parse(
-      serializedArgs,
-    ) as LoadCreatorWorkspaceSnapshotSerializedArgs;
-
-    return loadCreatorWorkspaceSnapshotImpl(args);
-  },
-);
-
 export async function loadCreatorWorkspaceSnapshot(
   args: LoadCreatorWorkspaceSnapshotArgs,
 ): Promise<CreatorWorkspaceSnapshotResult> {
-  if (args.storedRun) {
-    return loadCreatorWorkspaceSnapshotImpl(args);
-  }
-
-  return loadCreatorWorkspaceSnapshotCached(
-    JSON.stringify({
-      userId: args.userId,
-      xHandle: args.xHandle,
-      input: args.input ?? {},
-      refreshPinnedProfile: args.refreshPinnedProfile === true,
-    } satisfies LoadCreatorWorkspaceSnapshotSerializedArgs),
+  return loadCreatorWorkspaceSnapshotImpl(
+    args.storedRun
+      ? args
+      : ({
+          userId: args.userId,
+          xHandle: args.xHandle,
+          input: args.input ?? {},
+          refreshPinnedProfile: args.refreshPinnedProfile === true,
+        } satisfies LoadCreatorWorkspaceSnapshotSerializedArgs),
   );
 }

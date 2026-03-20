@@ -244,12 +244,20 @@ export async function getSupabaseUserFromAccessToken(
       );
     }
 
+    const userId = typeof payload.id === "string" ? payload.id : undefined;
+    const email =
+      typeof payload.email === "string"
+        ? payload.email
+        : payload.email === null
+          ? null
+          : null;
+
     return {
       ok: true,
       data: parseTokenResponse({
         user: {
-          id: payload.id,
-          email: payload.email ?? null,
+          id: userId,
+          email,
         },
       }),
     };

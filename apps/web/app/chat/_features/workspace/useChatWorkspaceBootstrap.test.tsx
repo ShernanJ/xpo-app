@@ -280,6 +280,94 @@ test("retries workspace bootstrap once after onboarding setup succeeds", async (
   vi.unstubAllGlobals();
 });
 
+test("waits for a queued onboarding job before retrying workspace bootstrap", async () => {
+  const fetchWorkspace = vi
+    .fn<UseChatWorkspaceBootstrapFetch>()
+    .mockImplementationOnce(async () =>
+      createFailureResponse({
+        status: 404,
+        code: "MISSING_ONBOARDING_RUN",
+        message: "No onboarding run found.",
+      }),
+    )
+    .mockImplementationOnce(async () =>
+      createSuccessfulBootstrapResponse({
+        context: { id: "context-queued" },
+        contract: { id: "contract-queued" },
+      }),
+    );
+  const onboardingFetch = vi
+    .fn()
+    .mockImplementationOnce(async () =>
+      ({
+        ok: true,
+        status: 202,
+        json: async () => ({
+          ok: true,
+          status: "queued",
+          jobId: "job-1",
+        }),
+      }) as Response,
+    )
+    .mockImplementationOnce(async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          status: "completed",
+          jobId: "job-1",
+          runId: "run-queued",
+        }),
+      }) as Response,
+    );
+  const setIsLoading = vi.fn();
+  const setIsWorkspaceInitializing = vi.fn();
+  const setErrorMessage = vi.fn();
+  const setContext = vi.fn();
+  const setContract = vi.fn();
+  const applyBillingSnapshot = vi.fn();
+  const onPlanRequired = vi.fn();
+
+  vi.stubGlobal("fetch", onboardingFetch);
+
+  const { result } = renderHook(() =>
+    useChatWorkspaceBootstrap<{ id: string }, { id: string }, StrategyInputs, ToneInputs>({
+      accountName: "stanley",
+      requiresXAccountGate: false,
+      activeStrategyInputs: null,
+      activeToneInputs: null,
+      fetchWorkspace,
+      setIsLoading,
+      setIsWorkspaceInitializing,
+      setErrorMessage,
+      setContext,
+      setContract,
+      applyBillingSnapshot,
+      onPlanRequired,
+      normalizeAccountHandle: (value) => value.trim().toLowerCase(),
+    }),
+  );
+
+  await act(async () => {
+    await result.current.loadWorkspace();
+  });
+
+  expect(fetchWorkspace).toHaveBeenCalledTimes(2);
+  expect(onboardingFetch).toHaveBeenCalledTimes(2);
+  expect(onboardingFetch).toHaveBeenNthCalledWith(
+    2,
+    "/api/onboarding/jobs/job-1",
+    expect.objectContaining({
+      method: "GET",
+    }),
+  );
+  expect(setContext).toHaveBeenCalledWith({ id: "context-queued" });
+  expect(setContract).toHaveBeenCalledWith({ id: "contract-queued" });
+
+  vi.unstubAllGlobals();
+});
+
 test("does not keep retrying onboarding setup after a plan-required failure", async () => {
   const billingSnapshot = { plan: "free" };
   const fetchWorkspace = vi
