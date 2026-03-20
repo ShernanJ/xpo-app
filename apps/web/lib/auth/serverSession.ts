@@ -4,6 +4,14 @@ import { prisma } from "@/lib/db";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "./session";
 import type { AppSession } from "./types";
 
+const APP_SESSION_USER_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  handle: true,
+  activeXHandle: true,
+} as const;
+
 function asAppSession(user: {
   id: string;
   name: string | null;
@@ -36,13 +44,7 @@ export async function getServerSession(): Promise<AppSession | null> {
 
   const user = await prisma.user.findUnique({
     where: { id: payload.userId },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      handle: true,
-      activeXHandle: true,
-    },
+    select: APP_SESSION_USER_SELECT,
   });
 
   if (!user) {
@@ -57,56 +59,45 @@ export async function ensureAppUserForAuthIdentity(params: {
   email: string | null;
 }) {
   const normalizedEmail = params.email?.toLowerCase() ?? null;
+  const existingUserById = await prisma.user.findUnique({
+    where: { id: params.userId },
+    select: APP_SESSION_USER_SELECT,
+  });
 
-  try {
-    return await prisma.user.upsert({
-      where: { id: params.userId },
-      create: {
-        id: params.userId,
-        email: normalizedEmail,
-      },
-      update: {
-        email: normalizedEmail,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        handle: true,
-        activeXHandle: true,
-      },
-    });
-  } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "P2002" &&
-      normalizedEmail
-    ) {
-      // Supabase returned a new ID, but the email already exists in our DB (e.g. legacy NextAuth ID)
-      // Migrate the existing user record to adopt the new Supabase ID to preserve their data.
-      const existingUser = await prisma.user.findUnique({
-        where: { email: normalizedEmail },
-      });
-
-      if (existingUser) {
-        return prisma.user.update({
-          where: { email: normalizedEmail },
-          data: { id: params.userId },
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            handle: true,
-            activeXHandle: true,
-          },
-        });
-      }
+  if (existingUserById) {
+    if (!normalizedEmail || existingUserById.email === normalizedEmail) {
+      return existingUserById;
     }
 
-    throw error;
+    return prisma.user.update({
+      where: { id: params.userId },
+      data: {
+        email: normalizedEmail,
+      },
+      select: APP_SESSION_USER_SELECT,
+    });
   }
+
+  if (normalizedEmail) {
+    const existingUserByEmail = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: APP_SESSION_USER_SELECT,
+    });
+
+    if (existingUserByEmail) {
+      // Reuse the existing app account for verified same-email identities
+      // instead of mutating primary keys when Supabase returns another auth ID.
+      return existingUserByEmail;
+    }
+  }
+
+  return prisma.user.create({
+    data: {
+      id: params.userId,
+      email: normalizedEmail,
+    },
+    select: APP_SESSION_USER_SELECT,
+  });
 }
 
 export async function updateAppSessionUser(
@@ -129,13 +120,7 @@ export async function updateAppSessionUser(
   if (Object.keys(updates).length === 0) {
     const existing = await prisma.user.findUnique({
       where: { id: userId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        handle: true,
-        activeXHandle: true,
-      },
+      select: APP_SESSION_USER_SELECT,
     });
 
     return existing ? asAppSession(existing) : null;
@@ -144,13 +129,7 @@ export async function updateAppSessionUser(
   const user = await prisma.user.update({
     where: { id: userId },
     data: updates,
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      handle: true,
-      activeXHandle: true,
-    },
+    select: APP_SESSION_USER_SELECT,
   });
 
   return asAppSession(user);

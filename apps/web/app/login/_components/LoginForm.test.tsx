@@ -7,7 +7,8 @@ const searchParamMocks = vi.hoisted(() => ({
 }));
 
 const authMocks = vi.hoisted(() => ({
-  signIn: vi.fn(),
+  requestEmailCode: vi.fn(),
+  verifyEmailCode: vi.fn(),
 }));
 
 const loginNavigationMocks = vi.hoisted(() => ({
@@ -19,12 +20,17 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/auth/client", () => ({
-  signIn: authMocks.signIn,
+  requestEmailCode: authMocks.requestEmailCode,
+  verifyEmailCode: authMocks.verifyEmailCode,
 }));
 
-vi.mock("./loginNavigation", () => ({
-  navigateToPostLoginDestination: loginNavigationMocks.navigateToPostLoginDestination,
-}));
+vi.mock("./loginNavigation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./loginNavigation")>();
+  return {
+    ...actual,
+    navigateToPostLoginDestination: loginNavigationMocks.navigateToPostLoginDestination,
+  };
+});
 
 vi.mock("@/lib/posthog/client", () => ({
   buildPostHogHeaders: (headers?: HeadersInit) => headers,
@@ -36,7 +42,8 @@ vi.mock("@/lib/posthog/client", () => ({
 import { LoginForm } from "./LoginForm";
 
 beforeEach(() => {
-  authMocks.signIn.mockReset();
+  authMocks.requestEmailCode.mockReset();
+  authMocks.verifyEmailCode.mockReset();
   loginNavigationMocks.navigateToPostLoginDestination.mockReset();
   searchParamMocks.value = new URLSearchParams();
 });
@@ -46,24 +53,43 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("renders labelled auth fields and supports password reveal", async () => {
-  const user = userEvent.setup();
-
+test("renders an email-only auth form", () => {
   render(<LoginForm />);
 
   const emailInput = screen.getByLabelText("Email");
-  const passwordInput = screen.getByLabelText("Password");
+  const googleLink = screen.getByRole("link", { name: "Continue with Google" });
 
   expect(emailInput).toHaveAttribute("type", "email");
-  expect(passwordInput).toHaveAttribute("type", "password");
-
-  await user.click(screen.getByRole("button", { name: "Show password" }));
-
-  expect(passwordInput).toHaveAttribute("type", "text");
-  expect(screen.getByRole("button", { name: "Hide password" })).toBeVisible();
+  expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Send code" })).toBeVisible();
+  expect(googleLink).toHaveAttribute("href", "/api/auth/oauth/google/start?callbackUrl=%2Fchat");
 });
 
-test("logs in with xHandle by attaching the handle before redirecting to chat without waiting for onboarding", async () => {
+test("requests a verification code and transitions to the verification step", async () => {
+  const user = userEvent.setup();
+
+  authMocks.requestEmailCode.mockResolvedValue({
+    ok: true,
+    status: 200,
+    user: undefined,
+  });
+
+  render(<LoginForm />);
+
+  await user.type(screen.getByLabelText("Email"), "Stan@Example.com");
+  await user.click(screen.getByRole("button", { name: "Send code" }));
+
+  await waitFor(() => {
+    expect(authMocks.requestEmailCode).toHaveBeenCalledWith({
+      email: "stan@example.com",
+    });
+  });
+
+  expect(await screen.findByLabelText("Verification Code")).toBeVisible();
+  expect(screen.getByText("stan@example.com")).toBeVisible();
+});
+
+test("verifies the code and attaches xHandle before redirecting to chat without waiting for onboarding", async () => {
   const user = userEvent.setup();
   const handleAttachDeferred = Promise.withResolvers<Response>();
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -77,32 +103,50 @@ test("logs in with xHandle by attaching the handle before redirecting to chat wi
   searchParamMocks.value = new URLSearchParams(
     "xHandle=Stan&callbackUrl=%2Fchat%3FthreadId%3Dthread-1",
   );
-  authMocks.signIn.mockResolvedValue({
+  authMocks.requestEmailCode.mockResolvedValue({
     ok: true,
     status: 200,
-    url: null,
+    user: undefined,
+  });
+  authMocks.verifyEmailCode.mockResolvedValue({
+    ok: true,
+    status: 200,
+    user: {
+      id: "user-1",
+      email: "stan@example.com",
+      handle: null,
+      activeXHandle: null,
+    },
   });
   vi.stubGlobal("fetch", fetchMock);
 
   render(<LoginForm />);
 
   await user.type(screen.getByLabelText("Email"), "stan@example.com");
-  await user.type(screen.getByLabelText("Password"), "super-secret");
-  await user.click(screen.getByRole("button", { name: "Continue as @Stan" }));
+  await user.click(screen.getByRole("button", { name: "Send code" }));
 
   await waitFor(() => {
-    expect(authMocks.signIn).toHaveBeenCalledWith("credentials", {
+    expect(authMocks.requestEmailCode).toHaveBeenCalledWith({
       email: "stan@example.com",
-      password: "super-secret",
-      redirect: false,
     });
   });
 
-  expect(fetchMock).toHaveBeenCalledTimes(1);
-  expect(fetchMock).toHaveBeenCalledWith("/api/creator/profile/handles", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ handle: "stan" }),
+  await user.type(screen.getByLabelText("Verification Code"), "123456");
+  await user.click(screen.getByRole("button", { name: "Verify code" }));
+
+  await waitFor(() => {
+    expect(authMocks.verifyEmailCode).toHaveBeenCalledWith({
+      email: "stan@example.com",
+      code: "123456",
+    });
+  });
+
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenCalledWith("/api/creator/profile/handles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handle: "stan" }),
+    });
   });
   expect(loginNavigationMocks.navigateToPostLoginDestination).not.toHaveBeenCalled();
 
@@ -118,4 +162,19 @@ test("logs in with xHandle by attaching the handle before redirecting to chat wi
     );
   });
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test("includes callback and xHandle in the Google sign-in link", () => {
+  searchParamMocks.value = new URLSearchParams(
+    "xHandle=Stan&callbackUrl=%2Fchat%3FthreadId%3Dthread-1",
+  );
+
+  render(<LoginForm />);
+
+  expect(
+    screen.getByRole("link", { name: "Continue with Google" }),
+  ).toHaveAttribute(
+    "href",
+    "/api/auth/oauth/google/start?callbackUrl=%2Fchat%3FthreadId%3Dthread-1&xHandle=stan",
+  );
 });

@@ -27,6 +27,8 @@ interface AuthResponseFailure {
   code?: string;
 }
 
+type AuthResponsePayload = AuthResponseSuccess | AuthResponseFailure | null;
+
 function emitAuthChanged() {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
@@ -49,47 +51,49 @@ async function fetchSession(): Promise<AppSession | null> {
   return payload.session;
 }
 
-export async function signIn(
-  _provider: "credentials",
-  options: {
-    email?: string;
-    password?: string;
-    redirect?: boolean;
-    callbackUrl?: string;
-  },
-): Promise<{
+async function parseAuthResponse(response: Response): Promise<{
+  payload: AuthResponsePayload;
+  normalizedFallback: string;
+}> {
+  const contentType = response.headers.get("content-type") ?? "";
+  const isJson = contentType.includes("application/json");
+  const payload = (isJson ? await response.json().catch(() => null) : null) as AuthResponsePayload;
+  const textFallback = !isJson ? await response.text().catch(() => "") : "";
+  const normalizedFallback =
+    typeof textFallback === "string" &&
+    textFallback.trim().length > 0 &&
+    !textFallback.includes("<!DOCTYPE")
+      ? textFallback.trim()
+      : "";
+
+  return { payload, normalizedFallback };
+}
+
+type AuthMutationResult = {
   code?: string;
   error?: string;
   ok: boolean;
   status: number;
-  url: string | null;
   user?: AppSession["user"];
-}> {
-  const response = await fetch("/api/auth/login", {
+};
+
+export async function requestEmailCode(options: {
+  email: string;
+}): Promise<AuthMutationResult> {
+  const response = await fetch("/api/auth/email-code/request", {
     method: "POST",
     headers: buildPostHogHeaders({ "Content-Type": "application/json" }),
     credentials: "same-origin",
     body: JSON.stringify({
-      email: options.email ?? "",
-      password: options.password ?? "",
+      email: options.email,
     }),
   });
 
-  const contentType = response.headers.get("content-type") ?? "";
-  const isJson = contentType.includes("application/json");
-  const payload = (isJson ? await response.json().catch(() => null) : null) as
-    | AuthResponseSuccess
-    | AuthResponseFailure
-    | null;
+  const { payload, normalizedFallback } = await parseAuthResponse(response);
   const failurePayload =
     payload && (!("ok" in payload) || payload.ok !== true)
       ? (payload as AuthResponseFailure)
       : null;
-  const textFallback = !isJson ? await response.text().catch(() => "") : "";
-  const normalizedFallback =
-    typeof textFallback === "string" && textFallback.trim().length > 0 && !textFallback.includes("<!DOCTYPE")
-      ? textFallback.trim()
-      : "";
 
   if (!response.ok || !payload?.ok) {
     const resolvedError =
@@ -97,15 +101,59 @@ export async function signIn(
       (normalizedFallback.length > 0
         ? normalizedFallback
         : response.status >= 500
-          ? "Login is temporarily unavailable. Try again in a moment."
-          : "Sign-in failed.");
+          ? "Email sign-in is temporarily unavailable. Try again in a moment."
+          : "Could not send a verification code.");
 
     return {
       ok: false,
       status: response.status,
       code: failurePayload?.code,
       error: resolvedError,
-      url: null,
+      user: undefined,
+    };
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    user: undefined,
+  };
+}
+
+export async function verifyEmailCode(options: {
+  email: string;
+  code: string;
+}): Promise<AuthMutationResult> {
+  const response = await fetch("/api/auth/email-code/verify", {
+    method: "POST",
+    headers: buildPostHogHeaders({ "Content-Type": "application/json" }),
+    credentials: "same-origin",
+    body: JSON.stringify({
+      email: options.email,
+      code: options.code,
+    }),
+  });
+
+  const { payload, normalizedFallback } = await parseAuthResponse(response);
+  const failurePayload =
+    payload && (!("ok" in payload) || payload.ok !== true)
+      ? (payload as AuthResponseFailure)
+      : null;
+
+  if (!response.ok || !payload?.ok) {
+    const resolvedError =
+      failurePayload?.error ??
+      (normalizedFallback.length > 0
+        ? normalizedFallback
+        : response.status >= 500
+          ? "Email verification is temporarily unavailable. Try again in a moment."
+          : "Could not verify your code.");
+
+    return {
+      ok: false,
+      status: response.status,
+      code: failurePayload?.code,
+      error: resolvedError,
       user: undefined,
     };
   }
@@ -116,16 +164,9 @@ export async function signIn(
 
   emitAuthChanged();
 
-  const callbackUrl = options.callbackUrl ?? null;
-  const shouldRedirect = options.redirect !== false && Boolean(callbackUrl);
-  if (shouldRedirect && callbackUrl) {
-    window.location.assign(callbackUrl);
-  }
-
   return {
     ok: true,
     status: response.status,
-    url: callbackUrl,
     user: payload.user,
   };
 }

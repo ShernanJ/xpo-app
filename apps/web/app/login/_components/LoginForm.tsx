@@ -2,14 +2,16 @@
 
 import { useSearchParams } from "next/navigation";
 import { Suspense, useId, useState } from "react";
-import { signIn } from "@/lib/auth/client";
-import type { AppSession } from "@/lib/auth/types";
-import { navigateToPostLoginDestination } from "./loginNavigation";
+import { buildGoogleOAuthStartPath, normalizeAuthCallbackUrl, normalizePostLoginXHandle } from "@/lib/auth/oauth";
+import { requestEmailCode, verifyEmailCode } from "@/lib/auth/client";
 import {
-  buildPostHogHeaders,
+  attachXHandleToAuthenticatedUser,
+  buildPostLoginDestination,
+  navigateToPostLoginDestination,
+} from "./loginNavigation";
+import {
   capturePostHogEvent,
   capturePostHogException,
-  identifyPostHogUser,
 } from "@/lib/posthog/client";
 
 function resolveEmailDomain(email: string): string | null {
@@ -17,47 +19,53 @@ function resolveEmailDomain(email: string): string | null {
   return domain || null;
 }
 
-function buildPostLoginDestination(callbackUrl: string, xHandle: string | null): string {
-  if (!xHandle) {
-    return callbackUrl;
-  }
-
-  try {
-    const url = new URL(callbackUrl, window.location.origin);
-    if (!url.pathname.startsWith("/chat")) {
-      return callbackUrl;
-    }
-
-    if (!url.searchParams.get("xHandle")) {
-      url.searchParams.set("xHandle", xHandle);
-    }
-
-    return `${url.pathname}${url.search}${url.hash}`;
-  } catch {
-    return callbackUrl;
-  }
+function GoogleMark() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-5 w-5 shrink-0"
+    >
+      <path
+        fill="#4285F4"
+        d="M21.64 12.204c0-.638-.057-1.251-.163-1.84H12v3.481h5.41a4.626 4.626 0 0 1-2.006 3.037v2.523h3.24c1.897-1.747 2.996-4.324 2.996-7.2Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 22c2.7 0 4.964-.896 6.619-2.595l-3.24-2.523c-.896.6-2.044.955-3.379.955-2.596 0-4.794-1.753-5.578-4.11H3.073v2.602A9.997 9.997 0 0 0 12 22Z"
+      />
+      <path
+        fill="#FBBC04"
+        d="M6.422 13.727A5.997 5.997 0 0 1 6.11 11.999c0-.6.106-1.181.312-1.728V7.669H3.073A9.998 9.998 0 0 0 2 12c0 1.61.386 3.135 1.073 4.331l3.349-2.604Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 6.163c1.468 0 2.786.505 3.823 1.497l2.867-2.867C16.959 3.18 14.695 2 12 2a9.997 9.997 0 0 0-8.927 5.669l3.349 2.602c.784-2.357 2.982-4.108 5.578-4.108Z"
+      />
+    </svg>
+  );
 }
 
 function LoginFormContent() {
+  const searchParams = useSearchParams();
+  const initialAuthError = searchParams.get("authError")?.trim() || null;
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loadingState, setLoadingState] = useState<"idle" | "signin" | "verify" | "resend" | "setup">(
+  const [error, setError] = useState<string | null>(initialAuthError);
+  const [loadingState, setLoadingState] = useState<"idle" | "request" | "verify" | "resend" | "setup">(
     "idle",
   );
-  const [focusedField, setFocusedField] = useState<"email" | "password" | "code" | null>(null);
-  const searchParams = useSearchParams();
+  const [focusedField, setFocusedField] = useState<"email" | "code" | null>(null);
   const xHandle = searchParams.get("xHandle");
-  const callbackUrlRaw = searchParams.get("callbackUrl");
-  const callbackUrl =
-    callbackUrlRaw && callbackUrlRaw.startsWith("/") ? callbackUrlRaw : "/chat";
+  const callbackUrl = normalizeAuthCallbackUrl(searchParams.get("callbackUrl"));
+  const normalizedXHandle = normalizePostLoginXHandle(xHandle);
+  const googleOAuthStartPath = buildGoogleOAuthStartPath({
+    callbackUrl,
+    xHandle: normalizedXHandle,
+  });
   const emailInputState =
     focusedField === "email" ? "is-focused" : email.trim() ? "is-filled" : "is-idle";
-  const passwordInputState =
-    focusedField === "password" ? "is-focused" : password.trim() ? "is-filled" : "is-idle";
   const codeInputState =
     focusedField === "code"
       ? "is-focused"
@@ -65,33 +73,23 @@ function LoginFormContent() {
         ? "is-filled"
         : "is-idle";
   const emailInputId = useId();
-  const passwordInputId = useId();
   const codeInputId = useId();
 
   const completeLogin = async () => {
-    const normalizedHandle = xHandle?.trim().replace(/^@/, "").toLowerCase() ?? "";
-
     try {
-      if (normalizedHandle) {
-        setLoadingState("setup");
-        setError(null);
-
-        const handleResponse = await fetch("/api/creator/profile/handles", {
-          method: "POST",
-          headers: buildPostHogHeaders({ "Content-Type": "application/json" }),
-          body: JSON.stringify({ handle: normalizedHandle }),
-        });
-        if (!handleResponse.ok) {
-          throw new Error("Could not attach this X handle to your account.");
-        }
+      setLoadingState("setup");
+      setError(null);
+      const attachResult = await attachXHandleToAuthenticatedUser(normalizedXHandle);
+      if (!attachResult.ok) {
+        throw new Error(attachResult.error);
       }
 
       navigateToPostLoginDestination(
-        buildPostLoginDestination(callbackUrl, normalizedHandle || null),
+        buildPostLoginDestination(callbackUrl, normalizedXHandle),
       );
     } catch (setupError) {
       capturePostHogException(setupError, {
-        account: normalizedHandle || null,
+        account: normalizedXHandle,
         source: "login_setup",
       });
       setLoadingState("idle");
@@ -103,11 +101,16 @@ function LoginFormContent() {
     }
   };
 
-  const handleCredentialSubmit = async () => {
-    setLoadingState("signin");
+  const handleEmailSubmit = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      setError("Email is required.");
+      return;
+    }
+
+    setLoadingState("request");
     setError(null);
 
-    const normalizedEmail = email.trim().toLowerCase();
     capturePostHogEvent("xpo_login_submitted", {
       callback_url: callbackUrl,
       email_domain: resolveEmailDomain(normalizedEmail),
@@ -115,25 +118,19 @@ function LoginFormContent() {
       source: "login_form",
     });
 
-    const res = await signIn("credentials", {
-      email: normalizedEmail,
-      password,
-      redirect: false,
-    });
+    const result = await requestEmailCode({ email: normalizedEmail });
 
-    if (res?.error) {
-      if (res.code === "verification_code_required") {
-        setPendingVerificationEmail(normalizedEmail);
-        setVerificationCode("");
-      } else {
-        setPendingVerificationEmail(null);
-        setError(res.error);
-      }
+    if (result.error) {
+      setPendingVerificationEmail(null);
+      setError(result.error);
       setLoadingState("idle");
       return;
     }
 
-    await completeLogin();
+    setEmail(normalizedEmail);
+    setPendingVerificationEmail(normalizedEmail);
+    setVerificationCode("");
+    setLoadingState("idle");
   };
 
   const handleVerifyCode = async () => {
@@ -152,26 +149,17 @@ function LoginFormContent() {
       source: "login_form",
     });
 
-    const response = await fetch("/api/auth/email-code/verify", {
-      method: "POST",
-      headers: buildPostHogHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({
-        email: normalizedEmail,
-        code: verificationCode.trim(),
-      }),
+    const result = await verifyEmailCode({
+      email: normalizedEmail,
+      code: verificationCode.trim(),
     });
 
-    const payload = (await response.json().catch(() => null)) as
-      | { ok?: boolean; error?: string; user?: AppSession["user"] }
-      | null;
-
-    if (!response.ok || !payload?.ok) {
-      setError(payload?.error ?? "Could not verify your code.");
+    if (result.error) {
+      setError(result.error);
       setLoadingState("idle");
       return;
     }
 
-    identifyPostHogUser(payload.user);
     await completeLogin();
   };
 
@@ -185,18 +173,10 @@ function LoginFormContent() {
     setLoadingState("resend");
     setError(null);
 
-    const response = await fetch("/api/auth/email-code/request", {
-      method: "POST",
-      headers: buildPostHogHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ email: normalizedEmail }),
-    });
+    const result = await requestEmailCode({ email: normalizedEmail });
 
-    const payload = (await response.json().catch(() => null)) as
-      | { ok?: boolean; error?: string }
-      | null;
-
-    if (!response.ok || !payload?.ok) {
-      setError(payload?.error ?? "Could not resend verification code.");
+    if (result.error) {
+      setError(result.error);
       setLoadingState("idle");
       return;
     }
@@ -216,7 +196,7 @@ function LoginFormContent() {
             return;
           }
 
-          await handleCredentialSubmit();
+          await handleEmailSubmit();
         }}
         className="mt-8 flex w-full max-w-md flex-col gap-4"
       >
@@ -327,37 +307,6 @@ function LoginFormContent() {
               </div>
             </div>
 
-            <div className="space-y-2 text-left">
-              <label
-                htmlFor={passwordInputId}
-                className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500"
-              >
-                Password
-              </label>
-              <div className={`login-input-shell ${passwordInputState}`}>
-                <input
-                  id={passwordInputId}
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  onFocus={() => setFocusedField("password")}
-                  onBlur={() => setFocusedField((current) => (current === "password" ? null : current))}
-                  required
-                  placeholder="••••••••"
-                  autoComplete="current-password"
-                  className="login-input-field pr-20 focus-visible:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((current) => !current)}
-                  className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400 transition hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? "Hide" : "Show"}
-                </button>
-              </div>
-            </div>
-
             <button
               type="submit"
               disabled={isBusy}
@@ -365,15 +314,38 @@ function LoginFormContent() {
             >
               {loadingState === "setup"
                 ? "Setting things up..."
-                : loadingState === "signin"
-                  ? "Signing in..."
-                  : xHandle
-                    ? `Continue as @${xHandle}`
-                    : "Login"}
+                : loadingState === "request"
+                  ? "Sending code..."
+                  : "Send code"}
             </button>
 
+            <div className="flex items-center gap-3 py-1">
+              <span className="h-px flex-1 bg-white/10" />
+              <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                Or continue with Google
+              </span>
+              <span className="h-px flex-1 bg-white/10" />
+            </div>
+
+            <div className="space-y-2 text-left">
+              <a
+                href={googleOAuthStartPath}
+                onClick={() =>
+                  capturePostHogEvent("xpo_login_google_requested", {
+                    callback_url: callbackUrl,
+                    has_x_handle: Boolean(normalizedXHandle),
+                    source: "login_form",
+                  })
+                }
+                className="inline-flex w-full items-center justify-center gap-3 rounded-xl border border-white/16 bg-white/[0.04] px-4 py-3 text-sm font-semibold text-white transition hover:border-white/28 hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+              >
+                <GoogleMark />
+                <span>Continue with Google</span>
+              </a>
+            </div>
+
             <p className="mt-2 text-center text-xs leading-6 text-zinc-500">
-              New account? Enter your email + password and confirm with the email code.
+              Continue with Google, or enter your email and we&apos;ll send a one-time code to sign you in.
             </p>
           </>
         )}

@@ -8,7 +8,7 @@ import { LoginForm } from "./_components/LoginForm";
 
 export const metadata: Metadata = {
   title: "Login",
-  description: "Sign in to access your Stanley for X workspace.",
+  description: "Continue with Google or enter your email to receive a secure sign-in code for your Stanley for X workspace.",
   robots: {
     index: false,
     follow: false,
@@ -62,7 +62,7 @@ export default async function LoginPage() {
                   Welcome
                 </h1>
                 <p className="mt-3 text-sm leading-6 text-zinc-400 sm:text-base">
-                  Sign in and lets grow Xponentially
+                  Continue with Google or enter your email and we&apos;ll send a secure verification code.
                 </p>
 
                 <LoginForm />

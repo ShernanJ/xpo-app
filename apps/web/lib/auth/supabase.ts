@@ -10,28 +10,14 @@ interface SupabaseAuthTokenResponse {
   msg?: string;
 }
 
-interface SupabaseAuthUserResponse {
-  user?: {
-    id?: string;
-    email?: string | null;
-  } | null;
-  access_token?: string;
-  refresh_token?: string;
-  error?: string;
-  error_description?: string;
-  msg?: string;
-}
-
 export interface SupabaseAuthSuccess {
   userId: string;
   email: string | null;
 }
 
 export type SupabaseAuthErrorCode =
-  | "invalid_credentials"
   | "invalid_otp"
-  | "user_exists"
-  | "email_confirmation_required"
+  | "invalid_access_token"
   | "rate_limited"
   | "missing_configuration"
   | "request_failed";
@@ -39,6 +25,11 @@ export type SupabaseAuthErrorCode =
 export interface SupabaseAuthError {
   code: SupabaseAuthErrorCode;
   message: string;
+}
+
+interface SupabaseAuthUserProfileResponse {
+  id?: string;
+  email?: string | null;
 }
 
 class SupabaseAuthRequestError extends Error {
@@ -72,10 +63,6 @@ function deriveSupabaseError(data: unknown, fallback: string): SupabaseAuthError
     fallback;
   const normalized = raw.toLowerCase();
 
-  if (normalized.includes("invalid login credentials")) {
-    return { code: "invalid_credentials", message: "Invalid email or password." };
-  }
-
   if (
     normalized.includes("otp") &&
     (normalized.includes("invalid") || normalized.includes("expired"))
@@ -89,17 +76,6 @@ function deriveSupabaseError(data: unknown, fallback: string): SupabaseAuthError
     normalized.includes("invalid token")
   ) {
     return { code: "invalid_otp", message: "Invalid or expired verification code." };
-  }
-
-  if (normalized.includes("user already registered")) {
-    return { code: "user_exists", message: "An account already exists for this email." };
-  }
-
-  if (normalized.includes("email not confirmed")) {
-    return {
-      code: "email_confirmation_required",
-      message: "Please verify your email before signing in.",
-    };
   }
 
   if (
@@ -160,7 +136,7 @@ async function supabaseAuthRequestWithoutBody(path: string, init: RequestInit): 
 }
 
 function parseTokenResponse(
-  payload: SupabaseAuthTokenResponse | SupabaseAuthUserResponse,
+  payload: SupabaseAuthTokenResponse,
 ): SupabaseAuthSuccess {
   const userId = payload.user?.id?.trim();
   if (!userId) {
@@ -201,50 +177,6 @@ function asSupabaseAuthError(error: unknown): SupabaseAuthError {
   };
 }
 
-export async function signInWithSupabasePassword(
-  email: string,
-  password: string,
-): Promise<{ ok: true; data: SupabaseAuthSuccess } | { ok: false; error: SupabaseAuthError }> {
-  try {
-    const payload = await supabaseAuthRequest<SupabaseAuthTokenResponse>(
-      "/token?grant_type=password",
-      {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      },
-    );
-    return { ok: true, data: parseTokenResponse(payload) };
-  } catch (error) {
-    return { ok: false, error: asSupabaseAuthError(error) };
-  }
-}
-
-export async function signUpWithSupabasePassword(
-  email: string,
-  password: string,
-): Promise<{ ok: true; data: SupabaseAuthSuccess } | { ok: false; error: SupabaseAuthError }> {
-  try {
-    const payload = await supabaseAuthRequest<SupabaseAuthUserResponse>("/signup", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    });
-
-    if (!payload.user?.id || !payload.access_token) {
-      return {
-        ok: false,
-        error: {
-          code: "email_confirmation_required",
-          message: "Please verify your email before signing in.",
-        },
-      };
-    }
-
-    return { ok: true, data: parseTokenResponse(payload) };
-  } catch (error) {
-    return { ok: false, error: asSupabaseAuthError(error) };
-  }
-}
-
 export async function requestSupabaseEmailCode(
   email: string,
   options?: { createUser?: boolean },
@@ -266,38 +198,62 @@ export async function requestSupabaseEmailCode(
 export async function verifySupabaseEmailCode(
   email: string,
   token: string,
-  options?: { isSignUpHint?: boolean }
 ): Promise<{ ok: true; data: SupabaseAuthSuccess } | { ok: false; error: SupabaseAuthError }> {
-  const verificationTypes = options?.isSignUpHint
-    ? (["signup", "magiclink", "email"] as const)
-    : (["magiclink", "email", "signup"] as const);
-  let lastOtpError: SupabaseAuthError | null = null;
-
-  for (const type of verificationTypes) {
-    try {
-      const payload = await supabaseAuthRequest<
-        SupabaseAuthTokenResponse | SupabaseAuthUserResponse
-      >("/verify", {
-        method: "POST",
-        body: JSON.stringify({ email, token, type }),
-      });
-      return { ok: true, data: parseTokenResponse(payload) };
-    } catch (error) {
-      const parsedError = asSupabaseAuthError(error);
-      if (parsedError.code === "invalid_otp") {
-        lastOtpError = parsedError;
-        continue;
-      }
-      return { ok: false, error: parsedError };
-    }
+  try {
+    const payload = await supabaseAuthRequest<SupabaseAuthTokenResponse>("/verify", {
+      method: "POST",
+      body: JSON.stringify({ email, token, type: "email" }),
+    });
+    return { ok: true, data: parseTokenResponse(payload) };
+  } catch (error) {
+    return { ok: false, error: asSupabaseAuthError(error) };
   }
+}
 
-  return {
-    ok: false,
-    error:
-      lastOtpError ?? {
-        code: "invalid_otp",
-        message: "Invalid or expired verification code.",
+export async function getSupabaseUserFromAccessToken(
+  accessToken: string,
+): Promise<{ ok: true; data: SupabaseAuthSuccess } | { ok: false; error: SupabaseAuthError }> {
+  try {
+    const { url, anonKey } = getSupabaseAuthConfig();
+    const response = await fetch(`${url}/auth/v1/user`, {
+      method: "GET",
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${accessToken}`,
       },
-  };
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | SupabaseAuthUserProfileResponse
+      | Record<string, unknown>
+      | null;
+
+    if (response.status === 401 || response.status === 403) {
+      return {
+        ok: false,
+        error: {
+          code: "invalid_access_token",
+          message: "Google sign-in expired. Please try again.",
+        },
+      };
+    }
+
+    if (!response.ok || !payload) {
+      throw new SupabaseAuthRequestError(
+        deriveSupabaseError(payload, "Supabase auth request failed."),
+      );
+    }
+
+    return {
+      ok: true,
+      data: parseTokenResponse({
+        user: {
+          id: payload.id,
+          email: payload.email ?? null,
+        },
+      }),
+    };
+  } catch (error) {
+    return { ok: false, error: asSupabaseAuthError(error) };
+  }
 }
