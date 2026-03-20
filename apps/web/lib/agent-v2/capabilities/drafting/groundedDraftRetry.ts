@@ -2,6 +2,7 @@ import type { WriterOutput } from "../../agents/writer.ts";
 import type { CriticOutput } from "../../agents/critic.ts";
 import type { VoiceTarget } from "../../core/voiceTarget.ts";
 import type {
+  ContinuationState,
   DraftFormatPreference,
   StrategyPlan,
   V2ConversationMemory,
@@ -66,6 +67,7 @@ interface ClarificationResponseArgs {
     | "product_drift";
   topicSummary?: string;
   pendingPlan?: StrategyPlan;
+  continuationState?: ContinuationState | null;
 }
 
 export async function runGroundedDraftRetry(
@@ -75,6 +77,7 @@ export async function runGroundedDraftRetry(
     activeConstraints: string[];
     sourceUserMessage?: string;
     formatPreference: DraftFormatPreference;
+    threadFramingStyle?: ThreadFramingStyle | null;
     topicSummary?: string;
     pendingPlan?: StrategyPlan;
     draftGroundingPacket: GroundingPacket;
@@ -86,6 +89,12 @@ export async function runGroundedDraftRetry(
     ) => Promise<RawOrchestratorResponse>;
     returnDeliveryValidationFallback: (args: {
       issues: string[];
+      plan: StrategyPlan;
+      activeConstraints: string[];
+      sourceUserMessage?: string | null;
+      sourcePrompt?: string | null;
+      formatPreference: DraftFormatPreference;
+      threadFramingStyle?: ThreadFramingStyle | null;
     }) => Promise<RawOrchestratorResponse>;
   },
 ): Promise<DraftingCapabilityRunResult> {
@@ -208,6 +217,16 @@ export async function runGroundedDraftRetry(
       ...(args.pendingPlan !== undefined
         ? { pendingPlan: args.pendingPlan }
         : {}),
+      continuationState: {
+        capability: "drafting",
+        pendingAction: "awaiting_grounding_answer",
+        formatPreference: args.formatPreference,
+        threadFramingStyle: args.threadFramingStyle ?? null,
+        sourceUserMessage: args.sourceUserMessage || null,
+        sourcePrompt: args.sourceUserMessage || args.plan.objective,
+        activeConstraints: args.activeConstraints,
+        plan: args.plan,
+      },
     });
 
   const firstAttempt = await args.attemptDraft();
@@ -387,7 +406,15 @@ export async function runGroundedDraftRetry(
     };
     return {
       kind: "response",
-      response: await args.returnDeliveryValidationFallback({ issues }),
+      response: await args.returnDeliveryValidationFallback({
+        issues,
+        plan: args.plan,
+        activeConstraints: args.activeConstraints,
+        sourceUserMessage: args.sourceUserMessage,
+        sourcePrompt: args.sourceUserMessage || args.plan.objective,
+        formatPreference: args.formatPreference,
+        threadFramingStyle: secondAttemptWithClaimCheck.threadFramingStyle,
+      }),
       workers: localWorkers,
       validations: localValidations,
       routingTracePatch,
@@ -438,6 +465,16 @@ export async function runGroundedDraftRetry(
             ...(args.pendingPlan !== undefined
               ? { pendingPlan: args.pendingPlan }
               : {}),
+            continuationState: {
+              capability: "drafting",
+              pendingAction: "awaiting_grounding_answer",
+              formatPreference: args.formatPreference,
+              threadFramingStyle: args.threadFramingStyle ?? null,
+              sourceUserMessage: args.sourceUserMessage || null,
+              sourcePrompt: args.sourceUserMessage || args.plan.objective,
+              activeConstraints: args.activeConstraints,
+              plan: args.plan,
+            },
           })
         : await buildProductClarification("product_drift"),
       workers: localWorkers,

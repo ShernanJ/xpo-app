@@ -108,6 +108,14 @@ export interface CreatorChatSuccess {
         stepKey: string;
         seedTopic: string | null;
       } | null;
+      continuationState?: {
+        capability: "drafting" | "replying";
+        pendingAction:
+          | "retry_delivery"
+          | "awaiting_grounding_answer"
+          | "reply_regenerate";
+        formatPreference?: "shortform" | "longform" | "thread" | null;
+      } | null;
       assistantTurnCount?: number;
       latestRefinementInstruction?: string | null;
       unresolvedQuestion?: string | null;
@@ -312,7 +320,8 @@ export interface ChatQuickReply {
     | "planner_action"
     | "clarification_choice"
     | "ideation_angle"
-    | "image_post_confirmation";
+    | "image_post_confirmation"
+    | "retry_action";
   value: string;
   label: string;
   suggestedFocus?: ChatContentFocus;

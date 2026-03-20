@@ -61,6 +61,18 @@ function resolveStructuredTurnAction(args: {
     };
   }
 
+  if (args.artifactContext?.kind === "generation_retry") {
+    return {
+      workflow: "plan_then_draft",
+      classifiedIntent: "draft",
+      source: "structured_turn",
+      decision: buildStructuredDecision({
+        action: "draft",
+        rationale: "structured generation retry",
+      }),
+    };
+  }
+
   if (args.artifactContext?.kind === "draft_selection" || args.turnSource === "draft_action") {
     const classifiedIntent =
       args.artifactContext?.kind === "draft_selection" && args.artifactContext.action === "review"
@@ -110,6 +122,58 @@ function resolveStructuredTurnAction(args: {
   }
 
   return null;
+}
+
+function normalizeContinuationMessage(message: string): string {
+  return message.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function isDraftRetryLikeMessage(message: string): boolean {
+  return /^(?:retry|try again|rerun it|run it again|regenerate|do it|go ahead|yes|yep|yeah|ok|okay|please do)[.?!]*$/.test(
+    normalizeContinuationMessage(message),
+  );
+}
+
+function isDraftContinuationAnswer(message: string): boolean {
+  const normalized = normalizeContinuationMessage(message);
+  if (!normalized || normalized.length > 120) {
+    return false;
+  }
+
+  if (normalized.includes("?") || /^(?:write|draft|make|create|generate|help)\b/.test(normalized)) {
+    return false;
+  }
+
+  if (isDraftRetryLikeMessage(normalized) || looksLikeSimpleSocialTurn(normalized)) {
+    return false;
+  }
+
+  return true;
+}
+
+function isDraftContinuationResumeTurn(args: {
+  artifactContext?: ChatArtifactContext | null;
+  userMessage: string;
+  memory: ControllerMemorySummary;
+}): boolean {
+  const continuationState = args.memory.continuationState;
+  if (!continuationState || continuationState.capability !== "drafting") {
+    return false;
+  }
+
+  if (args.artifactContext?.kind === "generation_retry") {
+    return continuationState.pendingAction === "retry_delivery";
+  }
+
+  if (continuationState.pendingAction === "retry_delivery") {
+    return isDraftRetryLikeMessage(args.userMessage);
+  }
+
+  if (continuationState.pendingAction === "awaiting_grounding_answer") {
+    return isDraftContinuationAnswer(args.userMessage);
+  }
+
+  return false;
 }
 
 export function mapIntentToRuntimeWorkflow(args: {
@@ -176,6 +240,24 @@ export async function resolveRuntimeAction(args: {
         decision: buildStructuredDecision({
           action: "revise",
           rationale: "deterministic malformed revision retry approval",
+        }),
+      };
+    }
+
+    if (
+      isDraftContinuationResumeTurn({
+        artifactContext: args.artifactContext,
+        userMessage: args.userMessage,
+        memory: args.memory,
+      })
+    ) {
+      return {
+        workflow: "plan_then_draft",
+        classifiedIntent: "plan",
+        source: "structured_turn",
+        decision: buildStructuredDecision({
+          action: "draft",
+          rationale: "deterministic draft continuation resume",
         }),
       };
     }

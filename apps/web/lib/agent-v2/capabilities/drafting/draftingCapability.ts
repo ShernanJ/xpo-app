@@ -89,6 +89,7 @@ export interface DraftingCapabilityMemoryPatch {
   conversationState: "draft_ready";
   pendingPlan: null;
   clarificationState: null;
+  continuationState: null;
   rollingSummary: string | null;
   assistantTurnCount: number;
   formatPreference: DraftFormatPreference;
@@ -220,6 +221,7 @@ export async function executeDraftingCapability(
         conversationState: "draft_ready",
         pendingPlan: null,
         clarificationState: null,
+        continuationState: null,
         rollingSummary,
         assistantTurnCount: context.nextAssistantTurnCount,
         formatPreference: context.plan.formatPreference || context.turnFormatPreference,

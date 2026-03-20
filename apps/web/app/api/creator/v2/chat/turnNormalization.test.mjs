@@ -110,6 +110,26 @@ test("reply option selections normalize into deterministic reply actions", () =>
   assert.equal(normalized.diagnostics.resolvedWorkflow, "reply_to_post");
 });
 
+test("generation retries normalize into structured draft turns", () => {
+  const normalized = normalizeChatTurn({
+    body: {
+      message: "retry",
+      artifactContext: {
+        kind: "generation_retry",
+        capability: "drafting",
+      },
+      formatPreference: "thread",
+    },
+  });
+
+  assert.equal(normalized.source, "quick_reply");
+  assert.equal(normalized.explicitIntent, "draft");
+  assert.equal(normalized.orchestrationMessage, "retry");
+  assert.equal(normalized.shouldAllowReplyHandling, false);
+  assert.equal(normalized.diagnostics.artifactKind, "generation_retry");
+  assert.equal(normalized.diagnostics.resolvedWorkflow, "plan_then_draft");
+});
+
 test("direct reply draft requests normalize into structured reply turns", () => {
   const normalized = normalizeChatTurn({
     body: {

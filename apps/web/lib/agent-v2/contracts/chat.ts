@@ -10,6 +10,7 @@ export type V2ChatIntent =
 
 import type { ReplySourceContext } from "../../reply-engine/types.ts";
 import type { ReplySourcePreview } from "../../reply-engine/replySourcePreview.ts";
+import type { ThreadFramingStyle } from "../../onboarding/draftArtifacts.ts";
 
 export type ConversationState =
   | "collecting_context"
@@ -63,6 +64,24 @@ export interface StrategyPlan {
   formatPreference?: DraftFormatPreference;
 }
 
+export type ContinuationCapability = "drafting" | "replying";
+
+export type ContinuationPendingAction =
+  | "retry_delivery"
+  | "awaiting_grounding_answer"
+  | "reply_regenerate";
+
+export interface ContinuationState {
+  capability: ContinuationCapability;
+  pendingAction: ContinuationPendingAction;
+  formatPreference?: DraftFormatPreference | null;
+  threadFramingStyle?: ThreadFramingStyle | null;
+  sourceUserMessage?: string | null;
+  sourcePrompt?: string | null;
+  activeConstraints?: string[];
+  plan?: StrategyPlan | null;
+}
+
 export type ClarificationBranchKey =
   | "vague_draft_request"
   | "lazy_request"
@@ -80,7 +99,8 @@ export interface CreatorChatQuickReply {
   | "planner_action"
   | "clarification_choice"
   | "ideation_angle"
-  | "image_post_confirmation";
+  | "image_post_confirmation"
+  | "retry_action";
   value: string;
   label: string;
   suggestedFocus?: string;
@@ -159,6 +179,7 @@ export interface V2ConversationMemory {
   rollingSummary: string | null;
   pendingPlan: StrategyPlan | null;
   clarificationState: ClarificationState | null;
+  continuationState?: ContinuationState | null;
   assistantTurnCount: number;
   latestRefinementInstruction: string | null;
   unresolvedQuestion: string | null;

@@ -109,6 +109,31 @@ test("prepareAssistantReplyTransport preserves thread intent for thread angle pi
   assert.equal(prepared.pendingStatusPlan?.workflow, "plan_then_draft");
 });
 
+test("prepareAssistantReplyTransport keeps retry actions in quick-reply draft workflow", () => {
+  const prepared = prepareAssistantReplyTransport({
+    prompt: "retry",
+    history: [{ id: "user-1", role: "user", content: "write a thread" }],
+    runId: "run-retry-1",
+    threadId: "thread-retry-1",
+    workspaceHandle: "stan",
+    artifactContext: {
+      kind: "generation_retry",
+      capability: "drafting",
+    },
+    formatPreferenceOverride: "thread",
+    selectedDraftContext: null,
+    strategyInputs: baseStrategyInputs,
+    toneInputs: baseToneInputs,
+  });
+
+  assert.equal(prepared.shouldSkip, false);
+  assert.equal(prepared.effectiveTurnSource, "quick_reply");
+  assert.equal(prepared.transportRequest?.turnSource, "quick_reply");
+  assert.equal(prepared.transportRequest?.artifactContext?.kind, "generation_retry");
+  assert.equal(prepared.transportRequest?.formatPreference, "thread");
+  assert.equal(prepared.pendingStatusPlan?.workflow, "plan_then_draft");
+});
+
 test("prepareAssistantReplyTransport carries selected draft context for revision requests", () => {
   const prepared = prepareAssistantReplyTransport({
     prompt: "make it shorter and sharper",

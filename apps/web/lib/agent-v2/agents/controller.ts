@@ -41,6 +41,14 @@ export interface ControllerMemorySummary {
   pendingPlanSummary?: string | null;
   latestRefinementInstruction?: string | null;
   lastIdeationAngles?: string[];
+  continuationState?: {
+    capability: "drafting" | "replying";
+    pendingAction:
+      | "retry_delivery"
+      | "awaiting_grounding_answer"
+      | "reply_regenerate";
+    formatPreference?: "shortform" | "longform" | "thread" | null;
+  } | null;
 }
 
 function summarizeMemory(memory: ControllerMemorySummary): string {
@@ -53,6 +61,11 @@ function summarizeMemory(memory: ControllerMemorySummary): string {
     `Concrete answer count: ${memory.concreteAnswerCount}`,
     `Pending plan summary: ${memory.pendingPlanSummary || "None"}`,
     `Latest refinement instruction: ${memory.latestRefinementInstruction || "None"}`,
+    `Continuation state: ${
+      memory.continuationState
+        ? `${memory.continuationState.capability}:${memory.continuationState.pendingAction}`
+        : "None"
+    }`,
     `Last ideation angles: ${
       memory.lastIdeationAngles && memory.lastIdeationAngles.length > 0
         ? memory.lastIdeationAngles.slice(0, 3).join(" | ")

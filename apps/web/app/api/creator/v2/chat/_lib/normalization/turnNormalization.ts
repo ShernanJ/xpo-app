@@ -4,6 +4,7 @@ import type {
   ChatArtifactContext,
   ChatResolvedWorkflow,
   ChatTurnSource,
+  GenerationRetryArtifactContext,
   ImagePostConfirmationArtifactContext,
   ReplyRequestArtifactContext,
   NormalizedChatTurn,
@@ -91,6 +92,24 @@ function parseImagePostConfirmationArtifactContext(
     kind: "image_post_confirmation",
     decision: record.decision,
     ...(imageAssetId ? { imageAssetId } : {}),
+  };
+}
+
+function parseGenerationRetryArtifactContext(
+  value: unknown,
+): GenerationRetryArtifactContext | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (record.kind !== "generation_retry" || record.capability !== "drafting") {
+    return null;
+  }
+
+  return {
+    kind: "generation_retry",
+    capability: "drafting",
   };
 }
 
@@ -182,6 +201,7 @@ function parseArtifactContext(value: unknown): ChatArtifactContext | null {
   return (
     parseSelectedAngleArtifactContext(value) ||
     parseImagePostConfirmationArtifactContext(value) ||
+    parseGenerationRetryArtifactContext(value) ||
     parseDraftSelectionArtifactContext(value) ||
     parseReplyOptionSelectArtifactContext(value) ||
     parseReplyConfirmationArtifactContext(value) ||
@@ -231,6 +251,10 @@ function resolveTurnSource(args: {
     return "quick_reply";
   }
 
+  if (args.artifactContext?.kind === "generation_retry") {
+    return "quick_reply";
+  }
+
   if (
     args.artifactContext?.kind === "reply_option_select" ||
     args.artifactContext?.kind === "reply_confirmation" ||
@@ -268,6 +292,10 @@ function resolveExplicitIntent(args: {
     return "coach";
   }
 
+  if (args.artifactContext?.kind === "generation_retry") {
+    return "draft";
+  }
+
   if (args.turnSource === "quick_reply" && args.intent === "ideate") {
     return "ideate";
   }
@@ -293,6 +321,10 @@ function resolveResolvedWorkflow(args: {
 
   if (args.artifactContext?.kind === "image_post_confirmation") {
     return "free_text";
+  }
+
+  if (args.artifactContext?.kind === "generation_retry") {
+    return "plan_then_draft";
   }
 
   if (
@@ -393,6 +425,10 @@ export function normalizeChatTurn(args: {
   } else if (artifactContext?.kind === "image_post_confirmation") {
     transcriptMessage = message || artifactContext.decision;
     orchestrationMessage = message || artifactContext.decision;
+    planSeedSource = "message";
+  } else if (artifactContext?.kind === "generation_retry") {
+    transcriptMessage = message || "retry";
+    orchestrationMessage = message || "retry";
     planSeedSource = "message";
   } else if (!message) {
     const contentFocusMessage = buildContentFocusMessage({

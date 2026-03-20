@@ -32,6 +32,7 @@ interface ControllerMemorySummary {
   pendingPlanSummary: string | null;
   latestRefinementInstruction: V2ConversationMemory["latestRefinementInstruction"];
   lastIdeationAngles: V2ConversationMemory["lastIdeationAngles"];
+  continuationState: V2ConversationMemory["continuationState"];
 }
 
 export interface PrepareHandledReplyTurnArgs {
@@ -82,12 +83,22 @@ function buildControllerMemorySummary(memory: V2ConversationMemory): ControllerM
       : null,
     latestRefinementInstruction: memory.latestRefinementInstruction,
     lastIdeationAngles: memory.lastIdeationAngles,
+    continuationState: memory.continuationState ?? null,
   };
 }
 
 export async function prepareHandledReplyTurn(
   args: PrepareHandledReplyTurnArgs,
 ): Promise<ReplyTurnPreflightResult> {
+  const isReplyDraftSelectionTurn =
+    args.artifactContext?.kind === "draft_selection" &&
+    args.memory.activeReplyArtifactRef?.kind === "reply_draft" &&
+    args.memory.activeReplyArtifactRef.messageId ===
+      args.artifactContext.selectedDraftContext.messageId;
+  const effectiveTurnSource = isReplyDraftSelectionTurn ? "free_text" : args.turnSource;
+  const shouldBypassReplyHandling = isReplyDraftSelectionTurn
+    ? false
+    : args.shouldBypassReplyHandling;
   const {
     replyStrategy,
     replyParseResult,
@@ -103,8 +114,8 @@ export async function prepareHandledReplyTurn(
     effectiveMessage: args.userMessage,
     structuredReplyContext: args.structuredReplyContext,
     artifactContext: args.artifactContext,
-    turnSource: args.turnSource,
-    shouldBypassReplyHandling: args.shouldBypassReplyHandling,
+    turnSource: effectiveTurnSource,
+    shouldBypassReplyHandling,
     activeReplyContext: args.memory.activeReplyContext,
     toneRisk: args.toneRisk,
     goal: args.goal,
@@ -141,11 +152,12 @@ export async function prepareHandledReplyTurn(
   }
 
   const runtimeAction = await resolveRuntimeAction({
-    turnSource: args.turnSource,
-    artifactContext: args.artifactContext,
-    explicitIntent: args.explicitIntent,
-    resolvedWorkflowHint:
-      args.resolvedWorkflowHint && args.resolvedWorkflowHint !== "free_text"
+    turnSource: effectiveTurnSource,
+    artifactContext: isReplyDraftSelectionTurn ? null : args.artifactContext,
+    explicitIntent: isReplyDraftSelectionTurn ? null : args.explicitIntent,
+    resolvedWorkflowHint: isReplyDraftSelectionTurn
+      ? "reply_to_post"
+      : args.resolvedWorkflowHint && args.resolvedWorkflowHint !== "free_text"
         ? args.resolvedWorkflowHint
         : "reply_to_post",
     turnPlan: null,

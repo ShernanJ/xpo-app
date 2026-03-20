@@ -136,6 +136,7 @@ export async function finalizeReplyTurnWithDeps(
   const nextMemory = buildReplyMemorySnapshot({
     storedMemory: args.storedMemory,
     activeReplyContext: args.preparedTurn.plannedTurn.activeReplyContext,
+    activeReplyArtifactKind: args.preparedTurn.plannedTurn.replyArtifacts?.kind ?? null,
     selectedReplyOptionId: args.preparedTurn.plannedTurn.selectedReplyOptionId,
   });
   const primaryReplyDraft =
@@ -247,6 +248,7 @@ export async function finalizeReplyTurnWithDeps(
             }
           : null,
         activeProfileAnalysisRef: null,
+        continuationState: nextMemory.continuationState ?? null,
         selectedReplyOptionId:
           args.preparedTurn.plannedTurn.selectedReplyOptionId === undefined
             ? null

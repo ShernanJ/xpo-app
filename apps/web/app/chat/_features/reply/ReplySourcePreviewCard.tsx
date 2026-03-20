@@ -73,10 +73,32 @@ function renderMediaGrid(args: {
   size: NonNullable<ReplySourcePreviewCardProps["size"]>;
 }) {
   const { media, size } = args;
-  const imageMedia = media.filter(
-    (item) => item.type === "image" && typeof item.url === "string" && item.url.trim(),
-  );
-  const secondaryMedia = media.filter((item) => item.type !== "image" || !item.url);
+  const imageMedia: ReplySourcePreviewMediaItem[] = [];
+  const seenImageUrls = new Set<string>();
+  const secondaryMedia: ReplySourcePreviewMediaItem[] = [];
+  const seenSecondaryKeys = new Set<string>();
+
+  for (const item of media) {
+    const normalizedUrl = typeof item.url === "string" ? item.url.trim() : "";
+    if (item.type === "image" && normalizedUrl) {
+      const key = `${item.type}:${normalizedUrl}`;
+      if (seenImageUrls.has(key)) {
+        continue;
+      }
+
+      seenImageUrls.add(key);
+      imageMedia.push(item);
+      continue;
+    }
+
+    const secondaryKey = `${item.type}:${normalizedUrl}`;
+    if (seenSecondaryKeys.has(secondaryKey)) {
+      continue;
+    }
+
+    seenSecondaryKeys.add(secondaryKey);
+    secondaryMedia.push(item);
+  }
 
   if (imageMedia.length === 0 && secondaryMedia.length === 0) {
     return null;

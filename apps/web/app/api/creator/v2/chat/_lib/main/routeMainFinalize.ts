@@ -157,6 +157,7 @@ export async function finalizeMainAssistantTurnWithDeps(
           ? {
               activeReplyContext: null,
               activeReplyArtifactRef: null,
+              continuationState: null,
               selectedReplyOptionId: null,
             }
           : {}),

@@ -255,6 +255,89 @@ test("primary ideation angle chips replace the duplicate angle list", async () =
   expect(screen.queryByText("1.")).not.toBeInTheDocument();
 });
 
+test("retry quick replies render as an icon action instead of a duplicate chip", async () => {
+  const user = userEvent.setup();
+  const onQuickReplySelect = vi.fn();
+
+  render(
+    <MessageArtifactSections
+      message={{
+        id: "assistant-retry-1",
+        role: "assistant",
+        content:
+          "that draft came back malformed twice. want me to regenerate it cleanly with the same direction?",
+        outputShape: "coach_question",
+        quickReplies: [
+          {
+            kind: "retry_action",
+            value: "retry",
+            label: "Retry this draft",
+            formatPreference: "thread",
+          },
+          {
+            kind: "clarification_choice",
+            value: "keep the same angle",
+            label: "Keep same angle",
+          },
+        ],
+        feedbackValue: null,
+      }}
+      index={0}
+      messagesLength={1}
+      composerCharacterLimit={280}
+      isVerifiedAccount={false}
+      isMainChatLocked={false}
+      showDevTools={false}
+      selectedDraftMessageId={null}
+      selectedDraftVersionId={null}
+      selectedThreadPreviewPostIndex={undefined}
+      expandedInlineThreadPreviewId={null}
+      copiedPreviewDraftMessageId={null}
+      dismissedAutoSavedSource={false}
+      autoSavedSourceUndoPending={false}
+      messageFeedbackPending={false}
+      canRunReplyActions={true}
+      contextIdentity={{
+        username: "vitddnv",
+        displayName: "Vitalii Dodonov",
+        avatarUrl: null,
+      }}
+      getRevealClassName={() => ""}
+      shouldAnimateRevealLines={() => false}
+      shouldShowQuickReplies={() => true}
+      shouldShowOptionArtifacts={() => false}
+      shouldShowDraftOutput={() => false}
+      onOpenSourceMaterialEditor={() => {}}
+      onUndoAutoSavedSourceMaterials={() => {}}
+      onSubmitAssistantMessageFeedback={() => {}}
+      onOpenScopedFeedback={() => {}}
+      onQuickReplySelect={onQuickReplySelect}
+      onAngleSelect={() => {}}
+      onReplyOptionSelect={() => {}}
+      onSelectDraftBundleOption={() => {}}
+      onOpenDraftEditor={() => {}}
+      onRequestDraftCardRevision={() => {}}
+      onToggleExpandedInlineThreadPreview={() => {}}
+      onCopyPreviewDraft={() => {}}
+      onShareDraftEditor={() => {}}
+    />,
+  );
+
+  expect(screen.getByRole("button", { name: /Retry draft/i })).toBeInTheDocument();
+  expect(screen.queryByText("Retry this draft")).not.toBeInTheDocument();
+  expect(screen.getByText("Keep same angle")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /Retry draft/i }));
+
+  expect(onQuickReplySelect).toHaveBeenCalledWith(
+    expect.objectContaining({
+      kind: "retry_action",
+      value: "retry",
+      formatPreference: "thread",
+    }),
+  );
+});
+
 test("generated result messages keep footer controls out of the artifact section", () => {
   render(
     <MessageArtifactSections

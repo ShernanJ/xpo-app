@@ -18,6 +18,7 @@ export interface PersistMemoryUpdateArgs {
     messageId: string;
     kind: "reply_options" | "reply_draft";
   } | null;
+  continuationState?: unknown;
   activeProfileAnalysisRef?: {
     messageId: string;
     handle: string;

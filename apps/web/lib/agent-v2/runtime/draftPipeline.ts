@@ -82,6 +82,7 @@ import {
   type SourceMaterialAssetRecord,
 } from "../grounding/sourceMaterials";
 import type {
+  ContinuationState,
   CreatorChatQuickReply,
   DraftFormatPreference,
   DraftPreference,
@@ -103,6 +104,7 @@ import { handlePlanClarificationTurn } from "../capabilities/planning/planClarif
 import { handlePlanModeTurn } from "../capabilities/planning/planModeTurn.ts";
 import { handlePendingPlanTurn } from "../capabilities/planning/pendingPlanTurn.ts";
 import {
+  executeDraftingCapability,
   type DraftingCapabilityRunResult,
 } from "../capabilities/drafting/draftingCapability.ts";
 import { runGroundedDraftRetry } from "../capabilities/drafting/groundedDraftRetry.ts";
@@ -239,6 +241,10 @@ export async function executeDraftPipeline(args: {
   // We rewrite writeMemory locally to call saveConversationTurnMemory
 
   const antiPatterns = antiPatternResult.antiPatterns;
+  const draftContinuationState =
+    memory.continuationState?.capability === "drafting"
+      ? memory.continuationState
+      : null;
   const suppressFeedbackMemoryNotice =
     looksLikeSemanticCorrection(userMessage) ||
     looksLikeSourceTransparencyRequest(userMessage) ||
@@ -537,6 +543,94 @@ export async function executeDraftPipeline(args: {
       : "give me 3 grounded post directions in my usual lane. keep them close to what i usually post about, keep them concrete enough to draft fast, and avoid generic filler.";
   }
 
+  function normalizeContinuationMessage(value: string): string {
+    return value.trim().replace(/\s+/g, " ").toLowerCase();
+  }
+
+  function isDraftRetryLikeMessage(value: string): boolean {
+    const normalized = normalizeContinuationMessage(value);
+    return (
+      normalized === "retry" ||
+      normalized === "try again" ||
+      normalized === "regenerate" ||
+      normalized === "rerun" ||
+      normalized === "run it again"
+    );
+  }
+
+  function buildFormatAwareDraftPrompt(
+    seedTopic: string,
+    formatPreference: DraftFormatPreference,
+  ): string {
+    return formatPreference === "thread"
+      ? `write a thread about ${seedTopic}`
+      : `write a post about ${seedTopic}`;
+  }
+
+  function buildDraftContinuationState(args: {
+    pendingAction: "retry_delivery" | "awaiting_grounding_answer";
+    plan: StrategyPlan;
+    activeConstraints: string[];
+    sourceUserMessage?: string | null;
+    sourcePrompt?: string | null;
+    formatPreference: DraftFormatPreference;
+    threadFramingStyle?: ThreadFramingStyle | null;
+  }): ContinuationState {
+    return {
+      capability: "drafting",
+      pendingAction: args.pendingAction,
+      formatPreference: args.formatPreference,
+      threadFramingStyle: args.threadFramingStyle ?? null,
+      sourceUserMessage: args.sourceUserMessage?.trim() || null,
+      sourcePrompt: args.sourcePrompt?.trim() || null,
+      activeConstraints: args.activeConstraints,
+      plan: args.plan,
+    };
+  }
+
+  function buildGroundingFollowUpConstraints(answer: string): string[] {
+    const trimmed = answer.trim().replace(/\s+/g, " ");
+    if (!trimmed) {
+      return [];
+    }
+
+    const normalized = trimmed.toLowerCase();
+    const constraints = [
+      `Grounding follow-up from user: ${trimmed}. Keep the draft grounded to this answer and do not invent missing details.`,
+    ];
+
+    if (normalized.includes("plain product claim")) {
+      constraints.push(
+        "Grounding lane: plain product claim only. Do not use first-person usage or build stories unless explicitly grounded.",
+      );
+    }
+
+    if (
+      normalized.includes("own use/build experience") ||
+      normalized.includes("your own use/build experience") ||
+      normalized.includes("build experience") ||
+      normalized.includes("use/build")
+    ) {
+      constraints.push(
+        "Grounding lane: use only explicitly grounded build or use experience. If direct first-person grounding is missing, stay factual and avoid autobiographical claims.",
+      );
+    }
+
+    if (normalized.includes("funny loss") || normalized.includes("loss itself")) {
+      constraints.push(
+        "Grounding lane: land on the funny loss itself. Keep the draft anchored in the concrete scene rather than abstract lessons.",
+      );
+    }
+
+    if (normalized.includes("actual takeaway") || normalized.includes("takeaway")) {
+      constraints.push(
+        "Grounding lane: land on the actual takeaway. Center the lesson without inventing extra scene details.",
+      );
+    }
+
+    return Array.from(new Set(constraints));
+  }
+
   async function returnClarificationQuestion(args: {
     question: string;
     reply?: string;
@@ -544,6 +638,7 @@ export async function executeDraftPipeline(args: {
     quickReplies?: CreatorChatQuickReply[];
     topicSummary?: string | null;
     pendingPlan?: StrategyPlan | null;
+    continuationState?: ContinuationState | null;
     traceReason?: string | null;
     traceKind?: "question" | "tree";
   }): Promise<RawOrchestratorResponse> {
@@ -573,6 +668,7 @@ export async function executeDraftPipeline(args: {
       ...(args.pendingPlan !== undefined ? { pendingPlan: args.pendingPlan } : {}),
       conversationState: "needs_more_context",
       clarificationState: args.clarificationState ?? null,
+      continuationState: args.continuationState ?? null,
       assistantTurnCount: nextAssistantTurnCount,
       ...buildClarificationPatch(args.question),
     });
@@ -630,10 +726,33 @@ export async function executeDraftPipeline(args: {
   async function returnDeliveryValidationFallback(args: {
     issues: string[];
     response?: string;
+    plan: StrategyPlan;
+    activeConstraints: string[];
+    sourceUserMessage?: string | null;
+    sourcePrompt?: string | null;
+    formatPreference: DraftFormatPreference;
+    threadFramingStyle?: ThreadFramingStyle | null;
   }): Promise<RawOrchestratorResponse> {
+    const retryQuickReply: CreatorChatQuickReply = {
+      kind: "retry_action",
+      label: "retry",
+      value: "retry",
+      explicitIntent: "draft",
+      formatPreference: args.formatPreference,
+    };
+
     await writeMemoryLocal({
       assistantTurnCount: nextAssistantTurnCount,
       clarificationState: null,
+      continuationState: buildDraftContinuationState({
+        pendingAction: "retry_delivery",
+        plan: args.plan,
+        activeConstraints: args.activeConstraints,
+        sourceUserMessage: args.sourceUserMessage,
+        sourcePrompt: args.sourcePrompt,
+        formatPreference: args.formatPreference,
+        threadFramingStyle: args.threadFramingStyle,
+      }),
       ...clearClarificationPatch(),
     });
 
@@ -642,9 +761,15 @@ export async function executeDraftPipeline(args: {
       outputShape: "coach_question",
       response: prependFeedbackMemoryNotice(
         args.response ||
-          "that draft came back malformed twice. want me to regenerate it cleanly with the same direction?",
+          buildHumanDeliveryFallbackResponse({
+            issues: args.issues,
+            formatPreference: args.formatPreference,
+          }),
         feedbackMemoryNotice,
       ),
+      data: {
+        quickReplies: [retryQuickReply],
+      },
       memory,
     };
   }
@@ -674,6 +799,54 @@ export async function executeDraftPipeline(args: {
       return "i can write this, but i need one thing first - your own build experience or a plain product point?";
     }
     return `i can write this, but i don't want to fake a personal usage story around ${normalized}. what lane should i use here - plain product claim or your own use/build experience?`;
+  }
+
+  function buildHumanDeliveryFallbackResponse(args: {
+    issues: string[];
+    formatPreference: DraftFormatPreference;
+  }): string {
+    const normalizedIssues = args.issues.map((issue) => issue.toLowerCase());
+    const mentionsMissingThreadShape = normalizedIssues.some(
+      (issue) =>
+        issue.includes("not contain enough distinct posts") ||
+        issue.includes("opener is malformed") ||
+        issue.includes("missing substantive hook"),
+    );
+    const mentionsWeakThreadHook = normalizedIssues.some((issue) =>
+      issue.includes("summary block instead of a sharp hook"),
+    );
+    const mentionsPromptEcho = normalizedIssues.some((issue) =>
+      issue.includes("echoing the user's prompt") ||
+      issue.includes("restates the user's prompt"),
+    );
+    const mentionsTruncation = normalizedIssues.some((issue) =>
+      issue.includes("cut off before a complete ending"),
+    );
+    const mentionsWrongShape = normalizedIssues.some((issue) =>
+      issue.includes("looks like a thread even though a single post was requested"),
+    );
+
+    if (args.formatPreference === "thread" && mentionsMissingThreadShape) {
+      return "i don't have enough grounded detail yet to turn that direction into a clean thread. you can retry with the same direction, or send one concrete detail and i'll use that.";
+    }
+
+    if (args.formatPreference === "thread" && mentionsWeakThreadHook) {
+      return "the thread opener came back too generic to post cleanly. you can retry with the same direction, or send one concrete detail so i can ground the hook better.";
+    }
+
+    if (mentionsWrongShape) {
+      return "that came back in the wrong shape for what you asked. you can retry with the same direction, or send one concrete detail and i'll anchor it better.";
+    }
+
+    if (mentionsTruncation) {
+      return "that draft got cut off before it finished cleanly. you can retry with the same direction, or send one concrete detail and i'll anchor it better.";
+    }
+
+    if (mentionsPromptEcho) {
+      return "that draft repeated your instruction instead of turning it into a clean post. you can retry with the same direction, or send one concrete detail and i'll anchor it better.";
+    }
+
+    return "i don't have enough grounded detail yet to turn that into a clean draft. you can retry with the same direction, or send one concrete detail and i'll use that.";
   }
 
   function buildPlanSourceMessage(plan: StrategyPlan): string {
@@ -708,6 +881,10 @@ export async function executeDraftPipeline(args: {
     }
 
     const branchKey = memory.clarificationState?.branchKey;
+    const preferredPlanFormat =
+      draftContinuationState?.formatPreference ||
+      memory.pendingPlan?.formatPreference ||
+      turnFormatPreference;
     const normalizedSeedTopic = seedTopic.toLowerCase();
     const normalizedAnswer = trimmed.toLowerCase();
     const groundedAnswer = normalizedAnswer.startsWith(`${normalizedSeedTopic} `)
@@ -721,7 +898,8 @@ export async function executeDraftPipeline(args: {
         : null;
 
     if (branchKey === "entity_context_missing") {
-      const basePrompt = priorDraftRequest || `write a post about ${seedTopic}`;
+      const basePrompt =
+        priorDraftRequest || buildFormatAwareDraftPrompt(seedTopic, preferredPlanFormat);
 
       return {
         planMessage: `${basePrompt}. factual grounding: ${groundedAnswer}`,
@@ -733,7 +911,7 @@ export async function executeDraftPipeline(args: {
 
     if (branchKey === "topic_known_but_direction_missing") {
       return {
-        planMessage: `write a post about ${seedTopic}. direction: ${trimmed}`,
+        planMessage: `${buildFormatAwareDraftPrompt(seedTopic, preferredPlanFormat)}. direction: ${trimmed}`,
         activeConstraints: args.activeConstraints,
       };
     }
@@ -957,6 +1135,7 @@ export async function executeDraftPipeline(args: {
       activeConstraints: args.activeConstraints,
       sourceUserMessage: args.sourceUserMessage || undefined,
       formatPreference: args.formatPreference,
+      threadFramingStyle: args.threadFramingStyle ?? null,
       ...(args.topicSummary !== undefined && args.topicSummary !== null
         ? { topicSummary: args.topicSummary }
         : {}),
@@ -981,6 +1160,132 @@ export async function executeDraftPipeline(args: {
     return result;
   }
 
+  async function handleDraftContinuationTurn(): Promise<RawOrchestratorResponse | null> {
+    if (!draftContinuationState?.plan) {
+      return null;
+    }
+
+    const isStructuredRetry = context.artifactContext?.kind === "generation_retry";
+    const shouldRetryStoredDraft =
+      draftContinuationState.pendingAction === "retry_delivery" &&
+      (isStructuredRetry || isDraftRetryLikeMessage(userMessage));
+    const shouldResumeFromGroundingAnswer =
+      draftContinuationState.pendingAction === "awaiting_grounding_answer" &&
+      userMessage.trim().length > 0;
+
+    if (!shouldRetryStoredDraft && !shouldResumeFromGroundingAnswer) {
+      return null;
+    }
+
+    const resumedPlan = draftContinuationState.plan;
+    const resumedFormatPreference =
+      draftContinuationState.formatPreference ||
+      resumedPlan.formatPreference ||
+      turnFormatPreference;
+    const resumedThreadFramingStyle =
+      draftContinuationState.threadFramingStyle ?? turnThreadFramingStyle;
+    const resumedSourceUserMessage =
+      draftContinuationState.sourceUserMessage?.trim() ||
+      draftContinuationState.sourcePrompt?.trim() ||
+      userMessage;
+    const resumedActiveConstraints = Array.from(
+      new Set([
+        ...(draftContinuationState.activeConstraints?.length
+          ? draftContinuationState.activeConstraints
+          : effectiveActiveConstraints),
+        ...(shouldResumeFromGroundingAnswer
+          ? buildGroundingFollowUpConstraints(userMessage)
+          : []),
+      ]),
+    );
+    const resumedGroundingPacket = buildGroundingPacketForContext(
+      resumedActiveConstraints,
+      resumedSourceUserMessage,
+    );
+    const draftResult = await generateDraftWithGroundingRetry({
+      plan: resumedPlan,
+      activeConstraints: resumedActiveConstraints,
+      activeDraft,
+      sourceUserMessage: resumedSourceUserMessage,
+      draftPreference: turnDraftPreference,
+      formatPreference: resumedFormatPreference,
+      threadFramingStyle: resumedThreadFramingStyle,
+      fallbackToWriterWhenCriticRejected: true,
+      topicSummary: resumedPlan.objective,
+      groundingPacket: resumedGroundingPacket,
+    });
+
+    mergeCapabilityExecutionMeta({
+      workers: draftResult.workers,
+      validations: draftResult.validations,
+    });
+    applyRoutingTracePatch(draftResult.routingTracePatch);
+
+    if (draftResult.kind === "response") {
+      return draftResult.response;
+    }
+
+    const historicalTexts = await loadHistoricalTextsWithTrace("drafting");
+    const execution = await executeDraftingCapability({
+      workflow: "plan_then_draft",
+      capability: "drafting",
+      activeContextRefs: [
+        "memory.pendingPlan",
+        "memory.topicSummary",
+        "memory.rollingSummary",
+      ],
+      context: {
+        memory,
+        plan: resumedPlan,
+        activeConstraints: resumedActiveConstraints,
+        historicalTexts,
+        userMessage: resumedSourceUserMessage,
+        draftPreference: turnDraftPreference,
+        turnFormatPreference: resumedFormatPreference,
+        styleCard,
+        feedbackMemoryNotice,
+        nextAssistantTurnCount,
+        latestDraftStatus: "Rough draft generated",
+        refreshRollingSummary: true,
+        groundingSources: groundingSourcesForTurn,
+        groundingMode: draftGroundingSummary.groundingMode,
+        groundingExplanation: draftGroundingSummary.groundingExplanation,
+      },
+      services: {
+        checkDeterministicNovelty: services.checkDeterministicNovelty,
+        runDraft: async () => draftResult,
+        buildNoveltyNotes,
+      },
+    });
+
+    mergeCapabilityExecutionMeta(execution);
+
+    if (execution.output.kind === "response") {
+      applyRoutingTracePatch(execution.output.routingTracePatch);
+      return execution.output.response;
+    }
+
+    routingTrace.planInputSource = shouldResumeFromGroundingAnswer
+      ? "clarification_answer"
+      : routingTrace.planInputSource;
+    routingTrace.clarification = null;
+
+    await writeMemoryLocal({
+      ...execution.output.memoryPatch,
+      activeConstraints: resumedActiveConstraints,
+      continuationState: null,
+    });
+
+    return {
+      ...execution.output.responseSeed,
+      data: {
+        ...execution.output.responseSeed.data,
+        plan: resumedPlan,
+      },
+      memory,
+    };
+  }
+
   if (
     !explicitIntent &&
     activeDraft &&
@@ -1000,6 +1305,11 @@ export async function executeDraftPipeline(args: {
       mode = "edit";
       draftInstruction = activeDraftRepair.draftInstruction;
     }
+  }
+
+  const draftContinuationResponse = await handleDraftContinuationTurn();
+  if (draftContinuationResponse) {
+    return draftContinuationResponse;
   }
 
   const hadPendingPlan =

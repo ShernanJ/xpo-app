@@ -104,6 +104,8 @@ export function prepareAssistantReplyTransport(
       ? "ideation_pick"
       : args.artifactContext?.kind === "image_post_confirmation"
       ? "quick_reply"
+      : args.artifactContext?.kind === "generation_retry"
+      ? "quick_reply"
       : args.artifactContext?.kind === "draft_selection"
         ? "draft_action"
         : args.artifactContext?.kind === "reply_option_select" ||

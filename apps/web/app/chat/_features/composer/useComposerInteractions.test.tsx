@@ -188,6 +188,92 @@ test("handleQuickReplySelect forwards explicit intent for planner action chips",
   );
 });
 
+test("handleQuickReplySelect forwards quick-reply format overrides", async () => {
+  const requestAssistantReply = vi.fn<RequestAssistantReplyMock>(async () => undefined);
+  const setDraftInput = vi.fn();
+
+  const { result } = renderHook(() =>
+    useComposerInteractions<
+      { id: string; role: "assistant" | "user"; content: string },
+      {
+        kind: "clarification_choice";
+        value: string;
+        label: string;
+        formatPreference: "thread";
+      },
+      { goal: string },
+      { tone: string },
+      ContentFocus
+    >(
+      buildOptions({
+        requestAssistantReply,
+        setDraftInput,
+      }),
+    ),
+  );
+
+  await act(async () => {
+    await result.current.handleQuickReplySelect({
+      kind: "clarification_choice",
+      value: "plain product claim",
+      label: "Plain product claim",
+      formatPreference: "thread",
+    });
+  });
+
+  expect(requestAssistantReply).toHaveBeenCalledWith(
+    expect.objectContaining({
+      prompt: "plain product claim",
+      formatPreferenceOverride: "thread",
+    }),
+  );
+});
+
+test("handleQuickReplySelect maps retry quick replies into generation retry turns", async () => {
+  const requestAssistantReply = vi.fn<RequestAssistantReplyMock>(async () => undefined);
+  const setDraftInput = vi.fn();
+
+  const { result } = renderHook(() =>
+    useComposerInteractions<
+      { id: string; role: "assistant" | "user"; content: string },
+      {
+        kind: "retry_action";
+        value: string;
+        label: string;
+        formatPreference: "thread";
+      },
+      { goal: string },
+      { tone: string },
+      ContentFocus
+    >(
+      buildOptions({
+        requestAssistantReply,
+        setDraftInput,
+      }),
+    ),
+  );
+
+  await act(async () => {
+    await result.current.handleQuickReplySelect({
+      kind: "retry_action",
+      value: "retry",
+      label: "retry",
+      formatPreference: "thread",
+    });
+  });
+
+  expect(requestAssistantReply).toHaveBeenCalledWith(
+    expect.objectContaining({
+      prompt: "retry",
+      formatPreferenceOverride: "thread",
+      artifactContext: {
+        kind: "generation_retry",
+        capability: "drafting",
+      },
+    }),
+  );
+});
+
 test("handleQuickReplySelect sends with the chip focus immediately", async () => {
   const requestAssistantReply = vi.fn<RequestAssistantReplyMock>(async () => undefined);
   const setActiveContentFocus = vi.fn();

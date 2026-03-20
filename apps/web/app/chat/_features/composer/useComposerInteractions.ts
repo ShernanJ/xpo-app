@@ -288,6 +288,14 @@ export function useComposerInteractions<
         contentFocusOverride:
           quickReplyUpdate.nextActiveContentFocus ?? activeContentFocus,
         intentOverride: quickReply.explicitIntent,
+        formatPreferenceOverride: quickReply.formatPreference ?? null,
+        artifactContextOverride:
+          quickReply.kind === "retry_action"
+            ? {
+                kind: "generation_retry",
+                capability: "drafting",
+              }
+            : null,
       });
     },
     [

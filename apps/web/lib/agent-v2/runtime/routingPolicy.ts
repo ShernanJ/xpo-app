@@ -103,6 +103,7 @@ export async function resolveRoutingPolicy(
       : null,
     latestRefinementInstruction: memory.latestRefinementInstruction,
     lastIdeationAngles: memory.lastIdeationAngles,
+    continuationState: memory.continuationState ?? null,
   };
 
   const runtimeAction = await resolveRuntimeAction({

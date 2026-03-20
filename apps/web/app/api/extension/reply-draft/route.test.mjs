@@ -281,6 +281,40 @@ test("parseExtensionReplyDraftRequest reads nested author display name aliases",
   }
 });
 
+test("parseExtensionReplyDraftRequest preserves author avatar urls when provided", () => {
+  const parsed = parseExtensionReplyDraftRequest({
+    tweetId: "13",
+    tweetText: "avatars help the saved reply preview feel real",
+    authorHandle: "creator",
+    tweetUrl: "https://x.com/creator/status/13",
+    author: {
+      avatarUrl: "https://pbs.twimg.com/profile_images/creator_400x400.jpg",
+    },
+    quotedPost: {
+      text: "quoted proof",
+      author: {
+        handle: "@quoted",
+        avatarUrl: "https://pbs.twimg.com/profile_images/quoted_400x400.jpg",
+      },
+    },
+    stage: "0_to_1k",
+    tone: "builder",
+    goal: "followers",
+  });
+
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) {
+    assert.equal(
+      parsed.data.authorAvatarUrl,
+      "https://pbs.twimg.com/profile_images/creator_400x400.jpg",
+    );
+    assert.equal(
+      parsed.data.quotedPost?.authorAvatarUrl,
+      "https://pbs.twimg.com/profile_images/quoted_400x400.jpg",
+    );
+  }
+});
+
 test("parseExtensionReplyDraftRequest can synthesize tweetUrl from handle and tweetId", () => {
   const parsed = parseExtensionReplyDraftRequest({
     tweetId: "3",

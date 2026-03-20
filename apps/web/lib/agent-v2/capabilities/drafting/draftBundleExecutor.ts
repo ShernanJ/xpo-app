@@ -65,6 +65,7 @@ export interface DraftBundleCapabilityMemoryPatch {
   conversationState: "draft_ready";
   pendingPlan: null;
   clarificationState: null;
+  continuationState: null;
   assistantTurnCount: number;
   rollingSummary: string | null;
   formatPreference: DraftFormatPreference;
@@ -349,6 +350,7 @@ export async function executeDraftBundleCapability(
         conversationState: "draft_ready",
         pendingPlan: null,
         clarificationState: null,
+        continuationState: null,
         assistantTurnCount: context.nextAssistantTurnCount,
         rollingSummary,
         formatPreference: context.plan.formatPreference || context.turnFormatPreference,

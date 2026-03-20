@@ -46,7 +46,10 @@ function dedupeMediaItems(items: ReplySourcePreviewMediaItem[]): ReplySourcePrev
   const deduped: ReplySourcePreviewMediaItem[] = [];
 
   for (const item of items) {
-    const key = `${item.type}:${item.url ?? ""}:${item.altText ?? ""}`;
+    const key =
+      item.url && item.url.trim()
+        ? `${item.type}:${item.url.trim()}`
+        : `${item.type}:${item.altText ?? ""}`;
     if (seen.has(key)) {
       continue;
     }

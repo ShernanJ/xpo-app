@@ -815,8 +815,20 @@ export function useContentHubState(options: UseContentHubStateOptions) {
     selectItem,
     contentType,
     setContentType: (nextContentType: ContentHubContentType) => {
+      if (nextContentType === contentType) {
+        return;
+      }
+
+      activeLoadRequestIdRef.current += 1;
       startTransition(() => {
         setContentType(nextContentType);
+        setItems([]);
+        setDetailsById({});
+        setSelectedItemId(null);
+        setIsDetailLoadingById({});
+        setErrorMessage(null);
+        setIsLoading(true);
+        setMobilePane("browse");
       });
     },
     viewMode,

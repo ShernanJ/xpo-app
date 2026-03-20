@@ -44,6 +44,11 @@ export interface ImagePostConfirmationArtifactContext {
   imageAssetId?: string;
 }
 
+export interface GenerationRetryArtifactContext {
+  kind: "generation_retry";
+  capability: "drafting";
+}
+
 export interface DraftSelectionArtifactContext {
   kind: "draft_selection";
   action: "edit" | "review";
@@ -68,6 +73,7 @@ export interface ReplyRequestArtifactContext {
 export type ChatArtifactContext =
   | SelectedAngleArtifactContext
   | ImagePostConfirmationArtifactContext
+  | GenerationRetryArtifactContext
   | DraftSelectionArtifactContext
   | ReplyOptionSelectArtifactContext
   | ReplyConfirmationArtifactContext

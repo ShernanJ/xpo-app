@@ -511,7 +511,8 @@ export function resolvePendingStatusWorkflow(args: {
 
   if (
     args.turnSource === "ideation_pick" ||
-    args.artifactContext?.kind === "selected_angle"
+    args.artifactContext?.kind === "selected_angle" ||
+    args.artifactContext?.kind === "generation_retry"
   ) {
     return "plan_then_draft";
   }
@@ -528,16 +529,16 @@ export function resolvePendingStatusWorkflow(args: {
     return "analyze_post";
   }
 
+  if (args.intent === "draft" || looksLikeDraftRequest(args.message)) {
+    return "plan_then_draft";
+  }
+
   if (
     args.turnSource === "quick_reply" ||
     args.intent === "ideate" ||
     looksLikeIdeationPrompt(args.message)
   ) {
     return "ideate";
-  }
-
-  if (args.intent === "draft" || looksLikeDraftRequest(args.message)) {
-    return "plan_then_draft";
   }
 
   return "answer_question";

@@ -151,6 +151,94 @@ test("malformed revision retry approvals bypass the controller and stay on revis
   assert.equal(result.decision.action, "revise");
 });
 
+test("draft continuation retries bypass the controller and stay on plan_then_draft", async () => {
+  let controlTurnCalled = false;
+
+  const result = await resolveRuntimeAction({
+    explicitIntent: null,
+    turnPlan: null,
+    userMessage: "retry",
+    recentHistory:
+      "assistant: that draft came back malformed twice. want me to regenerate it cleanly with the same direction?",
+    memory: buildMemory({
+      continuationState: {
+        capability: "drafting",
+        pendingAction: "retry_delivery",
+        formatPreference: "thread",
+        plan: {
+          objective: "Ship the hiring system as a thread",
+          angle: "the filter that kept the team lean",
+          targetLane: "original",
+          mustInclude: [],
+          mustAvoid: [],
+          hookType: "statement_open",
+          pitchResponse: "thread pitch",
+          formatPreference: "thread",
+        },
+      },
+    }),
+    controlTurnImpl: async () => {
+      controlTurnCalled = true;
+      return {
+        action: "answer",
+        needs_memory_update: false,
+        confidence: 0.1,
+        rationale: "should not run",
+      };
+    },
+  });
+
+  assert.equal(controlTurnCalled, false);
+  assert.equal(result.workflow, "plan_then_draft");
+  assert.equal(result.classifiedIntent, "plan");
+  assert.equal(result.source, "structured_turn");
+  assert.equal(result.decision.action, "draft");
+});
+
+test("draft continuation clarification answers bypass the controller and stay on plan_then_draft", async () => {
+  let controlTurnCalled = false;
+
+  const result = await resolveRuntimeAction({
+    explicitIntent: null,
+    turnPlan: null,
+    userMessage: "plain product claim",
+    recentHistory:
+      "assistant: i can write this, but i don't want to fake a personal usage story. what lane should i use here - plain product claim or your own use/build experience?",
+    memory: buildMemory({
+      continuationState: {
+        capability: "drafting",
+        pendingAction: "awaiting_grounding_answer",
+        formatPreference: "thread",
+        plan: {
+          objective: "Turn a 5-day sprint into a launch-ready MVP thread",
+          angle: "plain product claim",
+          targetLane: "original",
+          mustInclude: [],
+          mustAvoid: [],
+          hookType: "statement_open",
+          pitchResponse: "thread pitch",
+          formatPreference: "thread",
+        },
+      },
+    }),
+    controlTurnImpl: async () => {
+      controlTurnCalled = true;
+      return {
+        action: "answer",
+        needs_memory_update: false,
+        confidence: 0.1,
+        rationale: "should not run",
+      };
+    },
+  });
+
+  assert.equal(controlTurnCalled, false);
+  assert.equal(result.workflow, "plan_then_draft");
+  assert.equal(result.classifiedIntent, "plan");
+  assert.equal(result.source, "structured_turn");
+  assert.equal(result.decision.action, "draft");
+});
+
 test("generic approvals outside malformed revision retry prompts still fall through to the controller", async () => {
   let controlTurnCalled = false;
 

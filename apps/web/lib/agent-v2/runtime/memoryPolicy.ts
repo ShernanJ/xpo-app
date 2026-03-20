@@ -24,6 +24,10 @@ export function applyMemoryPatch(
     activeConstraints: patch.activeConstraints ?? current.activeConstraints,
     pendingPlan: patch.pendingPlan === undefined ? current.pendingPlan : patch.pendingPlan,
     clarificationState: patch.clarificationState === undefined ? current.clarificationState : patch.clarificationState,
+    continuationState:
+      patch.continuationState === undefined
+        ? current.continuationState
+        : patch.continuationState,
     rollingSummary: patch.rollingSummary === undefined ? current.rollingSummary : patch.rollingSummary,
     activeDraftRef: patch.activeDraftRef === undefined ? current.activeDraftRef : patch.activeDraftRef,
     latestRefinementInstruction: patch.latestRefinementInstruction === undefined ? current.latestRefinementInstruction : patch.latestRefinementInstruction,
@@ -57,6 +61,7 @@ export async function saveConversationTurnMemory(args: {
     activeConstraints: patch.activeConstraints,
     pendingPlan: patch.pendingPlan,
     clarificationState: patch.clarificationState,
+    continuationState: patch.continuationState,
     rollingSummary: patch.rollingSummary,
     assistantTurnCount: patch.assistantTurnCount,
     activeDraftRef: patch.activeDraftRef,
@@ -103,6 +108,7 @@ export async function saveConversationTurnMemory(args: {
     conversationState: patch.conversationState,
     pendingPlan: patch.pendingPlan,
     clarificationState: patch.clarificationState,
+    continuationState: patch.continuationState,
     rollingSummary: patch.rollingSummary,
     assistantTurnCount: patch.assistantTurnCount,
     activeDraftRef: patch.activeDraftRef,

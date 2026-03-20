@@ -200,6 +200,35 @@ function normalizeQuotedPost(...values: unknown[]) {
             ).trim(),
           }
         : {}),
+      ...(readString(
+        quoted.authorAvatarUrl,
+        quoted.avatarUrl,
+        quoted.profileImageUrl,
+        quoted.profile_image_url_https,
+        quoted.profile_image_url,
+        author?.avatarUrl,
+        author?.profileImageUrl,
+        author?.profile_image_url_https,
+        author?.profile_image_url,
+        author?.imageUrl,
+        author?.photoUrl,
+      )
+        ? {
+            authorAvatarUrl: readString(
+              quoted.authorAvatarUrl,
+              quoted.avatarUrl,
+              quoted.profileImageUrl,
+              quoted.profile_image_url_https,
+              quoted.profile_image_url,
+              author?.avatarUrl,
+              author?.profileImageUrl,
+              author?.profile_image_url_https,
+              author?.profile_image_url,
+              author?.imageUrl,
+              author?.photoUrl,
+            ).trim(),
+          }
+        : {}),
       ...(readString(quoted.tweetUrl, quoted.postUrl, quoted.url)
         ? { tweetUrl: readString(quoted.tweetUrl, quoted.postUrl, quoted.url).trim() }
         : {}),
@@ -265,6 +294,21 @@ const ExtensionReplyDraftRequestSchema = z
       author?.name,
       post?.authorDisplayName,
       candidate?.authorDisplayName,
+    );
+    const authorAvatarUrl = readString(
+      value.authorAvatarUrl,
+      value.avatarUrl,
+      value.profileImageUrl,
+      value.profile_image_url_https,
+      value.profile_image_url,
+      author?.avatarUrl,
+      author?.profileImageUrl,
+      author?.profile_image_url_https,
+      author?.profile_image_url,
+      author?.imageUrl,
+      author?.photoUrl,
+      post?.authorAvatarUrl,
+      candidate?.authorAvatarUrl,
     );
     const tweetUrlInput =
       readString(
@@ -417,6 +461,11 @@ const ExtensionReplyDraftRequestSchema = z
       ...(authorDisplayName.trim()
         ? {
             authorDisplayName: authorDisplayName.trim(),
+          }
+        : {}),
+      ...(authorAvatarUrl.trim()
+        ? {
+            authorAvatarUrl: authorAvatarUrl.trim(),
           }
         : {}),
       tweetUrl: synthesizedTweetUrl.trim(),

@@ -15,6 +15,7 @@ import {
   requireAllowedOrigin,
 } from "@/lib/security/requestValidation";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
+import { resolveReplyRequestSourceFromStatusUrl } from "@/lib/agent-v2/capabilities/reply/replyRequestUrlResolver";
 
 interface ContentPatchRequest extends Record<string, unknown> {
   status?: unknown;
@@ -26,6 +27,47 @@ const VALID_CONTENT_TYPES = new Set<ContentHubContentType>([
   "posts_threads",
   "replies",
 ]);
+
+async function hydrateReplySourcePreviewOnItem<T extends { outputShape: string; artifact: unknown }>(
+  item: T,
+): Promise<T> {
+  if (item.outputShape !== "reply_candidate") {
+    return item;
+  }
+
+  const artifact =
+    item.artifact && typeof item.artifact === "object" && !Array.isArray(item.artifact)
+      ? (item.artifact as Record<string, unknown>)
+      : null;
+  const preview =
+    artifact?.replySourcePreview &&
+    typeof artifact.replySourcePreview === "object" &&
+    !Array.isArray(artifact.replySourcePreview)
+      ? (artifact.replySourcePreview as Record<string, unknown>)
+      : null;
+  const sourceUrl =
+    typeof preview?.sourceUrl === "string" ? preview.sourceUrl.trim() : "";
+  if (!artifact || !sourceUrl) {
+    return item;
+  }
+
+  try {
+    const resolved = await resolveReplyRequestSourceFromStatusUrl(sourceUrl);
+    if (!resolved?.replySourcePreview) {
+      return item;
+    }
+
+    return {
+      ...item,
+      artifact: {
+        ...artifact,
+        replySourcePreview: resolved.replySourcePreview,
+      },
+    };
+  } catch {
+    return item;
+  }
+}
 
 export async function GET(
   request: NextRequest,
@@ -75,10 +117,12 @@ export async function GET(
     );
   }
 
+  const hydratedItem = await hydrateReplySourcePreviewOnItem(item);
+
   return NextResponse.json({
     ok: true,
     data: {
-      item: serializeContentItem(item),
+      item: serializeContentItem(hydratedItem),
     },
   });
 }
@@ -226,10 +270,12 @@ export async function PATCH(
     },
   });
 
+  const hydratedItem = await hydrateReplySourcePreviewOnItem(updated);
+
   return NextResponse.json({
     ok: true,
     data: {
-      item: serializeContentItem(updated),
+      item: serializeContentItem(hydratedItem),
     },
   });
 }

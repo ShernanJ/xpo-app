@@ -8,6 +8,7 @@ import {
   Edit3,
   Flag,
   Lightbulb,
+  RotateCcw,
   ThumbsDown,
   ThumbsUp,
 } from "lucide-react";
@@ -50,6 +51,7 @@ type QuickReplyLike = {
   kind: string;
   value: string;
   label: string;
+  formatPreference?: "shortform" | "longform" | "thread";
   angle?: string;
   formatHint?: SelectedAngleFormatHint;
   supportAsset?: string;
@@ -103,6 +105,9 @@ interface MessageLike extends ChatMessageLike {
   feedbackValue?: "up" | "down" | null;
   isStreaming?: boolean;
   replyArtifacts?: ReplyArtifactsLike | null;
+  replyParse?: {
+    parseReason?: string | null;
+  } | null;
   draftBundle?: {
     selectedOptionId: string;
     options: Array<{
@@ -212,9 +217,14 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
 
   const isLatestMessage = index === messagesLength - 1;
   const isGeneratedResult = isGeneratedResultOutputShape(message.outputShape);
+  const retryQuickReply =
+    message.quickReplies?.find((quickReply) => quickReply.kind === "retry_action") ?? null;
+  const visibleQuickReplies = (message.quickReplies ?? []).filter(
+    (quickReply) => quickReply.kind !== "retry_action",
+  );
   const hasPrimaryIdeationAngleQuickReplies =
     message.outputShape === "ideation_angles" &&
-    Boolean(message.quickReplies?.some((quickReply) => quickReply.kind === "ideation_angle"));
+    Boolean(visibleQuickReplies.some((quickReply) => quickReply.kind === "ideation_angle"));
 
   return (
     <>
@@ -292,15 +302,28 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
           >
             <Flag className="h-3 w-3" />
           </button>
+          {retryQuickReply ? (
+            <button
+              type="button"
+              onClick={() => onQuickReplySelect(retryQuickReply)}
+              disabled={!canRunReplyActions}
+              aria-label="Retry draft"
+              title="Retry draft"
+              className="inline-flex cursor-pointer items-center rounded-full p-1.5 text-zinc-600 transition hover:bg-white/[0.04] hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RotateCcw className="h-3 w-3" />
+            </button>
+          ) : null}
         </div>
       ) : null}
 
       {!isGeneratedResult &&
       shouldShowQuickReplies(message) &&
+      visibleQuickReplies.length > 0 &&
       isLatestMessage &&
       !(message.outputShape === "ideation_angles" && message.angles?.length) ? (
         <QuickReplyButtons
-          quickReplies={message.quickReplies ?? []}
+          quickReplies={visibleQuickReplies}
           disabled={!canRunReplyActions}
           onSelect={onQuickReplySelect}
         />
@@ -374,9 +397,10 @@ export function MessageArtifactSections(props: MessageArtifactSectionsProps) {
       message.outputShape === "ideation_angles" &&
       message.angles?.length &&
       shouldShowQuickReplies(message) &&
+      visibleQuickReplies.length > 0 &&
       isLatestMessage ? (
         <QuickReplyButtons
-          quickReplies={message.quickReplies ?? []}
+          quickReplies={visibleQuickReplies}
           disabled={!canRunReplyActions}
           onSelect={onQuickReplySelect}
         />
@@ -481,8 +505,11 @@ export function AssistantResultFooter(props: {
     isLatestMessage &&
     shouldShowQuickReplies(message) &&
     message.outputShape !== "reply_candidate";
+  const visibleQuickReplies = (message.quickReplies ?? []).filter(
+    (quickReply) => quickReply.kind !== "retry_action",
+  );
 
-  if (!showFeedback && !showQuickReplies) {
+  if (!showFeedback && (!showQuickReplies || visibleQuickReplies.length === 0)) {
     return null;
   }
 
@@ -530,7 +557,7 @@ export function AssistantResultFooter(props: {
 
       {showQuickReplies ? (
         <ResultQuickReplyRail
-          quickReplies={message.quickReplies ?? []}
+          quickReplies={visibleQuickReplies}
           disabled={!canRunReplyActions}
           onSelect={onQuickReplySelect}
         />

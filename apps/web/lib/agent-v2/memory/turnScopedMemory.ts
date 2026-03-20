@@ -209,6 +209,10 @@ export function scopeMemoryForCurrentTurn(args: {
         activeReplyContext: null,
         activeReplyArtifactRef: null,
         selectedReplyOptionId: null,
+        continuationState:
+          args.memory.continuationState?.capability === "replying"
+            ? null
+            : args.memory.continuationState,
       }
     : args.memory;
 
@@ -227,6 +231,7 @@ export function scopeMemoryForCurrentTurn(args: {
     rollingSummary: null,
     pendingPlan: null,
     clarificationState: null,
+    continuationState: null,
     latestRefinementInstruction: null,
     unresolvedQuestion: null,
     activeReplyContext: null,

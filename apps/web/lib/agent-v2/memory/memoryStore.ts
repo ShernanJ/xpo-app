@@ -8,6 +8,7 @@ import type {
   ActiveReplyArtifactRef,
   ActiveReplyContext,
   ClarificationState,
+  ContinuationState,
   ConversationState,
   DraftFormatPreference,
   StrategyPlan,
@@ -33,6 +34,7 @@ export interface UpdateMemoryArgs {
   conversationState?: ConversationState;
   pendingPlan?: StrategyPlan | null;
   clarificationState?: ClarificationState | null;
+  continuationState?: ContinuationState | null;
   rollingSummary?: string | null;
   assistantTurnCount?: number;
   latestRefinementInstruction?: string | null;
@@ -51,6 +53,7 @@ interface StoredMemoryEnvelope {
   conversationState: ConversationState;
   pendingPlan: StrategyPlan | null;
   clarificationState: ClarificationState | null;
+  continuationState: ContinuationState | null;
   lastIdeationAngles: string[];
   rollingSummary: string | null;
   assistantTurnCount: number;
@@ -72,6 +75,7 @@ function createInitialStoredMemoryEnvelope(): StoredMemoryEnvelope {
     conversationState: "collecting_context",
     pendingPlan: null,
     clarificationState: null,
+    continuationState: null,
     lastIdeationAngles: [],
     rollingSummary: null,
     assistantTurnCount: 0,
@@ -185,12 +189,14 @@ function normalizeQuickReplies(value: unknown): ClarificationState["options"] {
         | "example_reply"
         | "planner_action"
         | "clarification_choice"
-        | "ideation_angle" =
+        | "ideation_angle"
+        | "retry_action" =
         item.kind === "content_focus" ||
         item.kind === "example_reply" ||
         item.kind === "planner_action" ||
         item.kind === "clarification_choice" ||
-        item.kind === "ideation_angle"
+        item.kind === "ideation_angle" ||
+        item.kind === "retry_action"
           ? item.kind
           : "example_reply";
       const explicitIntent:
@@ -421,6 +427,53 @@ function normalizeClarificationState(value: unknown): ClarificationState | null 
   };
 }
 
+function normalizeContinuationState(value: unknown): ContinuationState | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const capability =
+    record.capability === "drafting" || record.capability === "replying"
+      ? record.capability
+      : null;
+  const pendingAction =
+    record.pendingAction === "retry_delivery" ||
+    record.pendingAction === "awaiting_grounding_answer" ||
+    record.pendingAction === "reply_regenerate"
+      ? record.pendingAction
+      : null;
+
+  if (!capability || !pendingAction) {
+    return null;
+  }
+
+  return {
+    capability,
+    pendingAction,
+    ...(record.formatPreference === "shortform" ||
+    record.formatPreference === "longform" ||
+    record.formatPreference === "thread"
+      ? { formatPreference: record.formatPreference }
+      : {}),
+    ...(record.threadFramingStyle === "numbered" ||
+    record.threadFramingStyle === "soft_signal" ||
+    record.threadFramingStyle === "none"
+      ? { threadFramingStyle: record.threadFramingStyle }
+      : {}),
+    ...(typeof record.sourceUserMessage === "string"
+      ? { sourceUserMessage: record.sourceUserMessage }
+      : {}),
+    ...(typeof record.sourcePrompt === "string"
+      ? { sourcePrompt: record.sourcePrompt }
+      : {}),
+    ...(Array.isArray(record.activeConstraints)
+      ? { activeConstraints: normalizeStringArray(record.activeConstraints) }
+      : {}),
+    ...(record.plan ? { plan: normalizePlan(record.plan) } : {}),
+  };
+}
+
 function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
   if (Array.isArray(value)) {
     return {
@@ -428,6 +481,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       conversationState: "collecting_context",
       pendingPlan: null,
       clarificationState: null,
+      continuationState: null,
       lastIdeationAngles: [],
       rollingSummary: null,
       assistantTurnCount: 0,
@@ -450,6 +504,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       conversationState: "collecting_context",
       pendingPlan: null,
       clarificationState: null,
+      continuationState: null,
       lastIdeationAngles: [],
       rollingSummary: null,
       assistantTurnCount: 0,
@@ -472,6 +527,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
     conversationState: normalizeConversationState(record.conversationState),
     pendingPlan: normalizePlan(record.pendingPlan),
     clarificationState: normalizeClarificationState(record.clarificationState),
+    continuationState: normalizeContinuationState(record.continuationState),
     lastIdeationAngles: normalizeStringArray(record.lastIdeationAngles).slice(-6),
     rollingSummary: typeof record.rollingSummary === "string" ? record.rollingSummary : null,
     assistantTurnCount:
@@ -514,6 +570,7 @@ function serializeMemoryEnvelope(value: StoredMemoryEnvelope): Prisma.InputJsonV
     conversationState: value.conversationState,
     pendingPlan: value.pendingPlan,
     clarificationState: value.clarificationState,
+    continuationState: value.continuationState ?? null,
     lastIdeationAngles: value.lastIdeationAngles,
     rollingSummary: value.rollingSummary,
     assistantTurnCount: value.assistantTurnCount,
@@ -538,6 +595,7 @@ function buildStoredMemoryEnvelopeFromSnapshot(
     conversationState: snapshot.conversationState,
     pendingPlan: snapshot.pendingPlan,
     clarificationState: snapshot.clarificationState,
+    continuationState: snapshot.continuationState ?? null,
     lastIdeationAngles: snapshot.lastIdeationAngles,
     rollingSummary: snapshot.rollingSummary,
     assistantTurnCount: snapshot.assistantTurnCount,
@@ -614,6 +672,7 @@ export function createConversationMemorySnapshot(
     rollingSummary: envelope.rollingSummary,
     pendingPlan: envelope.pendingPlan,
     clarificationState: envelope.clarificationState,
+    continuationState: envelope.continuationState,
     assistantTurnCount: envelope.assistantTurnCount,
     latestRefinementInstruction: envelope.latestRefinementInstruction,
     unresolvedQuestion: envelope.unresolvedQuestion,
@@ -744,6 +803,10 @@ export async function updateConversationMemory(args: UpdateMemoryArgs) {
           args.clarificationState === undefined
             ? existingSnapshot.clarificationState
             : args.clarificationState,
+        continuationState:
+          args.continuationState === undefined
+            ? existingSnapshot.continuationState ?? null
+            : args.continuationState,
         lastIdeationAngles:
           args.lastIdeationAngles === undefined
             ? existingSnapshot.lastIdeationAngles

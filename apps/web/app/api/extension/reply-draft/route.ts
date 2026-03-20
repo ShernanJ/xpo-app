@@ -31,7 +31,11 @@ import {
   looksAcceptableReplyDraft,
   verifyReplyClaims,
 } from "@/lib/reply-engine/index";
-import { buildReplySourcePreviewFromContext } from "@/lib/reply-engine/replySourcePreview";
+import {
+  buildReplySourcePreviewAuthor,
+  buildReplySourcePreviewFromContext,
+} from "@/lib/reply-engine/replySourcePreview";
+import { resolveReplyRequestSourceFromStatusUrl } from "@/lib/agent-v2/capabilities/reply/replyRequestUrlResolver";
 import { persistGeneratedExtensionReplyDraft } from "@/lib/extension/savedReplyDrafts";
 import { parseExtensionReplyDraftRequest } from "./route.logic";
 
@@ -63,6 +67,46 @@ function extractTextContent(
   }
 
   return "";
+}
+
+async function resolvePersistedReplySourcePreview(args: {
+  sourceContext: ReturnType<typeof buildReplySourceContextFromExtensionRequest>;
+  tweetUrl: string;
+  authorHandle: string;
+  authorDisplayName?: string | null;
+  authorAvatarUrl?: string | null;
+  quotedPost?: {
+    authorHandle?: string | null;
+    authorDisplayName?: string | null;
+    authorAvatarUrl?: string | null;
+  } | null;
+}) {
+  const fallbackPreview = buildReplySourcePreviewFromContext({
+    sourceContext: args.sourceContext,
+    primaryAuthor: buildReplySourcePreviewAuthor({
+      username: args.authorHandle,
+      displayName: args.authorDisplayName,
+      avatarUrl: args.authorAvatarUrl,
+    }),
+    quotedAuthor: args.quotedPost
+      ? buildReplySourcePreviewAuthor({
+          username: args.quotedPost.authorHandle,
+          displayName: args.quotedPost.authorDisplayName,
+          avatarUrl: args.quotedPost.authorAvatarUrl,
+        })
+      : null,
+  });
+  const sourceUrl = args.tweetUrl.trim();
+  if (!sourceUrl) {
+    return fallbackPreview;
+  }
+
+  try {
+    const resolved = await resolveReplyRequestSourceFromStatusUrl(sourceUrl);
+    return resolved?.replySourcePreview ?? fallbackPreview;
+  } catch {
+    return fallbackPreview;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -348,8 +392,19 @@ export async function POST(request: NextRequest) {
           `Reply mode: ${promptPacket.preflightResult.recommended_reply_mode}`,
           `Golden examples: ${promptPacket.goldenExamples.filter((example) => example.source === "golden_example").length}`,
         ].slice(0, 4);
-        const replySourcePreview = buildReplySourcePreviewFromContext({
+        const replySourcePreview = await resolvePersistedReplySourcePreview({
           sourceContext: promptPacket.sourceContext,
+          tweetUrl: parsed.data.tweetUrl,
+          authorHandle: parsed.data.authorHandle,
+          authorDisplayName: parsed.data.authorDisplayName ?? null,
+          authorAvatarUrl: parsed.data.authorAvatarUrl ?? null,
+          quotedPost: parsed.data.quotedPost
+            ? {
+                authorHandle: parsed.data.quotedPost.authorHandle ?? null,
+                authorDisplayName: parsed.data.quotedPost.authorDisplayName ?? null,
+                authorAvatarUrl: parsed.data.quotedPost.authorAvatarUrl ?? null,
+              }
+            : null,
         });
         const generatedOption = {
           id: "draft-1",

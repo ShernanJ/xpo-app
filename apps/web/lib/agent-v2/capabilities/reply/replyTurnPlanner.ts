@@ -68,12 +68,23 @@ export interface PlannedReplyTurn {
 export function buildReplyMemorySnapshot(args: {
   storedMemory: V2ConversationMemory;
   activeReplyContext: ActiveReplyContext | null;
+  activeReplyArtifactKind?: "reply_options" | "reply_draft" | null;
   selectedReplyOptionId?: string | null;
 }): V2ConversationMemory {
   return {
     ...args.storedMemory,
     activeReplyContext: args.activeReplyContext,
     activeReplyArtifactRef: args.storedMemory.activeReplyArtifactRef,
+    continuationState:
+      args.activeReplyArtifactKind === "reply_draft" && args.activeReplyContext
+        ? {
+            capability: "replying",
+            pendingAction: "reply_regenerate",
+            formatPreference: "shortform",
+            sourceUserMessage: args.activeReplyContext.sourceText,
+            sourcePrompt: args.activeReplyContext.quotedUserAsk,
+          }
+        : null,
     activeProfileAnalysisRef: null,
     selectedReplyOptionId:
       args.selectedReplyOptionId === undefined

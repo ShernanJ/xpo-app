@@ -36,6 +36,22 @@ const multilinePreview = {
   text: "Perfect algo pull\nwith a second line that should stay hidden while collapsed",
 };
 
+const duplicateImagePreview = {
+  ...preview,
+  media: [
+    {
+      type: "image" as const,
+      url: "https://pbs.twimg.com/media/post-image.jpg?format=jpg&name=large",
+      altText: "Main dashboard screenshot",
+    },
+    {
+      type: "image" as const,
+      url: "https://pbs.twimg.com/media/post-image.jpg?format=jpg&name=large",
+      altText: "Same screenshot from a second source",
+    },
+  ],
+};
+
 test("renders the author profile photo and verification badge", () => {
   render(<ReplySourcePreviewCard preview={preview} showExternalCta />);
 
@@ -95,6 +111,12 @@ test("closes the expanded image modal when clicking the backdrop", async () => {
   await user.click(dialog);
 
   expect(screen.queryByRole("dialog", { name: "Expanded source image" })).toBeNull();
+});
+
+test("dedupes duplicate source image urls before rendering thumbnails", () => {
+  render(<ReplySourcePreviewCard preview={duplicateImagePreview} size="compact" />);
+
+  expect(screen.getAllByRole("button", { name: /Expand source image/i })).toHaveLength(1);
 });
 
 test("renders only the first source line when collapsed", () => {

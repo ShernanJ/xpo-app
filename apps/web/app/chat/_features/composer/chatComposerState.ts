@@ -8,11 +8,13 @@ export interface ComposerQuickReplyLike<TFocus extends string> {
     | "planner_action"
     | "clarification_choice"
     | "ideation_angle"
-    | "image_post_confirmation";
+    | "image_post_confirmation"
+    | "retry_action";
   value: string;
   label: string;
   suggestedFocus?: TFocus;
   explicitIntent?: V2ChatIntent;
+  formatPreference?: "shortform" | "longform" | "thread";
   angle?: string;
   formatHint?: "post" | "thread";
   supportAsset?: string;
