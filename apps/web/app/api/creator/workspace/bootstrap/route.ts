@@ -13,6 +13,8 @@ interface CreatorWorkspaceBootstrapRequest extends Record<string, unknown> {
   runId?: unknown;
 }
 
+const SETUP_PENDING_POLL_AFTER_MS = 1200;
+
 export async function POST(request: Request) {
   const originError = requireAllowedOrigin(request);
   if (originError) {
@@ -72,14 +74,31 @@ export async function POST(request: Request) {
     input: body,
   });
   if (!snapshot.ok) {
-    const status = snapshot.code === "MISSING_ONBOARDING_RUN" ? 404 : 409;
+    if (snapshot.code === "MISSING_ONBOARDING_RUN") {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "SETUP_PENDING",
+          retryable: true,
+          pollAfterMs: SETUP_PENDING_POLL_AFTER_MS,
+          errors: [
+            {
+              field: "xHandle",
+              message: "Setup is still finishing for this account.",
+            },
+          ],
+        },
+        { status: 202 },
+      );
+    }
+
     return NextResponse.json(
       {
         ok: false,
         code: snapshot.code,
-        errors: [{ field: "auth", message: snapshot.message }],
+        errors: [{ field: "xHandle", message: snapshot.message }],
       },
-      { status },
+      { status: 409 },
     );
   }
 

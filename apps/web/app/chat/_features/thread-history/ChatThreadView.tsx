@@ -21,6 +21,9 @@ export function ChatThreadView(props: ChatThreadViewProps) {
     threadContentTransitionClassName,
     isLoading,
     isWorkspaceInitializing,
+    startupState,
+    hasQueuedInitialPrompt,
+    isHeroVisible,
     hasContext,
     hasContract,
     errorMessage,
@@ -30,13 +33,21 @@ export function ChatThreadView(props: ChatThreadViewProps) {
     billingCreditsLabel,
     onOpenPricing,
     onDismissBillingWarning,
+    onRetryWorkspaceStartup,
   } = useChatThreadViewCanvas();
   const {
     hero,
     threadContent,
   } = props;
-  const isBootstrapping = (isLoading || isWorkspaceInitializing) && !hasContext && !hasContract;
+  const isBootstrapping =
+    startupState.status === "shell_loading" &&
+    (isLoading || isWorkspaceInitializing) &&
+    !isHeroVisible &&
+    !hasContext &&
+    !hasContract;
   const sharedEase = [0.16, 1, 0.3, 1] as const;
+  const showSetupPendingBanner = startupState.status === "setup_pending";
+  const showSetupTimeoutBanner = startupState.status === "setup_timeout";
 
   return (
     <section ref={threadScrollRef} className="min-h-0 flex-1 overflow-y-auto">
@@ -91,6 +102,29 @@ export function ChatThreadView(props: ChatThreadViewProps) {
                 {errorMessage ? (
                   <div className="rounded-3xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
                     {errorMessage}
+                  </div>
+                ) : null}
+
+                {showSetupPendingBanner ? (
+                  <div className="rounded-3xl border border-sky-200/15 bg-sky-200/[0.06] px-4 py-3 text-sm text-sky-50">
+                    {hasQueuedInitialPrompt
+                      ? "Setup is still finishing. Your first prompt is queued and will send automatically as soon as the workspace is ready."
+                      : "Setup is still finishing. You can keep exploring here and send one first prompt now while the workspace loads in the background."}
+                  </div>
+                ) : null}
+
+                {showSetupTimeoutBanner ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-amber-200/15 bg-amber-200/[0.06] px-4 py-3 text-sm text-amber-50">
+                    <p>
+                      Setup is taking longer than expected. The chat shell is ready, and you can retry workspace startup whenever you want.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={onRetryWorkspaceStartup}
+                      className="inline-flex items-center justify-center rounded-full border border-white/15 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-100 transition hover:bg-white/[0.08]"
+                    >
+                      Retry setup
+                    </button>
                   </div>
                 ) : null}
 

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { consumeJustOnboardedHandle } from "@/lib/chat/workspaceStartupSession";
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 import {
   buildRecommendedPlaybooks,
@@ -174,6 +175,11 @@ export function useAnalysisState(options: UseAnalysisStateOptions) {
   const dailyScrapeTriggerRef = useRef<string | null>(null);
   const autoOpenedFingerprintRef = useRef<string | null>(null);
   const dismissedFingerprintRef = useRef<string | null>(null);
+  const suppressNextAutoOpenRef = useRef(false);
+
+  useEffect(() => {
+    suppressNextAutoOpenRef.current = consumeJustOnboardedHandle(accountName);
+  }, [accountName]);
 
   const analysisScrapeCooldownRemainingMs = useMemo(() => {
     if (!analysisScrapeCooldownUntil) {
@@ -420,6 +426,11 @@ export function useAnalysisState(options: UseAnalysisStateOptions) {
   useEffect(() => {
     const audit = context?.profileConversionAudit;
     if (!audit?.shouldAutoOpen || !audit.fingerprint) {
+      return;
+    }
+
+    if (suppressNextAutoOpenRef.current) {
+      suppressNextAutoOpenRef.current = false;
       return;
     }
 

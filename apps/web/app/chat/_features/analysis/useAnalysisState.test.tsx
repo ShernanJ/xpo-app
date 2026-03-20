@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { expect, test, vi } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 
+import { markHandleJustOnboarded } from "@/lib/chat/workspaceStartupSession";
 import { useAnalysisState } from "./useAnalysisState";
 
 function createResponse(payload: unknown): Response {
@@ -141,6 +142,10 @@ function createOptions(args?: {
   };
 }
 
+beforeEach(() => {
+  window.sessionStorage.clear();
+});
+
 test("auto-opens the profile audit when the current fingerprint is unresolved", async () => {
   const { result } = renderHook(() => useAnalysisState(createOptions()));
 
@@ -246,6 +251,43 @@ test("reopens the profile audit when the fingerprint changes", async () => {
     await Promise.resolve();
     await Promise.resolve();
   });
+
+  rerender({
+    context: createContext({
+      fingerprint: "fingerprint-2",
+    }),
+  });
+
+  await waitFor(() => {
+    expect(result.current.analysisOpen).toBe(true);
+  });
+});
+
+test("suppresses auto-open for the first post-onboarding visit only", async () => {
+  markHandleJustOnboarded("stan");
+
+  const { result, rerender } = renderHook(
+    ({ context }: { context: ReturnType<typeof createContext> | null }) =>
+      useAnalysisState(
+        createOptions({
+          context,
+        }),
+      ),
+    {
+      initialProps: {
+        context: createContext({
+          fingerprint: "fingerprint-1",
+        }),
+      },
+    },
+  );
+
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(result.current.analysisOpen).toBe(false);
 
   rerender({
     context: createContext({

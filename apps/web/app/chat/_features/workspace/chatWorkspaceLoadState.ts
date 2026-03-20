@@ -4,7 +4,9 @@ interface ValidationErrorLike {
 
 interface WorkspaceLoadFailureLike {
   ok: false;
-  code?: "MISSING_ONBOARDING_RUN" | "ONBOARDING_SOURCE_INVALID";
+  code?: "MISSING_ONBOARDING_RUN" | "ONBOARDING_SOURCE_INVALID" | "SETUP_PENDING";
+  retryable?: boolean;
+  pollAfterMs?: number;
   errors: ValidationErrorLike[];
 }
 
@@ -35,8 +37,9 @@ export interface WorkspaceLoadSuccess<TContextData, TContractData> {
   contractData: TContractData;
 }
 
-export interface WorkspaceLoadRetry {
-  status: "retry_after_onboarding";
+export interface WorkspaceLoadPending {
+  status: "setup_pending";
+  pollAfterMs: number;
 }
 
 export interface WorkspaceLoadError {
@@ -46,8 +49,20 @@ export interface WorkspaceLoadError {
 
 export type WorkspaceLoadResolution<TContextData, TContractData> =
   | WorkspaceLoadSuccess<TContextData, TContractData>
-  | WorkspaceLoadRetry
+  | WorkspaceLoadPending
   | WorkspaceLoadError;
+
+export type ChatWorkspaceStartupStatus =
+  | "shell_loading"
+  | "setup_pending"
+  | "workspace_ready"
+  | "setup_timeout"
+  | "error";
+
+export interface ChatWorkspaceStartupState {
+  status: ChatWorkspaceStartupStatus;
+  pollAfterMs?: number;
+}
 
 function isMissingOnboardingFailure<TData>(
   responseOk: boolean,
@@ -81,6 +96,29 @@ function isInvalidOnboardingSourceFailure<TData>(
   );
 }
 
+function resolvePollAfterMs<TData>(
+  data: WorkspaceLoadResponseLike<TData>,
+  fallbackMs = 1200,
+): number {
+  if (!data.ok && typeof data.pollAfterMs === "number" && Number.isFinite(data.pollAfterMs)) {
+    return Math.max(400, Math.min(5000, Math.floor(data.pollAfterMs)));
+  }
+
+  return fallbackMs;
+}
+
+function isSetupPendingFailure<TData>(
+  responseOk: boolean,
+  data: WorkspaceLoadResponseLike<TData>,
+  expectedStatus: number,
+): boolean {
+  return (
+    !data.ok &&
+    (data.code === "SETUP_PENDING" ||
+      (!responseOk && expectedStatus === 202 && data.retryable === true))
+  );
+}
+
 export function resolveWorkspaceLoadState<TContextData, TContractData>(args: {
   contextResponseOk: boolean;
   contextStatus: number;
@@ -89,31 +127,27 @@ export function resolveWorkspaceLoadState<TContextData, TContractData>(args: {
   contractStatus: number;
   contractData: WorkspaceLoadResponseLike<TContractData>;
 }): WorkspaceLoadResolution<TContextData, TContractData> {
-  const shouldRetryOnboarding =
+  const shouldWaitForSetup =
+    isSetupPendingFailure(
+      args.contextResponseOk,
+      args.contextData,
+      args.contextStatus,
+    ) ||
     isMissingOnboardingFailure(
       args.contextResponseOk,
       args.contextData,
       args.contextStatus,
     ) ||
     isMissingOnboardingFailure(
-      args.contractResponseOk,
-      args.contractData,
-      args.contractStatus,
-    ) ||
-    isInvalidOnboardingSourceFailure(
-      args.contextResponseOk,
-      args.contextData,
-      args.contextStatus,
-    ) ||
-    isInvalidOnboardingSourceFailure(
       args.contractResponseOk,
       args.contractData,
       args.contractStatus,
     );
 
-  if (shouldRetryOnboarding) {
+  if (shouldWaitForSetup) {
     return {
-      status: "retry_after_onboarding",
+      status: "setup_pending",
+      pollAfterMs: resolvePollAfterMs(args.contextData),
     };
   }
 
@@ -148,13 +182,23 @@ export function resolveWorkspaceBootstrapLoadState<TContextData, TContractData>(
   status: number;
   data: WorkspaceBootstrapResponseLike<TContextData, TContractData>;
 }): WorkspaceLoadResolution<TContextData, TContractData> {
-  const shouldRetryOnboarding =
-    isMissingOnboardingFailure(args.responseOk, args.data, args.status) ||
-    isInvalidOnboardingSourceFailure(args.responseOk, args.data, args.status);
+  const shouldWaitForSetup =
+    isSetupPendingFailure(args.responseOk, args.data, args.status) ||
+    isMissingOnboardingFailure(args.responseOk, args.data, args.status);
 
-  if (shouldRetryOnboarding) {
+  if (shouldWaitForSetup) {
     return {
-      status: "retry_after_onboarding",
+      status: "setup_pending",
+      pollAfterMs: resolvePollAfterMs(args.data),
+    };
+  }
+
+  if (isInvalidOnboardingSourceFailure(args.responseOk, args.data, args.status)) {
+    return {
+      status: "error",
+      errorMessage: args.data.ok
+        ? "Failed to load the chat workspace."
+        : args.data.errors[0]?.message ?? "Failed to load the chat workspace.",
     };
   }
 

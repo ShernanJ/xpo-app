@@ -1,8 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { markHandleJustOnboarded } from "@/lib/chat/workspaceStartupSession";
 
 import {
+  type ChatWorkspaceStartupState,
   resolveWorkspaceBootstrapLoadState,
   type WorkspaceBootstrapResponseLike,
 } from "./chatWorkspaceLoadState";
@@ -13,7 +16,9 @@ interface ValidationError {
 
 interface WorkspaceLoadFailureLike {
   ok: false;
-  code?: "MISSING_ONBOARDING_RUN" | "ONBOARDING_SOURCE_INVALID";
+  code?: "MISSING_ONBOARDING_RUN" | "ONBOARDING_SOURCE_INVALID" | "SETUP_PENDING";
+  retryable?: boolean;
+  pollAfterMs?: number;
   errors: ValidationError[];
 }
 
@@ -64,6 +69,13 @@ interface WorkspaceLoadResult<TContextData, TContractData> {
 }
 
 type MissingOnboardingSetupResult = "succeeded" | "already_attempted" | "failed";
+type MissingOnboardingSetupState = "in_progress" | "succeeded" | "failed";
+
+const MAX_SETUP_PENDING_POLLS = 12;
+
+function getNextSetupPendingDelayMs(pollAfterMs: number, attempt: number): number {
+  return Math.max(500, Math.min(5000, pollAfterMs + attempt * 250));
+}
 
 interface UseChatWorkspaceBootstrapOptions<TContextData, TContractData, TStrategyInputs, TToneInputs> {
   accountName: string | null;
@@ -123,12 +135,15 @@ export function useChatWorkspaceBootstrap<
     normalizeAccountHandle,
   } = options;
 
-  const missingOnboardingSetupAttemptedRef = useRef<Set<string>>(new Set());
+  const missingOnboardingSetupStateRef = useRef<Map<string, MissingOnboardingSetupState>>(new Map());
   const activeStrategyInputsRef = useRef<TStrategyInputs | null>(activeStrategyInputs);
   const activeToneInputsRef = useRef<TToneInputs | null>(activeToneInputs);
   const activeWorkspaceLoadControllerRef = useRef<AbortController | null>(null);
   const workspaceLoadRequestIdRef = useRef(0);
   const isMountedRef = useRef(true);
+  const [startupState, setStartupState] = useState<ChatWorkspaceStartupState>({
+    status: "shell_loading",
+  });
   const workspaceBootstrapCallbacksRef = useRef({
     applyBillingSnapshot,
     onPlanRequired,
@@ -159,6 +174,12 @@ export function useChatWorkspaceBootstrap<
     };
   }, []);
 
+  useEffect(() => {
+    setStartupState({
+      status: "shell_loading",
+    });
+  }, [accountName]);
+
   const runMissingOnboardingSetup = useCallback(async (
     requestId: number,
     signal: AbortSignal,
@@ -176,10 +197,14 @@ export function useChatWorkspaceBootstrap<
       return "failed";
     }
 
-    if (missingOnboardingSetupAttemptedRef.current.has(normalizedHandle)) {
+    const existingSetupState = missingOnboardingSetupStateRef.current.get(normalizedHandle);
+    if (existingSetupState === "failed") {
+      return "failed";
+    }
+    if (existingSetupState) {
       return "already_attempted";
     }
-    missingOnboardingSetupAttemptedRef.current.add(normalizedHandle);
+    missingOnboardingSetupStateRef.current.set(normalizedHandle, "in_progress");
 
     if (isLatestRequest()) {
       setIsWorkspaceInitializing(true);
@@ -207,12 +232,16 @@ export function useChatWorkspaceBootstrap<
 
       const data = (await response.json().catch(() => null)) as OnboardingRunResponse | null;
       if (!response.ok || !data || !data.ok) {
+        missingOnboardingSetupStateRef.current.set(normalizedHandle, "failed");
         if (data && !data.ok && data.data?.billing) {
           workspaceBootstrapCallbacksRef.current.applyBillingSnapshot(data.data.billing);
         }
         if (response.status === 403) {
           workspaceBootstrapCallbacksRef.current.onPlanRequired();
         }
+        setStartupState({
+          status: "error",
+        });
         const errorText = getFirstErrorMessage(data, "Could not finish setup for this account.");
         setErrorMessage(errorText);
         return "failed";
@@ -243,10 +272,16 @@ export function useChatWorkspaceBootstrap<
           const jobData = (await jobResponse.json().catch(() => null)) as OnboardingJobStatusResponse | null;
 
           if (jobData?.ok && jobData.status === "completed") {
+            missingOnboardingSetupStateRef.current.set(normalizedHandle, "succeeded");
+            markHandleJustOnboarded(normalizedHandle);
             return "succeeded";
           }
 
           if (!jobData?.ok) {
+            missingOnboardingSetupStateRef.current.set(normalizedHandle, "failed");
+            setStartupState({
+              status: "error",
+            });
             setErrorMessage(
               getFirstErrorMessage(
                 jobData,
@@ -265,9 +300,15 @@ export function useChatWorkspaceBootstrap<
         setErrorMessage(
           "Setup is taking longer than expected. Refresh chat in a few seconds.",
         );
+        missingOnboardingSetupStateRef.current.set(normalizedHandle, "succeeded");
+        setStartupState({
+          status: "setup_timeout",
+        });
         return "failed";
       }
 
+      missingOnboardingSetupStateRef.current.set(normalizedHandle, "succeeded");
+      markHandleJustOnboarded(normalizedHandle);
       return "succeeded";
     } catch (error) {
       if (!isLatestRequest()) {
@@ -275,6 +316,10 @@ export function useChatWorkspaceBootstrap<
       }
 
       if (!(error instanceof DOMException && error.name === "AbortError")) {
+        missingOnboardingSetupStateRef.current.set(normalizedHandle, "failed");
+        setStartupState({
+          status: "error",
+        });
         setErrorMessage(
           "Could not finish setting up this account automatically. Run onboarding once, then reopen chat.",
         );
@@ -333,6 +378,7 @@ export function useChatWorkspaceBootstrap<
         const runWorkspaceFetch = async (
           controller: AbortController,
           allowMissingOnboardingRecovery = true,
+          pendingAttempt = 0,
         ): Promise<WorkspaceLoadResult<TContextData, TContractData>> => {
           const bootstrapResponse = await fetchWorkspace("/api/creator/workspace/bootstrap", {
             method: "POST",
@@ -362,29 +408,52 @@ export function useChatWorkspaceBootstrap<
             data: bootstrapData,
           });
 
-          if (workspaceLoadState.status === "retry_after_onboarding") {
-            if (!allowMissingOnboardingRecovery) {
+          if (workspaceLoadState.status === "setup_pending") {
+            if (isLatestRequest(controller.signal)) {
+              setStartupState({
+                status: "setup_pending",
+                pollAfterMs: workspaceLoadState.pollAfterMs,
+              });
+              setErrorMessage(null);
+            }
+
+            if (allowMissingOnboardingRecovery) {
+              const setupResult = await runMissingOnboardingSetup(requestId, controller.signal);
+              if (!isLatestRequest(controller.signal)) {
+                return { ok: false };
+              }
+              if (setupResult === "failed") {
+                return { ok: false };
+              }
+            }
+
+            if (pendingAttempt >= MAX_SETUP_PENDING_POLLS - 1) {
               if (isLatestRequest(controller.signal)) {
-                setErrorMessage(
-                  "Setup for this account is still incomplete. Try refreshing chat in a few seconds.",
-                );
+                setStartupState({
+                  status: "setup_timeout",
+                });
+                setErrorMessage(null);
               }
               return { ok: false };
             }
 
-            const setupResult = await runMissingOnboardingSetup(requestId, controller.signal);
+            await sleep(getNextSetupPendingDelayMs(workspaceLoadState.pollAfterMs, pendingAttempt));
             if (!isLatestRequest(controller.signal)) {
               return { ok: false };
             }
-            if (setupResult === "failed") {
-              return { ok: false };
-            }
 
-            return runWorkspaceFetch(assignActiveController(), false);
+            return runWorkspaceFetch(
+              assignActiveController(),
+              false,
+              pendingAttempt + 1,
+            );
           }
 
           if (workspaceLoadState.status === "error") {
             if (isLatestRequest(controller.signal)) {
+              setStartupState({
+                status: "error",
+              });
               setErrorMessage(workspaceLoadState.errorMessage);
             }
             return { ok: false };
@@ -397,9 +466,13 @@ export function useChatWorkspaceBootstrap<
           const normalizedHandle =
             workspaceBootstrapCallbacksRef.current.normalizeAccountHandle(accountName ?? "");
           if (normalizedHandle) {
-            missingOnboardingSetupAttemptedRef.current.delete(normalizedHandle);
+            missingOnboardingSetupStateRef.current.delete(normalizedHandle);
           }
 
+          setStartupState({
+            status: "workspace_ready",
+          });
+          setErrorMessage(null);
           setContext(workspaceLoadState.contextData);
           setContract(workspaceLoadState.contractData);
           return {
@@ -445,11 +518,21 @@ export function useChatWorkspaceBootstrap<
   );
 
   const clearMissingOnboardingAttempts = useCallback(() => {
-    missingOnboardingSetupAttemptedRef.current.clear();
+    missingOnboardingSetupStateRef.current.clear();
   }, []);
+
+  const retryWorkspaceStartup = useCallback(() => {
+    setStartupState({
+      status: "shell_loading",
+    });
+    setErrorMessage(null);
+    void loadWorkspace();
+  }, [loadWorkspace, setErrorMessage]);
 
   return {
     loadWorkspace,
     clearMissingOnboardingAttempts,
+    retryWorkspaceStartup,
+    startupState,
   };
 }

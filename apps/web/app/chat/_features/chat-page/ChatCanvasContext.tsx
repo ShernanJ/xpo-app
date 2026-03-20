@@ -17,6 +17,7 @@ import type {
   HeroQuickAction,
   SlashCommandDefinition,
 } from "../composer/composerTypes";
+import type { ChatWorkspaceStartupState } from "../workspace/chatWorkspaceLoadState";
 
 interface ChatCanvasState {
   threadCanvasClassName: string;
@@ -24,6 +25,8 @@ interface ChatCanvasState {
   threadContentTransitionClassName: string;
   isLoading: boolean;
   isWorkspaceInitializing: boolean;
+  startupState: ChatWorkspaceStartupState;
+  hasQueuedInitialPrompt: boolean;
   hasContext: boolean;
   hasContract: boolean;
   errorMessage: string | null;
@@ -50,6 +53,7 @@ interface ChatCanvasState {
   composerInlineNotice: string | null;
   composerImageAttachment: ComposerImageAttachment | null;
   isComposerDisabled: boolean;
+  isAttachmentDisabled: boolean;
   isSubmitDisabled: boolean;
   isSending: boolean;
   heroQuickActions: HeroQuickAction[];
@@ -69,6 +73,7 @@ interface ChatCanvasActions {
   onComposerSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onComposerFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onQuickAction: (action: HeroQuickAction) => void;
+  retryWorkspaceStartup: () => void;
   openComposerImagePicker: () => void;
   removeComposerImageAttachment: () => void;
   selectSlashCommand: (commandId: SlashCommandDefinition["id"]) => void;
@@ -93,6 +98,8 @@ export interface ChatCanvasProviderProps {
   threadContentTransitionClassName: string;
   isLoading: boolean;
   isWorkspaceInitializing: boolean;
+  startupState: ChatWorkspaceStartupState;
+  hasQueuedInitialPrompt: boolean;
   hasContext: boolean;
   hasContract: boolean;
   errorMessage: string | null;
@@ -129,10 +136,12 @@ export interface ChatCanvasProviderProps {
   onComposerFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onInterruptReply: () => void;
   isComposerDisabled: boolean;
+  isAttachmentDisabled: boolean;
   isSubmitDisabled: boolean;
   isSending: boolean;
   heroQuickActions: HeroQuickAction[];
   onQuickAction: (action: HeroQuickAction) => void;
+  onRetryWorkspaceStartup: () => void;
   onOpenComposerImagePicker: () => void;
   onRemoveComposerImageAttachment: () => void;
   onSelectSlashCommand: (commandId: SlashCommandDefinition["id"]) => void;
@@ -167,6 +176,8 @@ export function ChatCanvasProvider(
     threadContentTransitionClassName,
     isLoading,
     isWorkspaceInitializing,
+    startupState,
+    hasQueuedInitialPrompt,
     hasContext,
     hasContract,
     errorMessage,
@@ -203,10 +214,12 @@ export function ChatCanvasProvider(
     onComposerFileChange,
     onInterruptReply,
     isComposerDisabled,
+    isAttachmentDisabled,
     isSubmitDisabled,
     isSending,
     heroQuickActions,
     onQuickAction,
+    onRetryWorkspaceStartup,
     onOpenComposerImagePicker,
     onRemoveComposerImageAttachment,
     onSelectSlashCommand,
@@ -223,6 +236,8 @@ export function ChatCanvasProvider(
       threadContentTransitionClassName,
       isLoading,
       isWorkspaceInitializing,
+      startupState,
+      hasQueuedInitialPrompt,
       hasContext,
       hasContract,
       errorMessage,
@@ -249,6 +264,7 @@ export function ChatCanvasProvider(
       composerInlineNotice,
       composerImageAttachment,
       isComposerDisabled,
+      isAttachmentDisabled,
       isSubmitDisabled,
       isSending,
       heroQuickActions,
@@ -280,6 +296,7 @@ export function ChatCanvasProvider(
       slashCommandQuery,
       isSlashCommandPickerOpen,
       isComposerDisabled,
+      isAttachmentDisabled,
       isHeroVisible,
       isLeavingHero,
       isLoading,
@@ -288,6 +305,8 @@ export function ChatCanvasProvider(
       isSubmitDisabled,
       isVerifiedAccount,
       isWorkspaceInitializing,
+      startupState,
+      hasQueuedInitialPrompt,
       shouldCenterHero,
       showBillingWarningBanner,
       showScrollToLatest,
@@ -311,6 +330,7 @@ export function ChatCanvasProvider(
       onComposerSubmit,
       onComposerFileChange,
       onQuickAction,
+      retryWorkspaceStartup: onRetryWorkspaceStartup,
       openComposerImagePicker: onOpenComposerImagePicker,
       removeComposerImageAttachment: onRemoveComposerImageAttachment,
       selectSlashCommand: onSelectSlashCommand,
@@ -328,6 +348,7 @@ export function ChatCanvasProvider(
       onOpenPricing,
       onOpenComposerImagePicker,
       onQuickAction,
+      onRetryWorkspaceStartup,
       onRemoveComposerImageAttachment,
       onSelectSlashCommand,
       onScrollToBottom,
@@ -368,6 +389,9 @@ export function useChatThreadViewCanvas() {
     threadContentTransitionClassName: state.threadContentTransitionClassName,
     isLoading: state.isLoading,
     isWorkspaceInitializing: state.isWorkspaceInitializing,
+    startupState: state.startupState,
+    hasQueuedInitialPrompt: state.hasQueuedInitialPrompt,
+    isHeroVisible: state.isHeroVisible,
     hasContext: state.hasContext,
     hasContract: state.hasContract,
     errorMessage: state.errorMessage,
@@ -377,6 +401,7 @@ export function useChatThreadViewCanvas() {
     billingCreditsLabel: state.billingCreditsLabel,
     onOpenPricing: actions.openPricing,
     onDismissBillingWarning: actions.dismissBillingWarning,
+    onRetryWorkspaceStartup: actions.retryWorkspaceStartup,
   };
 }
 
@@ -414,6 +439,7 @@ export function useChatHeroCanvas() {
     onRemoveComposerImageAttachment: actions.removeComposerImageAttachment,
     onSelectSlashCommand: actions.selectSlashCommand,
     isComposerDisabled: state.isComposerDisabled,
+    isAttachmentDisabled: state.isAttachmentDisabled,
     isSubmitDisabled: state.isSubmitDisabled,
     isSending: state.isSending,
     heroQuickActions: state.heroQuickActions,
@@ -427,6 +453,7 @@ export function useChatComposerDockCanvas() {
   return {
     isLoading: state.isLoading,
     isWorkspaceInitializing: state.isWorkspaceInitializing,
+    startupState: state.startupState,
     isNewChatHero: state.isNewChatHero,
     isLeavingHero: state.isLeavingHero,
     showScrollToLatest: state.showScrollToLatest,
@@ -454,6 +481,7 @@ export function useChatComposerDockCanvas() {
     onRemoveComposerImageAttachment: actions.removeComposerImageAttachment,
     onSelectSlashCommand: actions.selectSlashCommand,
     isComposerDisabled: state.isComposerDisabled,
+    isAttachmentDisabled: state.isAttachmentDisabled,
     isSubmitDisabled: state.isSubmitDisabled,
     isSending: state.isSending,
   };

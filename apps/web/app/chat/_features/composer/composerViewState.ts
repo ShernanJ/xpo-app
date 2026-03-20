@@ -255,7 +255,10 @@ export function resolveComposerViewState(params: {
 }) {
   const { context, accountName, activeThreadId, messagesLength, isLeavingHero } = params;
   const isNewChatHero =
-    !activeThreadId && messagesLength === 0 && Boolean(context) && !isLeavingHero;
+    !activeThreadId &&
+    messagesLength === 0 &&
+    Boolean(accountName ?? context?.account ?? context?.creatorProfile.identity.username) &&
+    !isLeavingHero;
   const { greeting: heroGreeting, handle: heroHandle } = buildHeroGreeting({
     context,
     accountName,

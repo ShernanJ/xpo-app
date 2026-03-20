@@ -11,6 +11,7 @@ export function ChatComposerDock() {
   const {
     isLoading,
     isWorkspaceInitializing,
+    startupState,
     isNewChatHero,
     isLeavingHero,
     showScrollToLatest,
@@ -27,7 +28,11 @@ export function ChatComposerDock() {
       : "pointer-events-auto translate-y-0 opacity-100"
   }`;
 
-  if (isLoading || isWorkspaceInitializing || isNewChatHero) {
+  const shouldHideDock =
+    isNewChatHero ||
+    (startupState.status === "shell_loading" && (isLoading || isWorkspaceInitializing));
+
+  if (shouldHideDock) {
     return null;
   }
 

@@ -20,6 +20,7 @@ import type {
   OnboardingPreviewSource,
 } from "@/lib/onboarding/guestAnalysis";
 import type { XPublicProfile } from "@/lib/onboarding/types";
+import { markHandleJustOnboarded } from "@/lib/chat/workspaceStartupSession";
 import { GuestAnalysisPreview } from "./GuestAnalysisPreview";
 
 interface ValidationError {
@@ -1092,6 +1093,7 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
 
         // Force a session refresh so the next page load has the new JWT activeXHandle,
         // then hard reload to /chat
+        markHandleJustOnboarded(trimmedAccount);
         await update();
         window.location.href = "/chat";
       } catch (err) {

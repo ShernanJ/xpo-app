@@ -88,6 +88,10 @@ function buildCanvasProps(
     threadContentTransitionClassName: "",
     isLoading: false,
     isWorkspaceInitializing: false,
+    startupState: {
+      status: "workspace_ready",
+    },
+    hasQueuedInitialPrompt: false,
     hasContext: true,
     hasContract: true,
     errorMessage: null,
@@ -124,6 +128,7 @@ function buildCanvasProps(
     onComposerFileChange: vi.fn(),
     onInterruptReply: vi.fn(),
     isComposerDisabled: false,
+    isAttachmentDisabled: false,
     isSubmitDisabled: true,
     isSending: false,
     heroQuickActions: [
@@ -134,6 +139,7 @@ function buildCanvasProps(
       },
     ],
     onQuickAction: vi.fn(),
+    onRetryWorkspaceStartup: vi.fn(),
     onOpenComposerImagePicker: vi.fn(),
     onRemoveComposerImageAttachment: vi.fn(),
     onSelectSlashCommand: vi.fn(),
@@ -244,6 +250,9 @@ test("hides the dock composer while the workspace is loading", () => {
       workspaceChromeProps={buildWorkspaceChromeProps()}
       canvasProps={buildCanvasProps({
         isLoading: true,
+        startupState: {
+          status: "shell_loading",
+        },
         hasContext: false,
         hasContract: false,
         isHeroVisible: false,
@@ -253,7 +262,7 @@ test("hides the dock composer while the workspace is loading", () => {
     />,
   );
 
-  expect(screen.getByText("Setting things up...")).toBeInTheDocument();
+  expect(screen.getByRole("status", { name: "Setting things up" })).toBeInTheDocument();
   expect(screen.queryByRole("textbox", { name: "Chat composer" })).not.toBeInTheDocument();
 });
 

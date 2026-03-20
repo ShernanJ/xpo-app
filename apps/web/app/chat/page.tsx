@@ -67,6 +67,7 @@ import {
 } from "./_features/reply/useAssistantReplyOrchestrator";
 import { useChatRouteWorkspaceState } from "./_features/workspace/useChatRouteWorkspaceState";
 import { useChatWorkspaceBootstrap } from "./_features/workspace/useChatWorkspaceBootstrap";
+import { useQueuedInitialPrompt } from "./_features/workspace/useQueuedInitialPrompt";
 import { useChatWorkspaceReset } from "./_features/workspace/useChatWorkspaceReset";
 import { resolveThreadViewState } from "./_features/thread-history/threadViewState";
 import { useChatThreadState } from "./_features/thread-history/useChatThreadState";
@@ -473,7 +474,12 @@ function ChatPageContent() {
   const handleWorkspacePlanRequired = useCallback(() => {
     setPricingModalOpen(true);
   }, [setPricingModalOpen]);
-  const { loadWorkspace, clearMissingOnboardingAttempts } = useChatWorkspaceBootstrap<
+  const {
+    loadWorkspace,
+    clearMissingOnboardingAttempts,
+    retryWorkspaceStartup,
+    startupState,
+  } = useChatWorkspaceBootstrap<
     CreatorAgentContext,
     CreatorGenerationContract,
     ChatStrategyInputs,
@@ -1006,6 +1012,16 @@ function ChatPageContent() {
     }),
   });
   const isMainChatLocked = isSending || isDraftInspectorLoading;
+  const isWorkspaceReadyForPrompts = Boolean(
+    context && contract && activeStrategyInputs && activeToneInputs,
+  );
+  const canQueueInitialPrompt =
+    Boolean(accountName) &&
+    !isWorkspaceReadyForPrompts &&
+    (startupState.status === "shell_loading" ||
+      startupState.status === "setup_pending" ||
+      startupState.status === "setup_timeout");
+  const canUseComposerCommands = isWorkspaceReadyForPrompts;
   const composerViewState = useMemo(
     () =>
       resolveComposerViewState({
@@ -1145,6 +1161,15 @@ function ChatPageContent() {
     setErrorMessage,
     setIsLeavingHero,
   });
+  const { hasQueuedInitialPrompt, queueInitialPrompt } = useQueuedInitialPrompt({
+    accountName,
+    canAutoSend:
+      Boolean(context && contract && activeStrategyInputs && activeToneInputs) && !isMainChatLocked,
+    onInlineNotice: setComposerInlineNotice,
+    submitPrompt: async (prompt: string) => {
+      await submitComposerPrompt(prompt);
+    },
+  });
 
   const enterComposerCommandMode = useCallback((commandId: ComposerCommandId) => {
     setActiveComposerCommand(commandId);
@@ -1178,6 +1203,12 @@ function ChatPageContent() {
         commands: composerViewState.slashCommands,
       });
       if (consumedCommand) {
+        if (!canUseComposerCommands) {
+          setComposerInlineNotice("Slash commands unlock once setup finishes.");
+          setDraftInput(value);
+          return;
+        }
+
         enterComposerCommandMode(consumedCommand.command.id);
         setDraftInput(consumedCommand.remainder);
         return;
@@ -1185,7 +1216,23 @@ function ChatPageContent() {
 
       setDraftInput(value);
     },
-    [composerMode, composerViewState.slashCommands, enterComposerCommandMode],
+    [canUseComposerCommands, composerMode, composerViewState.slashCommands, enterComposerCommandMode],
+  );
+
+  const queueShellFirstPrompt = useCallback(
+    (prompt: string, source: "composer" | "quick_action") => {
+      if (!canQueueInitialPrompt || isMainChatLocked) {
+        return false;
+      }
+
+      setErrorMessage(null);
+      const result = queueInitialPrompt(prompt, source);
+      if (result.status === "queued" && source === "composer") {
+        setDraftInput("");
+      }
+      return result.status !== "ignored";
+    },
+    [canQueueInitialPrompt, isMainChatLocked, queueInitialPrompt, setErrorMessage],
   );
 
   const openComposerImagePicker = useCallback(() => {
@@ -1605,6 +1652,21 @@ function ChatPageContent() {
       return;
     }
 
+    if (!isWorkspaceReadyForPrompts) {
+      if (!trimmedPrompt) {
+        return;
+      }
+
+      if (trimmedPrompt.trimStart().startsWith("/")) {
+        setComposerInlineNotice("Slash commands unlock once setup finishes.");
+        return;
+      }
+
+      if (queueShellFirstPrompt(trimmedPrompt, "composer")) {
+        return;
+      }
+    }
+
     if (composerMode?.kind === "command") {
       setComposerInlineNotice(null);
       const commandResult = resolveComposerCommandSubmitResult({
@@ -1632,8 +1694,11 @@ function ChatPageContent() {
     composerMode,
     draftInput,
     editingUserMessageId,
+    isWorkspaceReadyForPrompts,
     latestPendingImageTurnMessage,
+    queueShellFirstPrompt,
     rewindAndResendEditedMessage,
+    setComposerInlineNotice,
     submitComposerPrompt,
     submitImageAttachmentTurn,
     submitImageConfirmationTurn,
@@ -1751,13 +1816,10 @@ function ChatPageContent() {
     heroInitials,
   });
   const isComposerDisabled =
-    isMainChatLocked ||
-    !context ||
-    !contract ||
-    !activeStrategyInputs ||
-    !activeToneInputs;
+    isMainChatLocked || (!isWorkspaceReadyForPrompts && !canQueueInitialPrompt);
+  const isAttachmentDisabled = isMainChatLocked || !isWorkspaceReadyForPrompts;
   const isSubmitDisabled =
-    isComposerDisabled ||
+    isMainChatLocked ||
     (!draftInput.trim() &&
       !composerImageAttachment &&
       composerMode?.kind !== "command");
@@ -1867,6 +1929,8 @@ function ChatPageContent() {
           threadContentTransitionClassName,
           isLoading,
           isWorkspaceInitializing,
+          startupState,
+          hasQueuedInitialPrompt,
           hasContext: Boolean(context),
           hasContract: Boolean(contract),
           errorMessage,
@@ -1908,23 +1972,39 @@ function ChatPageContent() {
             void interruptAssistantReply();
           },
           isComposerDisabled,
+          isAttachmentDisabled,
           isSubmitDisabled,
           isSending,
           heroQuickActions,
           onQuickAction: (action: HeroQuickAction) => {
             if (action.kind === "prompt") {
+              if (!isWorkspaceReadyForPrompts && queueShellFirstPrompt(action.prompt, "quick_action")) {
+                return;
+              }
+
               void submitQuickStarter(action.prompt);
               return;
             }
 
             if (action.kind === "command") {
+              if (!canUseComposerCommands) {
+                setComposerInlineNotice("This action unlocks once setup finishes.");
+                return;
+              }
+
               enterComposerCommandMode(action.commandId);
               setDraftInput("");
               return;
             }
 
+            if (!isWorkspaceReadyForPrompts) {
+              setComposerInlineNotice("This action unlocks once setup finishes.");
+              return;
+            }
+
             openComposerImagePicker();
           },
+          onRetryWorkspaceStartup: retryWorkspaceStartup,
           onOpenComposerImagePicker: openComposerImagePicker,
           onRemoveComposerImageAttachment: clearComposerImageAttachment,
           onSelectSlashCommand: handleSelectSlashCommand,

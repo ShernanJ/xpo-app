@@ -40,6 +40,7 @@ function buildProps(
     composerFileInputRef: { current: null },
     isSlashCommandPickerOpen: false,
     isComposerDisabled: false,
+    isAttachmentDisabled: false,
     isSubmitDisabled: true,
     isSending: false,
     surfaceClassName: "rounded-2xl border border-white/10",

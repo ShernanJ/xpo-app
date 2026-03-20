@@ -110,6 +110,36 @@ test("resolveComposerViewState builds contextual prompt pools and lowercase chip
   ]);
 });
 
+test("resolveComposerViewState keeps the hero available for a new handle before context loads", () => {
+  const viewState = resolveComposerViewState({
+    context: null,
+    accountName: "Shernanj",
+    activeThreadId: null,
+    messagesLength: 0,
+    isLeavingHero: false,
+  });
+
+  expect(viewState.isNewChatHero).toBe(true);
+  expect(viewState.heroGreeting).toBe("Hey @shernanj");
+  expect(viewState.heroQuickActions).toEqual([
+    {
+      kind: "prompt",
+      label: "Write a post",
+      prompt: "write a post",
+    },
+    {
+      kind: "prompt",
+      label: "Write a thread",
+      prompt: "write a thread",
+    },
+    {
+      kind: "prompt",
+      label: "Analyze my profile",
+      prompt: "analyze my profile",
+    },
+  ]);
+});
+
 test("buildDefaultExampleQuickReplies falls back cleanly when context is thin", () => {
   expect(buildDefaultExampleQuickReplies(null, null)).toEqual([
     {
