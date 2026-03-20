@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fetchStructuredJsonFromGroq } from "./llm";
+import { fetchStructuredJsonFromGroq } from "./llm.ts";
 import type { StrategyPlan } from "../contracts/chat";
 
 const ThreadTitleSchema = z.object({

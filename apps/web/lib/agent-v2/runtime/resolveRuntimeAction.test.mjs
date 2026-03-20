@@ -268,6 +268,40 @@ test("generic approvals outside malformed revision retry prompts still fall thro
   assert.equal(result.source, "controller");
 });
 
+test("thread scope clarification answers bypass the controller and stay on revise_draft", async () => {
+  for (const userMessage of ["the whole thread", "the opener", "the ending", "post 3"]) {
+    let controlTurnCalled = false;
+
+    const result = await resolveRuntimeAction({
+      explicitIntent: null,
+      turnPlan: null,
+      userMessage,
+      recentHistory:
+        "user: make it more specific\nassistant: which part of the thread should i change: the opener, a specific post, the ending, or the whole thread?",
+      memory: buildMemory({
+        conversationState: "editing",
+        hasActiveDraft: true,
+        latestRefinementInstruction: "make it more specific",
+      }),
+      controlTurnImpl: async () => {
+        controlTurnCalled = true;
+        return {
+          action: "answer",
+          needs_memory_update: false,
+          confidence: 0.2,
+          rationale: "should not run",
+        };
+      },
+    });
+
+    assert.equal(controlTurnCalled, false);
+    assert.equal(result.workflow, "revise_draft");
+    assert.equal(result.classifiedIntent, "edit");
+    assert.equal(result.source, "structured_turn");
+    assert.equal(result.decision.action, "revise");
+  }
+});
+
 test("controller analyze actions map into analyze_post even though the classified intent stays answer_question", async () => {
   const result = await resolveRuntimeAction({
     explicitIntent: null,

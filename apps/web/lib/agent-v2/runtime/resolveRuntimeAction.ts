@@ -176,6 +176,35 @@ function isDraftContinuationResumeTurn(args: {
   return false;
 }
 
+function looksLikeThreadScopeClarificationQuestion(value: string | null | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  return /which part of the thread should i change:\s*the opener,\s*a specific post,\s*the ending,\s*or the whole thread\?/i.test(
+    value,
+  );
+}
+
+function looksLikeThreadScopeClarificationAnswer(value: string): boolean {
+  const normalized = normalizeContinuationMessage(value);
+  if (!normalized) {
+    return false;
+  }
+
+  return [
+    /^(?:the\s+)?whole\s+thread$/,
+    /^(?:the\s+)?whole\s+post$/,
+    /^(?:the\s+)?entire\s+thread$/,
+    /^(?:the\s+)?entire\s+post$/,
+    /^(?:the\s+)?opener$/,
+    /^(?:the\s+)?opening$/,
+    /^(?:the\s+)?ending$/,
+    /^(?:the\s+)?close$/,
+    /^(?:post|tweet)\s+\d{1,2}$/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
 export function mapIntentToRuntimeWorkflow(args: {
   classifiedIntent: V2ChatIntent;
   controllerAction: ControllerDecision["action"];
@@ -258,6 +287,23 @@ export async function resolveRuntimeAction(args: {
         decision: buildStructuredDecision({
           action: "draft",
           rationale: "deterministic draft continuation resume",
+        }),
+      };
+    }
+
+    if (
+      args.memory.hasActiveDraft &&
+      looksLikeThreadScopeClarificationAnswer(args.userMessage) &&
+      (looksLikeThreadScopeClarificationQuestion(args.memory.unresolvedQuestion) ||
+        looksLikeThreadScopeClarificationQuestion(args.recentHistory))
+    ) {
+      return {
+        workflow: "revise_draft",
+        classifiedIntent: "edit",
+        source: "structured_turn",
+        decision: buildStructuredDecision({
+          action: "revise",
+          rationale: "deterministic thread scope clarification answer",
         }),
       };
     }

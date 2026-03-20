@@ -1,4 +1,4 @@
-import { fetchStructuredJsonFromGroq } from "./llm";
+import { fetchStructuredJsonFromGroq } from "./llm.ts";
 import { z } from "zod";
 
 export const StyleRuleExtractionSchema = z.object({

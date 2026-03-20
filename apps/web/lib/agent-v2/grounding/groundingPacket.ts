@@ -390,7 +390,7 @@ function getVoiceContextHintsFromStyleCard(styleCard: GroundingStyleCard | null 
 function looksLikeAutobiographicalClaim(value: string): boolean {
   return (
     /\b(?:i|we|my|our|me|us)\b/i.test(value) ||
-    /\buser\s+(?:is|was|has|had|built|builds|uses|used|launched|launching|wants|wanted)\b/i.test(
+    /\buser\s+(?:is|was|has|had|built|builds|uses|used|launched|launching|wants|wanted|creates|created|works|working|spent|spends|tries|trying)\b/i.test(
       value,
     )
   );

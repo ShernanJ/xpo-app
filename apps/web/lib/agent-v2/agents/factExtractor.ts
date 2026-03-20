@@ -1,4 +1,4 @@
-import { fetchStructuredJsonFromGroq } from "./llm";
+import { fetchStructuredJsonFromGroq } from "./llm.ts";
 import { z } from "zod";
 
 export const FactExtractionSchema = z.object({
@@ -7,7 +7,51 @@ export const FactExtractionSchema = z.object({
 
 export type FactExtraction = z.infer<typeof FactExtractionSchema>;
 
-function extractDeterministicFacts(userMessage: string): string[] {
+function dedupeFacts(facts: string[], limit: number = 5): string[] {
+  const seen = new Set<string>();
+  const next: string[] = [];
+
+  for (const fact of facts) {
+    const normalized = fact.trim().replace(/\s+/g, " ");
+    const key = normalized.toLowerCase();
+    if (!normalized || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    next.push(normalized);
+
+    if (next.length >= limit) {
+      break;
+    }
+  }
+
+  return next;
+}
+
+export function hasStrongAutobiographicalCue(userMessage: string): boolean {
+  const normalized = userMessage.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return [
+    /\bmy\s+\d+\s*(?:day|week|month|year)s?\s+journey\b/,
+    /\bmy\s+journey\b/,
+    /\bi\s+(?:am\s+|['’]m\s+)?trying\s+to\s+land\s+(?:an?\s+)?role\b/,
+    /\btrying\s+to\s+land\s+(?:an?\s+)?role\s+at\b/,
+    /\bi\s+(?:have\s+)?created\s+multiple\s+projects\b/,
+    /\bi\s+(?:have\s+|['’]ve\s+)?been\s+working\s+on\b/,
+    /\bi\s+been\s+working\s+on\b/,
+    /\bto\s+impress\s+the\s+cto\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function looksLikeAutobiographicalFact(fact: string): boolean {
+  return /\b(?:i|my|me|we|our|us)\b/i.test(fact) || /\buser\b/i.test(fact);
+}
+
+export function extractDeterministicFacts(userMessage: string): string[] {
   const trimmed = userMessage.trim();
   const normalized = trimmed.toLowerCase();
   const facts: string[] = [];
@@ -37,6 +81,57 @@ function extractDeterministicFacts(userMessage: string): string[] {
     facts.push(`User is building ${buildMatch[1].trim().replace(/[.?!,]+$/, "")}`);
   }
 
+  const journeyRoleMatch = trimmed.match(
+    /\bmy\s+(\d+\s*(?:day|week|month|year)s?)\s+journey\s+(?:trying\s+to\s+land|landing|to\s+land)\s+(?:an?\s+)?role\s+at\s+([a-z0-9][a-z0-9\s.&'’()-]{1,40}?)(?=[,.;!?\n]|$)/i,
+  );
+  if (journeyRoleMatch) {
+    facts.push(
+      `User has spent ${journeyRoleMatch[1].trim()} trying to land a role at ${journeyRoleMatch[2]
+        .trim()
+        .replace(/[.?!,]+$/, "")}`,
+    );
+  }
+
+  const roleGoalMatch = !journeyRoleMatch
+    ? trimmed.match(
+        /\b(?:i\s+(?:am\s+|['’]m\s+)?trying\s+to\s+land|trying\s+to\s+land)\s+(?:an?\s+)?role\s+at\s+([a-z0-9][a-z0-9\s.&'’()-]{1,40}?)(?=[,.;!?\n]|$)/i,
+      )
+    : null;
+  if (roleGoalMatch) {
+    facts.push(
+      `User is trying to land a role at ${roleGoalMatch[1]
+        .trim()
+        .replace(/[.?!,]+$/, "")}`,
+    );
+  }
+
+  if (/\bi\s+(?:have\s+)?created\s+multiple\s+projects\b/i.test(trimmed)) {
+    facts.push("User created multiple projects");
+  }
+
+  const workingOnMatch = trimmed.match(
+    /\bi\s+(?:(?:have\s+)?been\s+working\s+on|['’]ve\s+been\s+working\s+on|been\s+working\s+on)\s+([a-z0-9][a-z0-9._/-]{1,80})/i,
+  );
+  if (workingOnMatch) {
+    facts.push(
+      `User has been working on ${workingOnMatch[1].trim().replace(/[.?!,]+$/, "")}`,
+    );
+  }
+
+  const appositiveProductMatch = trimmed.match(
+    /\b([a-z0-9][a-z0-9._-]{1,60})\s*,\s*(?:an?\s+)?([a-z0-9][a-z0-9\s/&'’()-]{3,80}\bapp)\b/i,
+  );
+  if (appositiveProductMatch) {
+    const description = appositiveProductMatch[2]
+      .trim()
+      .replace(/[.?!,]+$/, "");
+    facts.push(
+      `${appositiveProductMatch[1].trim()} is ${
+        /^(?:a|an)\b/i.test(description) ? description : `a ${description}`
+      }`,
+    );
+  }
+
   if (
     normalized.includes("works with ") ||
     normalized.includes("works for ") ||
@@ -45,7 +140,7 @@ function extractDeterministicFacts(userMessage: string): string[] {
     facts.push(trimmed.replace(/[.?!]+$/, ""));
   }
 
-  return Array.from(new Set(facts)).slice(0, 3);
+  return dedupeFacts(facts);
 }
 
 /**
@@ -57,7 +152,11 @@ export async function extractCoreFacts(
   recentHistory: string,
 ): Promise<string[] | null> {
   const deterministicFacts = extractDeterministicFacts(userMessage);
-  if (deterministicFacts.length > 0) {
+  const needsAutobiographicalSupplement =
+    hasStrongAutobiographicalCue(userMessage) &&
+    !deterministicFacts.some(looksLikeAutobiographicalFact);
+
+  if (deterministicFacts.length > 0 && !needsAutobiographicalSupplement) {
     return deterministicFacts;
   }
 
@@ -105,5 +204,10 @@ Respond ONLY with valid JSON matching this schema:
     ],
   });
 
-  return data && data.facts.length > 0 ? data.facts : null;
+  const mergedFacts = dedupeFacts([
+    ...deterministicFacts,
+    ...((data?.facts || []).filter(Boolean)),
+  ]);
+
+  return mergedFacts.length > 0 ? mergedFacts : null;
 }

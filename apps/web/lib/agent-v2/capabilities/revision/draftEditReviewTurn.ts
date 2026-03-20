@@ -332,6 +332,8 @@ export async function handleDraftEditReviewTurn(args: {
                     issuesFixed,
                     styleCard: args.styleCard,
                     revisionChangeKind: revision.changeKind,
+                    revisionTargetFormat: revision.targetFormat ?? null,
+                    directReturn: true,
                   }),
                   args.feedbackMemoryNotice ?? null,
                 ),

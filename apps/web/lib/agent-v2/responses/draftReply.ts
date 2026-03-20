@@ -1,6 +1,9 @@
 import type { DraftPreference } from "../contracts/chat";
 import type { VoiceStyleCard } from "../core/styleProfile";
-import type { DraftRevisionChangeKind } from "../capabilities/revision/draftRevision.ts";
+import type {
+  DraftRevisionChangeKind,
+  DraftRevisionTargetFormat,
+} from "../capabilities/revision/draftRevision.ts";
 import {
   buildCadenceReply,
   resolveCadenceProfile,
@@ -17,6 +20,41 @@ interface BuildDraftReplyArgs {
   issuesFixed?: string[];
   styleCard?: VoiceStyleCard | null;
   revisionChangeKind?: DraftRevisionChangeKind;
+  revisionTargetFormat?: DraftRevisionTargetFormat | null;
+  directReturn?: boolean;
+}
+
+function buildDirectRevisionReply(args: {
+  normalized: string;
+  revisionChangeKind?: DraftRevisionChangeKind;
+  revisionTargetFormat?: DraftRevisionTargetFormat | null;
+}): string {
+  if (args.revisionTargetFormat === "thread") {
+    return "made it a thread.";
+  }
+
+  if (
+    args.revisionTargetFormat === "shortform" ||
+    args.revisionTargetFormat === "longform"
+  ) {
+    return "collapsed it into one post.";
+  }
+
+  if (
+    args.revisionChangeKind === "specificity_tune" ||
+    /\b(?:punchier|sharper|more specific|less generic|less vague)\b/i.test(args.normalized)
+  ) {
+    return "sharpened it.";
+  }
+
+  if (
+    args.revisionChangeKind === "length_trim" ||
+    /\b(?:trim|shorter|tighten)\b/i.test(args.normalized)
+  ) {
+    return "trimmed it.";
+  }
+
+  return "updated it.";
 }
 
 export function buildDraftReply(args: BuildDraftReplyArgs): string {
@@ -46,6 +84,14 @@ export function buildDraftReply(args: BuildDraftReplyArgs): string {
   });
 
   if (isRevisionRequest) {
+    if (args.directReturn) {
+      return buildDirectRevisionReply({
+        normalized,
+        revisionChangeKind: args.revisionChangeKind,
+        revisionTargetFormat: args.revisionTargetFormat,
+      });
+    }
+
     if (mentionsTrim(issuesFixed) && canUseTrimSpecificCopy) {
       return buildCadenceReply({
         action: {

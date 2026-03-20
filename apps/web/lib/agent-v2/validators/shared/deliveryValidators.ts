@@ -17,7 +17,8 @@ export type DeliveryValidationIssueCode =
   | "artifact_mismatch"
   | "thread_separator_cleanup"
   | "thread_post_shape_mismatch"
-  | "thread_hook_summary";
+  | "thread_hook_summary"
+  | "autobiographical_perspective_drift";
 
 export interface DeliveryValidationIssue {
   code: DeliveryValidationIssueCode;
@@ -62,6 +63,50 @@ function buildThreadSeparatorCleanupConstraint(): string {
 
 function buildThreadHookRetryConstraint(): string {
   return "Rewrite Post 1 as a sharp, tension-first thread hook. Keep it native to X, avoid summary-block framing, and do not front-load the whole lesson, framework, or CTA into the opener.";
+}
+
+function buildPerspectiveDriftRetryConstraint(): string {
+  return 'If the request is autobiographical and first-person claims are grounded, keep the delivery in first person. Do not rewrite the creator as "a candidate", "this candidate", "the user", or "they."';
+}
+
+function looksLikeAutobiographicalSourceRequest(value: string | null | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return [
+    /\bmy\s+\d+\s*(?:day|week|month|year)s?\s+journey\b/,
+    /\bmy\s+journey\b/,
+    /\bi\b/,
+    /\bmy\b/,
+    /\btrying\s+to\s+land\s+(?:an?\s+)?role\b/,
+    /\bworking\s+on\b/,
+    /\bi\s+(?:have\s+)?created\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function hasAutobiographicalPerspectiveDrift(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (/\b(?:i|i'm|i’ve|i've|my|me|we|our|us)\b/i.test(normalized)) {
+    return false;
+  }
+
+  return (
+    /\b(?:a|this|the)\s+candidate\b/i.test(normalized) ||
+    /\bthe\s+user\b/i.test(normalized) ||
+    /\bthey\s+(?:created|built|spent|worked|made|chose|decided|launched|tried)\b/i.test(
+      normalized,
+    )
+  );
 }
 
 function hasMalformedThreadOpener(posts: string[]): boolean {
@@ -203,6 +248,18 @@ export function validateDelivery(
         corrected: false,
       });
     }
+  }
+
+  if (
+    looksLikeAutobiographicalSourceRequest(args.sourceUserMessage) &&
+    hasAutobiographicalPerspectiveDrift(correctedDraft)
+  ) {
+    issues.push({
+      code: "autobiographical_perspective_drift",
+      message: "Draft reframes an autobiographical request as a third-person stand-in.",
+      retryConstraint: buildPerspectiveDriftRetryConstraint(),
+      corrected: false,
+    });
   }
 
   return {

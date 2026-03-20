@@ -2565,6 +2565,13 @@ test("revision validation workers isolate deterministic revision claim checks", 
         status: "skipped",
         groupId: "revision_delivery_validation_initial",
       },
+      {
+        worker: "autobiographical_perspective_guard",
+        phase: "validation",
+        mode: "sequential",
+        status: "completed",
+        groupId: "revision_delivery_validation_initial",
+      },
     ],
   );
   assert.deepEqual(
@@ -2574,6 +2581,7 @@ test("revision validation workers isolate deterministic revision claim checks", 
       "truncation_guard",
       "prompt_echo_guard",
       "artifact_shape_guard",
+      "autobiographical_perspective_guard",
     ],
   );
 });
@@ -2684,6 +2692,11 @@ test("delivery validation workers expose standardized worker names and retry met
         status: "skipped",
         groupId: "draft_delivery_validation_initial",
       },
+      {
+        worker: "autobiographical_perspective_guard",
+        status: "completed",
+        groupId: "draft_delivery_validation_initial",
+      },
     ],
   );
   assert.equal(result.hasFailures, true);
@@ -2692,7 +2705,12 @@ test("delivery validation workers expose standardized worker names and retry met
   assert.equal(result.correctedDraft, "shipped the update");
   assert.deepEqual(
     result.validations.map((validation) => validation.validator),
-    ["truncation_guard", "prompt_echo_guard", "artifact_shape_guard"],
+    [
+      "truncation_guard",
+      "prompt_echo_guard",
+      "artifact_shape_guard",
+      "autobiographical_perspective_guard",
+    ],
   );
 });
 

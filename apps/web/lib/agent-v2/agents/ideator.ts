@@ -1,4 +1,4 @@
-import { fetchStructuredJsonFromGroq } from "./llm";
+import { fetchStructuredJsonFromGroq } from "./llm.ts";
 import { z } from "zod";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { ConversationState } from "../contracts/chat";

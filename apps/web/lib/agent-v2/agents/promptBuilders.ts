@@ -191,6 +191,38 @@ function buildGroundingPacketBlock(
   });
 }
 
+function buildAutobiographicalPerspectiveBlock(args: {
+  sourceText: string;
+  groundingPacket: GroundingPacket | null | undefined;
+}): string | null {
+  const normalizedSource = args.sourceText.trim().toLowerCase();
+  const hasAllowedFirstPersonClaims =
+    (args.groundingPacket?.allowedFirstPersonClaims.length || 0) > 0;
+  const isAutobiographicalRequest =
+    hasAllowedFirstPersonClaims &&
+    [
+      /\bmy\s+\d+\s*(?:day|week|month|year)s?\s+journey\b/,
+      /\bmy\s+journey\b/,
+      /\btrying\s+to\s+land\s+(?:an?\s+)?role\b/,
+      /\bworking\s+on\b/,
+      /\bi\b/,
+      /\bmy\b/,
+      /\bme\b/,
+    ].some((pattern) => pattern.test(normalizedSource));
+
+  if (!isAutobiographicalRequest) {
+    return null;
+  }
+
+  return `
+AUTOBIOGRAPHICAL PERSPECTIVE MODE:
+- The request is autobiographical and the grounding packet contains allowed first-person claims.
+- Keep the draft or plan in first person when you use those grounded autobiographical facts.
+- Do NOT recast the creator as "a candidate", "this candidate", "the user", or "they".
+- If you reference the grounded journey, projects, or motivation, write it as the creator's own story, not as an outside case study.
+  `.trim();
+}
+
 function buildSafeFrameworkFallbackBlock(
   groundingPacket: GroundingPacket | null | undefined,
 ): string | null {
@@ -382,11 +414,12 @@ function buildPlanRequirementsBlock(args: {
 8. If PLAIN FACTUAL PRODUCT MODE is present, prefer a descriptive angle over a contrarian one. Do not force a "most people get this wrong" or "every tool..." setup unless the user explicitly asked for comparison or pushback.
 9. If RECENT CHAT HISTORY includes an earlier assistant guess or rejected draft that the user corrected, treat the correction as the source of truth and ignore the older assistant wording.
 10. If GROUNDING PACKET says Allowed first-person claims is empty, do NOT choose a lived-experience story angle. Pick a framework, opinion, or plain factual angle instead.
-11. If SAFE FRAMEWORK FALLBACK MODE is present, treat that as the preferred fallback instead of squeezing in invented specifics.
-12. Use CREATOR PROFILE HINTS to bias target lane, hook family, and format preference when the user did not explicitly override them.
-13. Keep "pitchResponse" short, lowercase, natural, and action-oriented. It should describe the direction itself, not your process.
-14. Good \`pitchResponse\`: "lead with the contradiction between the promise and what actually changed"
-15. Bad \`pitchResponse\`: "got it, here's the plan", "let's do...", "i'm thinking we should...", "want me to draft it?"`;
+11. If AUTOBIOGRAPHICAL PERSPECTIVE MODE is present, keep grounded story claims in first person and do NOT reframe the creator as a candidate, the user, or they.
+12. If SAFE FRAMEWORK FALLBACK MODE is present, treat that as the preferred fallback instead of squeezing in invented specifics.
+13. Use CREATOR PROFILE HINTS to bias target lane, hook family, and format preference when the user did not explicitly override them.
+14. Keep "pitchResponse" short, lowercase, natural, and action-oriented. It should describe the direction itself, not your process.
+15. Good \`pitchResponse\`: "lead with the contradiction between the promise and what actually changed"
+16. Bad \`pitchResponse\`: "got it, here's the plan", "let's do...", "i'm thinking we should...", "want me to draft it?"`;
 }
 
 function buildThreadBeatPlanningBlock(): string {
@@ -438,6 +471,12 @@ export function buildPlanInstruction(args: BuildPlanInstructionArgs): string {
     activeConstraints: args.activeConstraints,
   });
   const groundingPacketBlock = buildGroundingPacketBlock(args.groundingPacket);
+  const autobiographicalPerspectiveBlock = buildAutobiographicalPerspectiveBlock({
+    sourceText: [args.userMessage, args.topicSummary || "", args.recentHistory]
+      .filter(Boolean)
+      .join("\n"),
+    groundingPacket: args.groundingPacket,
+  });
   const safeFrameworkFallbackBlock = buildSafeFrameworkFallbackBlock(args.groundingPacket);
   const creatorHintsBlock = buildCreatorProfileHintsBlock(args.creatorProfileHints);
   const assetCtaBlock = buildAssetCtaBlock(
@@ -484,6 +523,7 @@ ${args.activeConstraints.join(" | ") || "None"}
 ${hardGroundingBlock ? `${hardGroundingBlock}\n` : ""}
 
 ${groundingPacketBlock ? `${groundingPacketBlock}\n` : ""}
+${autobiographicalPerspectiveBlock ? `${autobiographicalPerspectiveBlock}\n` : ""}
 ${safeFrameworkFallbackBlock ? `${safeFrameworkFallbackBlock}\n` : ""}
 
 ${creatorHintsBlock ? `${creatorHintsBlock}\n` : ""}
@@ -577,6 +617,12 @@ Do NOT turn the product into "another tool", a meetup, a hashtag engine, a growt
     activeConstraints: args.activeConstraints,
   });
   const groundingPacketBlock = buildGroundingPacketBlock(args.groundingPacket);
+  const autobiographicalPerspectiveBlock = buildAutobiographicalPerspectiveBlock({
+    sourceText:
+      args.options?.sourceUserMessage ||
+      [args.plan.objective, args.plan.angle, args.recentHistory].join("\n"),
+    groundingPacket: args.groundingPacket,
+  });
   const safeFrameworkFallbackBlock = buildSafeFrameworkFallbackBlock(args.groundingPacket);
   const creatorHintsBlock = buildCreatorProfileHintsBlock(args.creatorProfileHints);
   const assetCtaBlock = buildAssetCtaBlock(
@@ -628,6 +674,7 @@ This means: user-owned facts CAN make drafts more specific and "earned" when gro
     concreteSceneBlock,
     hardGroundingBlock,
     groundingPacketBlock,
+    autobiographicalPerspectiveBlock,
     safeFrameworkFallbackBlock,
     plainFactualProductBlock,
   ]
@@ -753,6 +800,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 12h. If the workflow context packet includes an earlier assistant guess or rejected draft that conflicts with factual grounding, treat that earlier text as superseded and do NOT reuse it.
 13. If GROUNDING PACKET says Allowed first-person claims is empty, do NOT write a lived story or personal proof post. Write a framework, opinion, or plain factual post instead.
 13a. If SAFE FRAMEWORK FALLBACK MODE is present, prefer a framework, opinion, principle, or plain factual execution over a fake specific one.
+13b. If AUTOBIOGRAPHICAL PERSPECTIVE MODE is present, keep grounded autobiographical lines in first person. Do NOT turn them into "a candidate", "this candidate", "the user", or "they" framing.
 14. Use CREATOR PROFILE HINTS to bias hook family, CTA style, and shape before you improvise.
 14a. Precedence order: FACTUAL TRUTH LAYER overrides STRATEGIC DRAFT PLAN, and STRATEGIC DRAFT PLAN overrides VOICE / SHAPE LAYER.
 14b. Never use VOICE / SHAPE LAYER material to invent facts, metrics, product mechanics, anecdotes, or proof claims.

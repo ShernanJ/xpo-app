@@ -43,6 +43,9 @@ import {
   buildEffectiveContext,
   retrieveRelevantContext,
 } from "./memory/contextRetriever.ts";
+import { extractDeterministicFacts } from "./agents/factExtractor.ts";
+import { buildGroundingPacket } from "./grounding/groundingPacket.ts";
+import { validateDelivery } from "./validators/shared/deliveryValidators.ts";
 
 const baseStyleCard = {
   contextAnchors: [
@@ -64,6 +67,36 @@ test("thread voice target does not default story threads to tight compression", 
   );
   assert.match(source, /"journey"/);
   assert.match(source, /return "spacious";/);
+});
+
+test("deterministic fact extraction preserves autobiographical grounding alongside product facts", () => {
+  const facts = extractDeterministicFacts(
+    "write a thread about my 1 month journey trying to land a role at stan. i created multiple projects and i been working on xpo.lol, a growth x app.",
+  );
+  const packet = buildGroundingPacket({
+    styleCard: null,
+    activeConstraints: [],
+    extractedFacts: facts,
+  });
+
+  assert.equal(facts.includes("User has spent 1 month trying to land a role at stan"), true);
+  assert.equal(facts.includes("User created multiple projects"), true);
+  assert.equal(facts.includes("User has been working on xpo.lol"), true);
+  assert.equal(facts.includes("xpo.lol is a growth x app"), true);
+  assert.equal(packet.allowedFirstPersonClaims.includes("User created multiple projects"), true);
+});
+
+test("prompt builders include autobiographical first-person guardrails", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("./agents/promptBuilders.ts", import.meta.url)),
+    "utf8",
+  );
+
+  assert.match(source, /AUTOBIOGRAPHICAL PERSPECTIVE MODE:/);
+  assert.match(
+    source,
+    /Do NOT recast the creator as "a candidate", "this candidate", "the user", or "they"/,
+  );
 });
 
 test("verified topic clarification returns topic-aware format chips", () => {
@@ -773,6 +806,69 @@ test("edit handoff uses specificity language for less-generic revision requests"
   assert.equal(/\?/.test(reply), true);
 });
 
+test("edit handoff can return terse direct acknowledgments for revise-and-return flows", () => {
+  assert.equal(
+    buildDraftReply({
+      userMessage: "make it more specific",
+      draftPreference: "balanced",
+      isEdit: true,
+      issuesFixed: [],
+      revisionChangeKind: "specificity_tune",
+      directReturn: true,
+    }),
+    "sharpened it.",
+  );
+  assert.equal(
+    buildDraftReply({
+      userMessage: "make it shorter",
+      draftPreference: "balanced",
+      isEdit: true,
+      issuesFixed: [],
+      revisionChangeKind: "length_trim",
+      directReturn: true,
+    }),
+    "trimmed it.",
+  );
+  assert.equal(
+    buildDraftReply({
+      userMessage: "turn this into a thread",
+      draftPreference: "balanced",
+      isEdit: true,
+      issuesFixed: [],
+      revisionChangeKind: "full_rewrite",
+      revisionTargetFormat: "thread",
+      directReturn: true,
+    }),
+    "made it a thread.",
+  );
+  assert.equal(
+    buildDraftReply({
+      userMessage: "collapse this into one post",
+      draftPreference: "balanced",
+      isEdit: true,
+      issuesFixed: [],
+      revisionChangeKind: "full_rewrite",
+      revisionTargetFormat: "shortform",
+      directReturn: true,
+    }),
+    "collapsed it into one post.",
+  );
+});
+
+test("delivery validator catches autobiographical perspective drift", () => {
+  const result = validateDelivery({
+    draft: "a candidate spent a month building xpo.lol to land a role at stan.",
+    formatPreference: "shortform",
+    sourceUserMessage:
+      "write about my 1 month journey trying to land a role at stan and how i built xpo.lol",
+  });
+
+  assert.equal(
+    result.issues.some((issue) => issue.code === "autobiographical_perspective_drift"),
+    true,
+  );
+});
+
 test("draft handoff adapts to blunt cadence when user prefers direct replies", () => {
   const reply = buildDraftReply({
     userMessage: "looks good write it",
@@ -1472,6 +1568,25 @@ test("thread revision normalizer targets the ending span for stronger ending CTA
   assert.equal(directive.targetFormat, null);
   assert.equal(directive.threadIntent, "ending");
   assert.equal(directive.preserveThreadStructure, true);
+});
+
+test("thread revision normalizer treats thread-wide polish and perspective corrections as whole-thread edits", () => {
+  const draft = "Hook\n\n---\n\nProof\n\n---\n\nClose";
+
+  for (const message of [
+    "make it punchier",
+    "make it more specific",
+    "make it first person",
+    "use my perspective",
+    "I said my 1 month journey not a candidates story",
+  ]) {
+    const directive = normalizeDraftRevisionInstruction(message, draft);
+
+    assert.equal(directive.scope, "whole_draft");
+    assert.equal(directive.threadIntent, "whole_thread");
+    assert.equal(directive.preserveThreadStructure, true);
+    assert.equal(directive.targetSpan, null);
+  }
 });
 
 test("thread revision normalizer targets an explicit post reference", () => {

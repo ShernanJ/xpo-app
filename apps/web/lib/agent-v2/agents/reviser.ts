@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fetchStructuredJsonFromGroq } from "./llm";
+import { fetchStructuredJsonFromGroq } from "./llm.ts";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type {
   ConversationState,

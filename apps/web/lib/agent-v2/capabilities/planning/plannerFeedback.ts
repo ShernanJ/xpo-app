@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fetchStructuredJsonFromGroq } from "../../agents/llm";
+import { fetchStructuredJsonFromGroq } from "../../agents/llm.ts";
 import type { StrategyPlan } from "../../contracts/chat";
 
 export type PlannerFeedbackDecision = "approve" | "revise" | "reject" | "unclear";

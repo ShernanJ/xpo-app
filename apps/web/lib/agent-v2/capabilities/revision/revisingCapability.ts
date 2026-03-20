@@ -956,6 +956,8 @@ export async function executeRevisingCapability(
             issuesFixed,
             styleCard: context.styleCard,
             revisionChangeKind: context.revision.changeKind,
+            revisionTargetFormat: context.revision.targetFormat ?? null,
+            directReturn: true,
           }),
           context.feedbackMemoryNotice ?? null,
         ),

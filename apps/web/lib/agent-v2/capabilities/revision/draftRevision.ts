@@ -68,6 +68,18 @@ function hasOpeningCue(normalized: string): boolean {
   ].some((pattern) => pattern.test(normalized));
 }
 
+function hasAutobiographicalPovCorrectionCue(normalized: string): boolean {
+  return [
+    /\bfirst person\b/,
+    /\buse my perspective\b/,
+    /\bmy perspective\b/,
+    /\bin my voice\b/,
+    /\bnot a candidates?\s+story\b/,
+    /\bnot a candidate\s+story\b/,
+    /\bi said my\b[\s\S]*\bjourney\b[\s\S]*\bcandidates?\s+story\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
 function clampThreadPostIndex(index: number, postCount: number): number {
   return Math.max(0, Math.min(index, Math.max(0, postCount - 1)));
 }
@@ -558,6 +570,12 @@ function applyThreadRevisionScope(args: {
     "call to action",
   ];
   const openingCueDetected = hasOpeningCue(normalized);
+  const globalThreadPolishKinds = new Set<DraftRevisionChangeKind>([
+    "length_trim",
+    "length_expand",
+    "specificity_tune",
+    "tone_shift",
+  ]);
 
   if (explicitPostIndex === 0 && openingCueDetected) {
     return buildThreadSpanDirective({
@@ -579,6 +597,11 @@ function applyThreadRevisionScope(args: {
   const wantsWholeThreadEdit =
     wantsWholeThreadStructureChange ||
     hasAnyCue(normalized, wholeThreadCues) ||
+    (globalThreadPolishKinds.has(base.changeKind) &&
+      explicitPostIndex === null &&
+      !openingCueDetected &&
+      !hasAnyCue(normalized, endingCues)) ||
+    hasAutobiographicalPovCorrectionCue(normalized) ||
     (base.changeKind === "full_rewrite" &&
       !hasAnyCue(normalized, openingCues) &&
       !hasAnyCue(normalized, endingCues));

@@ -76,6 +76,12 @@ const WORKER_CONFIG: Array<{
     validator: "thread_hook_guard",
     appliesTo: (formatPreference) => formatPreference === "thread",
   },
+  {
+    code: "autobiographical_perspective_drift",
+    worker: "autobiographical_perspective_guard",
+    validator: "autobiographical_perspective_guard",
+    appliesTo: () => true,
+  },
 ];
 
 function resolveIssueStatus(issue?: DeliveryValidationIssue): RuntimeValidationStatus {

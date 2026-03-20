@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fetchStructuredJsonFromGroq } from "./llm";
+import { fetchStructuredJsonFromGroq } from "./llm.ts";
 
 const DraftInspectorOutputSchema = z.object({
   summary: z.string().min(1),
