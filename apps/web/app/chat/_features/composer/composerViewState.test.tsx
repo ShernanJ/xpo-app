@@ -91,10 +91,23 @@ test("resolveComposerViewState builds contextual prompt pools and lowercase chip
   expect(viewState.defaultPlaceholderPrompts[0]).toBe(
     "write me a post about creator operating systems...",
   );
-  expect(viewState.threadPlaceholderPrompts[2]).toBe(
+  expect(viewState.commandPlaceholderPrompts.thread[2]).toBe(
     "write a contrarian thread for founder-creators",
   );
-  expect(viewState.threadActivePlaceholder).toBe("Ask anything");
+  expect(viewState.commandPlaceholderPrompts.idea[0]).toBe(
+    "give me 3 ideas about creator operating systems",
+  );
+  expect(viewState.commandPlaceholderPrompts.reply[0]).toBe(
+    "paste the tweet text or x link you want to reply to",
+  );
+  expect(viewState.activeThreadPlaceholder).toBe("Ask anything");
+  expect(viewState.slashCommands.map((command) => command.id)).toEqual([
+    "thread",
+    "idea",
+    "post",
+    "draft",
+    "reply",
+  ]);
 });
 
 test("buildDefaultExampleQuickReplies falls back cleanly when context is thin", () => {
@@ -123,4 +136,7 @@ test("formatComposerModeLabel reflects edit and command modes", () => {
   expect(
     formatComposerModeLabel({ kind: "command", commandId: "thread" }),
   ).toBe("/thread");
+  expect(
+    formatComposerModeLabel({ kind: "command", commandId: "reply" }),
+  ).toBe("/reply");
 });

@@ -6,29 +6,22 @@ import {
   filterSlashCommands,
   resolveSlashCommandQuery,
 } from "./chatComposerState";
+import { getComposerSlashCommands } from "./composerCommands";
 
-const SLASH_COMMANDS = [
-  {
-    id: "thread",
-    command: "/thread",
-    label: "/thread",
-    description: "Draft a multi-post X thread from the context you type next.",
-  },
-] as const;
+const SLASH_COMMANDS = getComposerSlashCommands();
 
 test("resolveSlashCommandQuery detects only leading slash tokens", () => {
+  expect(resolveSlashCommandQuery("/")).toBe("");
   expect(resolveSlashCommandQuery("/thread build this out")).toBe("thread");
   expect(resolveSlashCommandQuery("   /thread")).toBe("thread");
   expect(resolveSlashCommandQuery("hello /thread")).toBeNull();
 });
 
 test("filterSlashCommands matches by command token and description", () => {
-  expect(filterSlashCommands({ commands: SLASH_COMMANDS, query: "thr" })).toEqual([
-    ...SLASH_COMMANDS,
-  ]);
-  expect(filterSlashCommands({ commands: SLASH_COMMANDS, query: "multi-post" })).toEqual([
-    ...SLASH_COMMANDS,
-  ]);
+  expect(filterSlashCommands({ commands: SLASH_COMMANDS, query: "thr" })[0]?.id).toBe("thread");
+  expect(filterSlashCommands({ commands: SLASH_COMMANDS, query: "grounded reply" })[0]?.id).toBe(
+    "reply",
+  );
   expect(filterSlashCommands({ commands: SLASH_COMMANDS, query: "missing" })).toEqual([]);
 });
 
@@ -41,6 +34,15 @@ test("consumeExactLeadingSlashCommand strips the command and preserves the remai
   ).toEqual({
     command: SLASH_COMMANDS[0],
     remainder: "break down my playbook",
+  });
+  expect(
+    consumeExactLeadingSlashCommand({
+      input: " /reply @naval\n\nspecific knowledge is leverage",
+      commands: SLASH_COMMANDS,
+    }),
+  ).toEqual({
+    command: SLASH_COMMANDS[4],
+    remainder: "@naval\n\nspecific knowledge is leverage",
   });
   expect(
     consumeExactLeadingSlashCommand({

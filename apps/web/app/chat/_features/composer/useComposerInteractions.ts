@@ -7,7 +7,10 @@ import {
   type KeyboardEventHandler,
 } from "react";
 
-import type { SelectedAngleFormatHint } from "../../../../lib/agent-v2/contracts/turnContract";
+import type {
+  ChatArtifactContext,
+  SelectedAngleFormatHint,
+} from "../../../../lib/agent-v2/contracts/turnContract";
 import type { CreatorAgentContext } from "../../../../lib/onboarding/strategy/agentContext";
 
 import {
@@ -31,19 +34,8 @@ type RequestAssistantReplyFn<TStrategyInputs, TToneInputs, TContentFocus extends
     displayUserMessage?: string;
     includeUserMessageInHistory?: boolean;
     turnSource?: "ideation_pick" | "reply_action" | "free_text";
+    artifactContext?: ChatArtifactContext | null;
     intent?: "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit";
-        artifactContext?:
-      | {
-          kind: "selected_angle";
-          angle: string;
-          formatHint: SelectedAngleFormatHint;
-          supportAsset?: string;
-          imageAssetId?: string;
-        }
-      | {
-          kind: "reply_option_select";
-          optionIndex: number;
-        };
     formatPreferenceOverride?: "shortform" | "longform" | "thread" | null;
     appendUserMessage: boolean;
     strategyInputOverride?: TStrategyInputs;
@@ -196,6 +188,7 @@ export function useComposerInteractions<
         contentFocusOverride?: TContentFocus | null;
         intentOverride?: "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit";
         formatPreferenceOverride?: "shortform" | "longform" | "thread" | null;
+        artifactContextOverride?: ChatArtifactContext | null;
       },
     ) => {
       const submission = prepareComposerSubmission({
@@ -230,7 +223,9 @@ export function useComposerInteractions<
       await requestAssistantReply({
         prompt: submission.trimmedPrompt,
         appendUserMessage: true,
-        turnSource: "free_text",
+        ...(options?.artifactContextOverride
+          ? { artifactContext: options.artifactContextOverride }
+          : { turnSource: "free_text" as const }),
         intent: options?.intentOverride,
         formatPreferenceOverride: options?.formatPreferenceOverride ?? null,
         strategyInputOverride: activeStrategyInputs as TStrategyInputs,

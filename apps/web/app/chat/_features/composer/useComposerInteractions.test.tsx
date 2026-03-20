@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
+import type { ChatArtifactContext } from "../../../../lib/agent-v2/contracts/turnContract";
 import { useComposerInteractions } from "./useComposerInteractions";
 
 type ContentFocus = "build_in_public" | "operator_lessons";
@@ -11,17 +12,7 @@ type RequestAssistantReplyMock = (options: {
   includeUserMessageInHistory?: boolean;
   turnSource?: "ideation_pick" | "reply_action" | "free_text";
   intent?: "coach" | "ideate" | "plan" | "planner_feedback" | "draft" | "review" | "edit";
-  artifactContext?:
-    | {
-        kind: "selected_angle";
-        angle: string;
-        formatHint: "post" | "thread";
-        supportAsset?: string;
-      }
-    | {
-        kind: "reply_option_select";
-        optionIndex: number;
-      };
+  artifactContext?: ChatArtifactContext | null;
   formatPreferenceOverride?: "shortform" | "longform" | "thread" | null;
   appendUserMessage: boolean;
   strategyInputOverride?: { goal: string };

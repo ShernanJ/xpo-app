@@ -183,6 +183,114 @@ test("planReplyTurn converts a selected reply option into a reply draft artifact
   assert.equal(planned.activeReplyContext?.selectedReplyOptionId, "option_1");
 });
 
+test("planReplyTurn can jump straight to one direct reply draft for structured slash requests", async () => {
+  const planned = await planReplyTurn({
+    activeReplyContext: null,
+    replyContinuation: null,
+    replyRequestMode: "direct_draft",
+    replyParseResult: {
+      classification: "reply_request_with_embedded_post",
+      context: {
+        sourceText: "Specific knowledge is becoming the only durable leverage.",
+        sourceUrl: null,
+        authorHandle: "naval",
+        quotedUserAsk: null,
+        confidence: "high",
+        parseReason: "structured_reply_request",
+      },
+    },
+    defaultReplyStage: "1k_to_10k",
+    defaultReplyTone: "builder",
+    defaultReplyGoal: "followers",
+    replyStrategy: baseStrategy,
+    replyInsights: null,
+    styleCard: null,
+  });
+
+  assert.ok(planned);
+  assert.equal(planned.outputShape, "reply_candidate");
+  assert.equal(planned.surfaceMode, "generate_full_output");
+  assert.equal(planned.replyArtifacts?.kind, "reply_draft");
+  assert.equal(planned.replyArtifacts?.options.length, 1);
+  assert.equal(planned.quickReplies.length, 3);
+});
+
+test("planReplyTurn resolves bare status urls for structured slash requests before drafting", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      `
+        <html>
+          <head>
+            <link rel="canonical" href="https://x.com/naval/status/123456789" />
+            <meta property="og:image" content="https://pbs.twimg.com/media/post-image.jpg" />
+            <script type="application/ld+json">
+              {
+                "@context": "https://schema.org",
+                "@type": "SocialMediaPosting",
+                "articleBody": "Specific knowledge is becoming the only durable leverage.",
+                "image": ["https://pbs.twimg.com/media/post-image.jpg"],
+                "author": { "@type": "Person", "alternateName": "@naval" }
+              }
+            </script>
+          </head>
+        </html>
+      `,
+      {
+        status: 200,
+        headers: {
+          "content-type": "text/html",
+        },
+      },
+    );
+
+  try {
+    const planned = await planReplyTurn({
+      activeReplyContext: null,
+      replyContinuation: null,
+      replyRequestMode: "direct_draft",
+      replyParseResult: {
+        classification: "reply_request_with_embedded_post",
+        context: {
+          sourceText: "https://x.com/i/web/status/123456789",
+          sourceUrl: null,
+          authorHandle: null,
+          quotedUserAsk: null,
+          confidence: "high",
+          parseReason: "structured_reply_request",
+        },
+      },
+      defaultReplyStage: "1k_to_10k",
+      defaultReplyTone: "builder",
+      defaultReplyGoal: "followers",
+      replyStrategy: baseStrategy,
+      replyInsights: null,
+      styleCard: null,
+    });
+
+    assert.ok(planned);
+    assert.equal(planned.outputShape, "reply_candidate");
+    assert.equal(planned.surfaceMode, "generate_full_output");
+    assert.equal(planned.replyArtifacts?.kind, "reply_draft");
+    assert.equal(planned.replyArtifacts?.options.length, 1);
+    assert.equal(
+      planned.activeReplyContext?.sourceText,
+      "Specific knowledge is becoming the only durable leverage.",
+    );
+    assert.equal(
+      planned.activeReplyContext?.sourceUrl,
+      "https://x.com/naval/status/123456789",
+    );
+    assert.equal(planned.activeReplyContext?.authorHandle, "naval");
+    assert.equal(
+      planned.activeReplyContext?.sourceContext?.media?.images?.[0]?.imageUrl,
+      "https://pbs.twimg.com/media/post-image.jpg",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("planReplyTurn asks for confirmation on medium-confidence embedded posts", async () => {
   const planned = await planReplyTurn({
     activeReplyContext: null,
@@ -286,4 +394,31 @@ test("resolveReplyTurnState derives reply defaults and continuation from planner
   assert.equal(state.defaultReplyTone, "bold");
   assert.equal(state.defaultReplyGoal, "authority");
   assert.equal(state.replyStrategy.knownFor, "useful nuance");
+});
+
+test("resolveReplyTurnState turns direct reply artifacts into high-confidence reply requests", () => {
+  const state = resolveReplyTurnState({
+    activeHandle: "example",
+    creatorAgentContext: {
+      growthStrategySnapshot: baseStrategy,
+      creatorProfile: null,
+    },
+    effectiveMessage: "@naval\n\nSpecific knowledge is becoming the only durable leverage.",
+    structuredReplyContext: null,
+    artifactContext: {
+      kind: "reply_request",
+      responseMode: "direct_draft",
+    },
+    turnSource: "reply_action",
+    shouldBypassReplyHandling: true,
+    activeReplyContext: null,
+    toneRisk: "builder",
+    goal: "followers",
+  });
+
+  assert.equal(state.replyRequestMode, "direct_draft");
+  assert.equal(state.replyContinuation, null);
+  assert.equal(state.replyParseResult.classification, "reply_request_with_embedded_post");
+  assert.equal(state.replyParseResult.context?.confidence, "high");
+  assert.equal(state.replyParseResult.context?.parseReason, "structured_reply_request");
 });

@@ -3,6 +3,11 @@ import type { CreatorProfileHints } from "../../grounding/groundingPacket.ts";
 import type { ProfileReplyContext } from "../../grounding/profileReplyContext.ts";
 import type { GrowthStrategySnapshot } from "../../../onboarding/strategy/growthStrategy.ts";
 import type { CreatorAgentContext } from "../../../onboarding/strategy/agentContext.ts";
+import { buildChatReplyDraft } from "../../../extension/chatReplyAdapter.ts";
+import {
+  resolveReplyRequestSourceFromStatusUrl,
+  isStandaloneXStatusUrl,
+} from "./replyRequestUrlResolver.ts";
 import type { V2ConversationMemory } from "../../contracts/chat.ts";
 import {
   planReplyContinuation,
@@ -98,6 +103,7 @@ export interface ResolvedReplyTurnState {
   replyStrategy: GrowthStrategySnapshot;
   replyParseResult: EmbeddedReplyParseResult;
   replyContinuation: ReplyContinuationResult | null;
+  replyRequestMode: "direct_draft" | null;
   shouldResetReplyWorkflow: boolean;
   defaultReplyStage: ActiveReplyContext["stage"];
   defaultReplyTone: ActiveReplyContext["tone"];
@@ -175,12 +181,29 @@ export function resolveReplyTurnState(args: {
   const replyStrategy = args.creatorAgentContext
     ? args.creatorAgentContext.growthStrategySnapshot
     : buildFallbackGrowthStrategySnapshot(args.activeHandle);
-  const replyParseResult = args.shouldBypassReplyHandling
-    ? { classification: "plain_chat" as const, context: null }
-    : parseEmbeddedReplyRequest({
-        message: args.effectiveMessage,
-        replyContext: args.structuredReplyContext,
-      });
+  const directReplyRequestContext =
+    args.artifactContext?.kind === "reply_request" && args.effectiveMessage.trim()
+      ? {
+          sourceText: args.effectiveMessage.trim(),
+          sourceUrl: null,
+          authorHandle: null,
+          sourceContext: null,
+          quotedUserAsk: null,
+          confidence: "high" as const,
+          parseReason: "structured_reply_request",
+        }
+      : null;
+  const replyParseResult = directReplyRequestContext
+    ? {
+        classification: "reply_request_with_embedded_post" as const,
+        context: directReplyRequestContext,
+      }
+    : args.shouldBypassReplyHandling
+      ? { classification: "plain_chat" as const, context: null }
+      : parseEmbeddedReplyRequest({
+          message: args.effectiveMessage,
+          replyContext: args.structuredReplyContext,
+        });
   const structuredReplyContinuation =
     args.artifactContext?.kind === "reply_option_select"
       ? {
@@ -205,6 +228,10 @@ export function resolveReplyTurnState(args: {
     replyStrategy,
     replyParseResult,
     replyContinuation,
+    replyRequestMode:
+      args.artifactContext?.kind === "reply_request"
+        ? args.artifactContext.responseMode
+        : null,
     shouldResetReplyWorkflow: shouldClearReplyWorkflow({
       activeReplyContext: args.activeReplyContext,
       turnSource: args.turnSource,
@@ -217,10 +244,134 @@ export function resolveReplyTurnState(args: {
   };
 }
 
+async function planDirectReplyDraft(args: {
+  replyParseResult: EmbeddedReplyParseResult;
+  defaultReplyStage: ActiveReplyContext["stage"];
+  defaultReplyTone: ActiveReplyContext["tone"];
+  defaultReplyGoal: string;
+  replyStrategy: GrowthStrategySnapshot;
+  replyInsights: ReplyContinuationInsights;
+  styleCard: VoiceStyleCard | null;
+  userId?: string | null;
+  activeHandle?: string | null;
+  creatorAgentContext?: CreatorAgentContext | null;
+  creatorProfileHints?: CreatorProfileHints | null;
+  profileReplyContext?: ProfileReplyContext | null;
+}): Promise<PlannedReplyTurn | null> {
+  const replyContext = args.replyParseResult.context;
+  if (!replyContext) {
+    return null;
+  }
+
+  let resolvedSourceText = replyContext.sourceText;
+  let resolvedSourceUrl = replyContext.sourceUrl;
+  let resolvedAuthorHandle = replyContext.authorHandle;
+  let resolvedSourceContext = replyContext.sourceContext || null;
+  let resolvedParseReason = replyContext.parseReason;
+
+  if (isStandaloneXStatusUrl(replyContext.sourceText)) {
+    const resolvedFromUrl = await resolveReplyRequestSourceFromStatusUrl(
+      replyContext.sourceText,
+    );
+
+    if (!resolvedFromUrl) {
+      return {
+        reply:
+          "i couldn't load that x post from the link. paste the tweet text instead and i'll draft the reply from that.",
+        outputShape: "coach_question",
+        surfaceMode: "ask_one_question",
+        quickReplies: [],
+        activeReplyContext: null,
+        selectedReplyOptionId: null,
+        replyParse: {
+          detected: true,
+          confidence: "low",
+          needsConfirmation: false,
+          parseReason: "reply_request_url_resolution_failed",
+        },
+      };
+    }
+
+    resolvedSourceText = resolvedFromUrl.sourceText;
+    resolvedSourceUrl = resolvedFromUrl.sourceUrl;
+    resolvedAuthorHandle = resolvedFromUrl.authorHandle;
+    resolvedSourceContext = resolvedFromUrl.sourceContext;
+    resolvedParseReason = "structured_reply_request_url";
+  }
+
+  const activeReplyContext = createEmptyActiveReplyContext({
+    sourceText: resolvedSourceText,
+    sourceUrl: resolvedSourceUrl,
+    authorHandle: resolvedAuthorHandle,
+    sourceContext: resolvedSourceContext,
+    quotedUserAsk: replyContext.quotedUserAsk,
+    confidence: replyContext.confidence,
+    parseReason: resolvedParseReason,
+    awaitingConfirmation: false,
+    stage: args.defaultReplyStage,
+    tone: args.defaultReplyTone,
+    goal: args.defaultReplyGoal,
+  });
+  const generated = await buildChatReplyDraft({
+    source: {
+      opportunityId: activeReplyContext.opportunityId,
+      sourceText: activeReplyContext.sourceText,
+      sourceUrl: activeReplyContext.sourceUrl,
+      authorHandle: activeReplyContext.authorHandle,
+      postType: activeReplyContext.sourceContext?.primaryPost.postType,
+      sourceContext: activeReplyContext.sourceContext || null,
+    },
+    userId: args.userId || null,
+    xHandle: args.activeHandle || null,
+    strategy: args.replyStrategy,
+    styleCard: args.styleCard,
+    creatorAgentContext: args.creatorAgentContext || null,
+    creatorProfileHints: args.creatorProfileHints || null,
+    profileReplyContext: args.profileReplyContext || null,
+    replyInsights: args.replyInsights,
+    stage: activeReplyContext.stage,
+    tone: activeReplyContext.tone,
+    goal: activeReplyContext.goal,
+  });
+  const primaryOption = generated.response.options[0] ?? null;
+  const response = primaryOption
+    ? {
+        ...generated.response,
+        options: [primaryOption],
+      }
+    : generated.response;
+  const nextReplyContext: ActiveReplyContext = {
+    ...activeReplyContext,
+    latestReplyDraftOptions: response.options,
+    selectedReplyOptionId: primaryOption?.id ?? null,
+  };
+
+  return {
+    reply: "drafted one grounded reply from that post.",
+    outputShape: "reply_candidate",
+    surfaceMode: "generate_full_output",
+    quickReplies: buildReplyDraftQuickReplies(),
+    activeReplyContext: nextReplyContext,
+    selectedReplyOptionId: nextReplyContext.selectedReplyOptionId,
+    replyArtifacts: buildReplyArtifactsFromDraft({
+      context: nextReplyContext,
+      response,
+    }),
+    replyParse: {
+      detected: true,
+      confidence: nextReplyContext.confidence,
+      needsConfirmation: false,
+      parseReason: nextReplyContext.parseReason,
+    },
+    eventType: "chat_reply_draft_generated",
+  };
+}
+
 export async function planReplyTurn(args: {
   activeReplyContext: ActiveReplyContext | null;
   replyContinuation: ReplyContinuationResult | null;
   replyParseResult: EmbeddedReplyParseResult;
+  replyRequestMode?: "direct_draft" | null;
   userId?: string | null;
   activeHandle?: string | null;
   defaultReplyStage: ActiveReplyContext["stage"];
@@ -233,6 +384,14 @@ export async function planReplyTurn(args: {
   creatorProfileHints?: CreatorProfileHints | null;
   profileReplyContext?: ProfileReplyContext | null;
 }): Promise<PlannedReplyTurn | null> {
+  if (
+    args.replyRequestMode === "direct_draft" &&
+    args.replyParseResult.classification === "reply_request_with_embedded_post" &&
+    args.replyParseResult.context
+  ) {
+    return await planDirectReplyDraft(args);
+  }
+
   const continuationPlan = await planReplyContinuation({
     activeReplyContext: args.activeReplyContext,
     replyContinuation: args.replyContinuation,

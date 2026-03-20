@@ -107,11 +107,12 @@ export function prepareAssistantReplyTransport(
     (args.artifactContext?.kind === "selected_angle"
       ? "ideation_pick"
       : args.artifactContext?.kind === "image_post_confirmation"
-        ? "quick_reply"
+      ? "quick_reply"
       : args.artifactContext?.kind === "draft_selection"
         ? "draft_action"
         : args.artifactContext?.kind === "reply_option_select" ||
-            args.artifactContext?.kind === "reply_confirmation"
+            args.artifactContext?.kind === "reply_confirmation" ||
+            args.artifactContext?.kind === "reply_request"
           ? "reply_action"
           : "free_text");
   const effectiveIntent =

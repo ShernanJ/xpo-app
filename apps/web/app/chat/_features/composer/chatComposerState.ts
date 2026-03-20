@@ -160,7 +160,7 @@ export function consumeExactLeadingSlashCommand(args: {
     return null;
   }
 
-  const match = normalized.match(/^\/([^\s]+)(?:\s+(.*))?$/);
+  const match = normalized.match(/^\/([^\s]+)(?:\s+([\s\S]*))?$/);
   if (!match) {
     return null;
   }

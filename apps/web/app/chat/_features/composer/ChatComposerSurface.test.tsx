@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 
 import { ChatComposerSurface } from "./ChatComposerSurface";
+import { getComposerSlashCommands } from "./composerCommands";
 
 vi.mock("framer-motion", () => ({
   AnimatePresence: ({ children }: { children: ReactNode }) => children,
@@ -32,14 +33,7 @@ function buildProps(
     activePlaceholder: "write me a post about building in public...",
     placeholderAnimationKey: "0:write me a post about building in public...",
     shouldAnimatePlaceholder: true,
-    slashCommands: [
-      {
-        id: "thread",
-        command: "/thread",
-        label: "/thread",
-        description: "Draft a multi-post X thread from the context you type next.",
-      },
-    ],
+    slashCommands: getComposerSlashCommands(),
     slashCommandQuery: null,
     composerInlineNotice: null,
     composerImageAttachment: null,
@@ -77,6 +71,25 @@ test("selects slash commands from the picker with the keyboard", () => {
   });
 
   expect(props.onSelectSlashCommand).toHaveBeenCalledWith("thread");
+});
+
+test("shows the full slash command list and descriptions for a bare slash query", () => {
+  const props = buildProps({
+    draftInput: "/",
+    slashCommandQuery: "",
+    isSlashCommandPickerOpen: true,
+  });
+
+  render(<ChatComposerSurface {...props} />);
+
+  expect(screen.getByText("/thread")).toBeVisible();
+  expect(screen.getByText("/idea")).toBeVisible();
+  expect(screen.getByText("/post")).toBeVisible();
+  expect(screen.getByText("/draft")).toBeVisible();
+  expect(screen.getByText("/reply")).toBeVisible();
+  expect(screen.getByText("Draft a multi-post X thread in your voice.")).toBeVisible();
+  expect(screen.getByText("Generate niche-matched post ideas before drafting.")).toBeVisible();
+  expect(screen.getByText("Paste a tweet or X link and get one grounded reply in your voice.")).toBeVisible();
 });
 
 test("backspace exits thread command mode when the composer is empty", () => {

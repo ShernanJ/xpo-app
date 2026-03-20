@@ -493,7 +493,8 @@ export function resolvePendingStatusWorkflow(args: {
   if (
     args.turnSource === "reply_action" ||
     args.artifactContext?.kind === "reply_option_select" ||
-    args.artifactContext?.kind === "reply_confirmation"
+    args.artifactContext?.kind === "reply_confirmation" ||
+    args.artifactContext?.kind === "reply_request"
   ) {
     return "reply_to_post";
   }

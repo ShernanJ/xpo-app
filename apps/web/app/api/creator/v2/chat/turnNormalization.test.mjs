@@ -110,6 +110,28 @@ test("reply option selections normalize into deterministic reply actions", () =>
   assert.equal(normalized.diagnostics.resolvedWorkflow, "reply_to_post");
 });
 
+test("direct reply draft requests normalize into structured reply turns", () => {
+  const normalized = normalizeChatTurn({
+    body: {
+      message: "@naval\n\nSpecific knowledge is becoming the only durable leverage.",
+      artifactContext: {
+        kind: "reply_request",
+        responseMode: "direct_draft",
+      },
+    },
+  });
+
+  assert.equal(normalized.source, "reply_action");
+  assert.equal(normalized.explicitIntent, null);
+  assert.equal(
+    normalized.transcriptMessage,
+    "@naval\n\nSpecific knowledge is becoming the only durable leverage.",
+  );
+  assert.equal(normalized.shouldAllowReplyHandling, false);
+  assert.equal(normalized.diagnostics.artifactKind, "reply_request");
+  assert.equal(normalized.diagnostics.resolvedWorkflow, "reply_to_post");
+});
+
 test("pasted posts without an explicit reply ask stay in free_text flow", () => {
   const normalized = normalizeChatTurn({
     body: {

@@ -9,6 +9,7 @@ import {
   resolveSlashCommandQuery,
   resolveComposerQuickReplyUpdate,
 } from "./chatComposerState.ts";
+import { getComposerSlashCommands } from "./composerCommands.ts";
 
 test("resolveComposerQuickReplyUpdate ignores quick replies while chat is locked", () => {
   assert.deepEqual(
@@ -145,35 +146,22 @@ test("prepareComposerSubmission skips blank or locked prompts", () => {
 });
 
 test("resolveSlashCommandQuery detects only leading slash tokens", () => {
+  assert.equal(resolveSlashCommandQuery("/"), "");
   assert.equal(resolveSlashCommandQuery("/thread build this out"), "thread");
   assert.equal(resolveSlashCommandQuery("   /thread"), "thread");
   assert.equal(resolveSlashCommandQuery("hello /thread"), null);
 });
 
 test("filterSlashCommands matches by command token and description", () => {
-  const commands = [
-    {
-      id: "thread",
-      command: "/thread",
-      label: "/thread",
-      description: "Draft a multi-post X thread from the context you type next.",
-    },
-  ] as const;
+  const commands = getComposerSlashCommands();
 
-  assert.deepEqual(filterSlashCommands({ commands, query: "thr" }), [...commands]);
-  assert.deepEqual(filterSlashCommands({ commands, query: "multi-post" }), [...commands]);
+  assert.equal(filterSlashCommands({ commands, query: "thr" })[0]?.id, "thread");
+  assert.equal(filterSlashCommands({ commands, query: "niche-matched" })[0]?.id, "idea");
   assert.deepEqual(filterSlashCommands({ commands, query: "missing" }), []);
 });
 
 test("consumeExactLeadingSlashCommand strips the command and preserves the remainder", () => {
-  const commands = [
-    {
-      id: "thread",
-      command: "/thread",
-      label: "/thread",
-      description: "Draft a multi-post X thread from the context you type next.",
-    },
-  ] as const;
+  const commands = getComposerSlashCommands();
 
   assert.deepEqual(
     consumeExactLeadingSlashCommand({
@@ -183,6 +171,16 @@ test("consumeExactLeadingSlashCommand strips the command and preserves the remai
     {
       command: commands[0],
       remainder: "break down my playbook",
+    },
+  );
+  assert.deepEqual(
+    consumeExactLeadingSlashCommand({
+      input: " /reply @naval\n\nspecific knowledge is leverage",
+      commands,
+    }),
+    {
+      command: commands[4],
+      remainder: "@naval\n\nspecific knowledge is leverage",
     },
   );
   assert.equal(

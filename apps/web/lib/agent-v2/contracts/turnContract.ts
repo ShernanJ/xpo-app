@@ -60,12 +60,18 @@ export interface ReplyConfirmationArtifactContext {
   decision: "confirm" | "decline";
 }
 
+export interface ReplyRequestArtifactContext {
+  kind: "reply_request";
+  responseMode: "direct_draft";
+}
+
 export type ChatArtifactContext =
   | SelectedAngleArtifactContext
   | ImagePostConfirmationArtifactContext
   | DraftSelectionArtifactContext
   | ReplyOptionSelectArtifactContext
-  | ReplyConfirmationArtifactContext;
+  | ReplyConfirmationArtifactContext
+  | ReplyRequestArtifactContext;
 
 export interface NormalizedChatTurnDiagnostics {
   turnSource: ChatTurnSource;

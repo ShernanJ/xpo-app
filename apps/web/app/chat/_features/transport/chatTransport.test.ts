@@ -170,3 +170,25 @@ test("prepareAssistantReplyTransport preserves thread format overrides on select
   assert.equal(prepared.transportRequest?.threadFramingStyle, "soft_signal");
   assert.equal(prepared.pendingStatusPlan?.workflow, "revise_draft");
 });
+
+test("prepareAssistantReplyTransport infers reply workflow from direct-draft reply requests", () => {
+  const prepared = prepareAssistantReplyTransport({
+    prompt: "@naval\n\nSpecific knowledge is becoming the only durable leverage.",
+    history: [],
+    runId: "run-3",
+    threadId: "thread-3",
+    workspaceHandle: "stan",
+    artifactContext: {
+      kind: "reply_request",
+      responseMode: "direct_draft",
+    },
+    selectedDraftContext: null,
+    strategyInputs: baseStrategyInputs,
+    toneInputs: baseToneInputs,
+  });
+
+  assert.equal(prepared.shouldSkip, false);
+  assert.equal(prepared.effectiveTurnSource, "reply_action");
+  assert.equal(prepared.transportRequest?.artifactContext?.kind, "reply_request");
+  assert.equal(prepared.pendingStatusPlan?.workflow, "reply_to_post");
+});

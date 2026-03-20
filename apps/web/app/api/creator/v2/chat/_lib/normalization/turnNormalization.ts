@@ -5,6 +5,7 @@ import type {
   ChatResolvedWorkflow,
   ChatTurnSource,
   ImagePostConfirmationArtifactContext,
+  ReplyRequestArtifactContext,
   NormalizedChatTurn,
   ReplyConfirmationArtifactContext,
   ReplyOptionSelectArtifactContext,
@@ -156,13 +157,35 @@ function parseReplyConfirmationArtifactContext(
   };
 }
 
+function parseReplyRequestArtifactContext(
+  value: unknown,
+): ReplyRequestArtifactContext | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (
+    record.kind !== "reply_request" ||
+    record.responseMode !== "direct_draft"
+  ) {
+    return null;
+  }
+
+  return {
+    kind: "reply_request",
+    responseMode: "direct_draft",
+  };
+}
+
 function parseArtifactContext(value: unknown): ChatArtifactContext | null {
   return (
     parseSelectedAngleArtifactContext(value) ||
     parseImagePostConfirmationArtifactContext(value) ||
     parseDraftSelectionArtifactContext(value) ||
     parseReplyOptionSelectArtifactContext(value) ||
-    parseReplyConfirmationArtifactContext(value)
+    parseReplyConfirmationArtifactContext(value) ||
+    parseReplyRequestArtifactContext(value)
   );
 }
 
@@ -210,7 +233,8 @@ function resolveTurnSource(args: {
 
   if (
     args.artifactContext?.kind === "reply_option_select" ||
-    args.artifactContext?.kind === "reply_confirmation"
+    args.artifactContext?.kind === "reply_confirmation" ||
+    args.artifactContext?.kind === "reply_request"
   ) {
     return "reply_action";
   }
@@ -273,7 +297,8 @@ function resolveResolvedWorkflow(args: {
 
   if (
     args.artifactContext?.kind === "reply_option_select" ||
-    args.artifactContext?.kind === "reply_confirmation"
+    args.artifactContext?.kind === "reply_confirmation" ||
+    args.artifactContext?.kind === "reply_request"
   ) {
     return "reply_to_post";
   }
@@ -360,6 +385,10 @@ export function normalizeChatTurn(args: {
   } else if (artifactContext?.kind === "reply_confirmation") {
     transcriptMessage = message || artifactContext.decision;
     orchestrationMessage = message || artifactContext.decision;
+    planSeedSource = "message";
+  } else if (artifactContext?.kind === "reply_request") {
+    transcriptMessage = message;
+    orchestrationMessage = message;
     planSeedSource = "message";
   } else if (artifactContext?.kind === "image_post_confirmation") {
     transcriptMessage = message || artifactContext.decision;

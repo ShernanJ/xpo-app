@@ -1,6 +1,11 @@
 "use client";
 
-export type ComposerCommandId = "thread";
+export type ComposerCommandId =
+  | "thread"
+  | "idea"
+  | "post"
+  | "draft"
+  | "reply";
 
 export type ChatComposerMode =
   | {
@@ -14,9 +19,10 @@ export type ChatComposerMode =
 
 export interface SlashCommandDefinition {
   id: ComposerCommandId;
-  command: "/thread";
+  command: `/${string}`;
   label: string;
   description: string;
+  modeLabel: string;
 }
 
 export interface ComposerImageAttachment {

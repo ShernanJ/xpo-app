@@ -102,6 +102,19 @@ test("reply option flow resolves to reply_to_post", () => {
   );
 });
 
+test("direct reply draft requests resolve to reply_to_post", () => {
+  assert.equal(
+    resolvePendingStatusWorkflow({
+      message: "@naval\n\nSpecific knowledge is becoming the only durable leverage.",
+      artifactContext: {
+        kind: "reply_request",
+        responseMode: "direct_draft",
+      },
+    }),
+    "reply_to_post",
+  );
+});
+
 test("analysis prompts resolve to analyze_post", () => {
   assert.equal(
     resolvePendingStatusWorkflow({

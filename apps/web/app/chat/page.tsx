@@ -30,6 +30,10 @@ import {
 } from "./_features/composer/composerViewState";
 import { useComposerInteractions } from "./_features/composer/useComposerInteractions";
 import {
+  resolveComposerCommandImageNotice,
+  resolveComposerCommandSubmitResult,
+} from "./_features/composer/composerCommands";
+import {
   consumeExactLeadingSlashCommand,
   dismissSlashCommandInput,
   resolveSlashCommandQuery,
@@ -1032,11 +1036,11 @@ function ChatPageContent() {
     shouldAnimatePlaceholder,
   } = useComposerPlaceholderState({
     prompts:
-      activeThreadId
-        ? [composerViewState.threadActivePlaceholder]
-        : composerMode?.kind === "command"
-        ? composerViewState.threadPlaceholderPrompts
-        : composerViewState.defaultPlaceholderPrompts,
+      composerMode?.kind === "command"
+        ? composerViewState.commandPlaceholderPrompts[composerMode.commandId]
+        : activeThreadId
+          ? [composerViewState.activeThreadPlaceholder]
+          : composerViewState.defaultPlaceholderPrompts,
     isPaused: draftInput.trim().length > 0 || Boolean(editingUserMessageId),
   });
   const defaultQuickReplies = useMemo(
@@ -1195,9 +1199,23 @@ function ChatPageContent() {
       return;
     }
 
+    if (composerMode?.kind === "command") {
+      setComposerInlineNotice(
+        resolveComposerCommandImageNotice(composerMode.commandId),
+      );
+      return;
+    }
+
     setComposerInlineNotice(null);
     composerFileInputRef.current?.click();
-  }, [activeStrategyInputs, activeToneInputs, context, contract, isSending]);
+  }, [
+    activeStrategyInputs,
+    activeToneInputs,
+    composerMode,
+    context,
+    contract,
+    isSending,
+  ]);
 
   const handleComposerFileChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -1404,9 +1422,9 @@ function ChatPageContent() {
       return;
     }
 
-    if (composerMode?.kind === "command" && composerMode.commandId === "thread") {
+    if (composerMode?.kind === "command") {
       setComposerInlineNotice(
-        "Generate post options from the image first, then turn the winner into a thread.",
+        resolveComposerCommandImageNotice(composerMode.commandId),
       );
       return;
     }
@@ -1587,10 +1605,22 @@ function ChatPageContent() {
       return;
     }
 
-    if (composerMode?.kind === "command" && composerMode.commandId === "thread") {
-      await submitComposerPrompt(draftInput, {
-        intentOverride: "draft",
-        formatPreferenceOverride: "thread",
+    if (composerMode?.kind === "command") {
+      setComposerInlineNotice(null);
+      const commandResult = resolveComposerCommandSubmitResult({
+        commandId: composerMode.commandId,
+        input: draftInput,
+      });
+      if (commandResult.status === "blocked") {
+        setComposerInlineNotice(commandResult.inlineNotice);
+        return;
+      }
+
+      await submitComposerPrompt(commandResult.request.prompt, {
+        intentOverride: commandResult.request.intentOverride,
+        formatPreferenceOverride:
+          commandResult.request.formatPreferenceOverride ?? null,
+        artifactContextOverride: commandResult.request.artifactContext ?? null,
       });
       setActiveComposerCommand(null);
       return;
@@ -1727,7 +1757,10 @@ function ChatPageContent() {
     !activeStrategyInputs ||
     !activeToneInputs;
   const isSubmitDisabled =
-    isComposerDisabled || (!draftInput.trim() && !composerImageAttachment);
+    isComposerDisabled ||
+    (!draftInput.trim() &&
+      !composerImageAttachment &&
+      composerMode?.kind !== "command");
   const canRunReplyActions =
     !isMainChatLocked && Boolean(activeStrategyInputs && activeToneInputs);
   const contextIdentity = {
@@ -1861,7 +1894,7 @@ function ChatPageContent() {
           shouldAnimatePlaceholder,
           slashCommands: composerViewState.slashCommands,
           slashCommandQuery,
-          isSlashCommandPickerOpen: Boolean(slashCommandQuery),
+          isSlashCommandPickerOpen: slashCommandQuery !== null,
           composerInlineNotice,
           composerImageAttachment,
           composerFileInputRef,

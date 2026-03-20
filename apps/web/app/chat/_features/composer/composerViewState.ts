@@ -5,31 +5,19 @@ import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext
 import type {
   ChatComposerMode,
   HeroQuickAction,
-  SlashCommandDefinition,
 } from "./composerTypes";
 export type { HeroQuickAction } from "./composerTypes";
-
-const SLASH_COMMANDS: SlashCommandDefinition[] = [
-  {
-    id: "thread",
-    command: "/thread",
-    label: "/thread",
-    description: "Draft a multi-post X thread from the context you type next.",
-  },
-] as const;
+import {
+  buildComposerCommandPlaceholderPrompts,
+  getComposerSlashCommands,
+  resolveComposerCommandModeLabel,
+  type ComposerCommandProfileContext,
+} from "./composerCommands";
 
 export interface DefaultExampleQuickReply {
   kind: "example_reply";
   value: string;
   label: string;
-}
-
-interface ComposerProfileContext {
-  knownFor: string | null;
-  targetAudience: string | null;
-  primaryPillar: string | null;
-  secondaryPillar: string | null;
-  handle: string | null;
 }
 
 function shouldUseLowercaseChipVoice(context: CreatorAgentContext | null): boolean {
@@ -62,7 +50,7 @@ function normalizeAccountHandle(value: string): string {
 function resolveComposerProfileContext(
   context: CreatorAgentContext | null,
   accountName: string | null,
-): ComposerProfileContext {
+): ComposerCommandProfileContext {
   const contentPillars = dedupeNonEmptyStrings([
     ...(context?.growthStrategySnapshot.contentPillars ?? []),
     ...(context?.creatorProfile.topics.contentPillars ?? []),
@@ -110,7 +98,7 @@ function dedupeNonEmptyStrings(values: Array<string | null | undefined>): string
   return deduped;
 }
 
-function buildDefaultPromptPool(profile: ComposerProfileContext): string[] {
+function buildDefaultPromptPool(profile: ComposerCommandProfileContext): string[] {
   const postTopic = profile.knownFor || profile.primaryPillar || "my niche";
   const threadTopic = profile.primaryPillar || profile.knownFor || "one of my core topics";
   const profileReference = profile.handle ? `@${normalizeAccountHandle(profile.handle)}` : "my profile";
@@ -127,20 +115,8 @@ function buildDefaultPromptPool(profile: ComposerProfileContext): string[] {
   ];
 }
 
-function buildThreadPromptPool(profile: ComposerProfileContext): string[] {
-  const threadTopic = profile.primaryPillar || profile.knownFor || "one of my core topics";
-  const targetAudience = profile.targetAudience || "my audience";
-
-  return [
-    `break down ${threadTopic} into 5 posts`,
-    "turn one lesson from my recent posts into a thread",
-    `write a contrarian thread for ${targetAudience}`,
-    "make a thread that teaches my playbook step by step",
-  ];
-}
-
 function buildHeroQuickActions(
-  profile: ComposerProfileContext,
+  profile: ComposerCommandProfileContext,
   lowercase: boolean,
 ): HeroQuickAction[] {
   return [
@@ -163,7 +139,7 @@ function buildHeroQuickActions(
 }
 
 function buildDefaultExamplePromptPool(
-  profile: ComposerProfileContext,
+  profile: ComposerCommandProfileContext,
 ): string[] {
   const postTopic = profile.knownFor || profile.primaryPillar || "my niche";
   const threadTopic = profile.primaryPillar || profile.knownFor || "one of my core topics";
@@ -265,7 +241,9 @@ export function formatComposerModeLabel(mode: ChatComposerMode): string | null {
     return null;
   }
 
-  return mode.kind === "edit" ? "Editing message" : "/thread";
+  return mode.kind === "edit"
+    ? "Editing message"
+    : resolveComposerCommandModeLabel(mode.commandId);
 }
 
 export function resolveComposerViewState(params: {
@@ -285,6 +263,22 @@ export function resolveComposerViewState(params: {
   const lowercase = shouldUseLowercaseChipVoice(context);
   const profile = resolveComposerProfileContext(context, accountName);
   const heroQuickActions = buildHeroQuickActions(profile, lowercase);
+  const slashCommands = getComposerSlashCommands();
+  const commandPlaceholderPrompts = slashCommands.reduce<
+    Record<(typeof slashCommands)[number]["id"], string[]>
+  >((allPrompts, command) => {
+    allPrompts[command.id] = buildComposerCommandPlaceholderPrompts({
+      commandId: command.id,
+      profile,
+    }).map((prompt) => applyChipVoiceCase(prompt, lowercase));
+    return allPrompts;
+  }, {
+    thread: [],
+    idea: [],
+    post: [],
+    draft: [],
+    reply: [],
+  });
   const heroIdentityLabel =
     context?.creatorProfile.identity.displayName ??
     context?.creatorProfile.identity.username ??
@@ -299,14 +293,12 @@ export function resolveComposerViewState(params: {
     heroInitials,
     heroIdentityLabel,
     heroQuickActions,
-    slashCommands: SLASH_COMMANDS,
+    slashCommands,
+    commandPlaceholderPrompts,
     defaultPlaceholderPrompts: buildDefaultPromptPool(profile).map((prompt) =>
       applyChipVoiceCase(prompt, lowercase),
     ),
-    threadPlaceholderPrompts: buildThreadPromptPool(profile).map((prompt) =>
-      applyChipVoiceCase(prompt, lowercase),
-    ),
-    threadActivePlaceholder: "Ask anything",
+    activeThreadPlaceholder: "Ask anything",
     isNewChatHero,
     shouldCenterHero: isNewChatHero || isLeavingHero,
   };
