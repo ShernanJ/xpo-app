@@ -265,7 +265,8 @@ function collectTopicBullets(args: {
     .map((value) => sanitizeThemeCandidate(value))
     .filter(
       (value): value is string =>
-        Boolean(value) &&
+        typeof value === "string" &&
+        value.length > 0 &&
         (value.includes(" ") || !TOPIC_INSIGHT_STOPWORDS.has(value.toLowerCase())),
     );
 
@@ -278,7 +279,8 @@ function collectTopicBullets(args: {
         )
         .filter(
           (value): value is string =>
-            Boolean(value) &&
+            typeof value === "string" &&
+            value.length > 0 &&
             !/\b(i|my|me|we|our)\b/i.test(value) &&
             !isLowLeverageRecentSignal(value),
         )

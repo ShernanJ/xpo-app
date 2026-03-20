@@ -199,7 +199,7 @@ export async function persistGeneratedExtensionReplyDraft(
     observedAt: null,
     observedMetrics: Prisma.JsonNull,
     publishedTweetId: null,
-  } satisfies Prisma.DraftCandidateUncheckedCreateInput;
+  } satisfies Prisma.DraftCandidateUncheckedUpdateInput;
 
   if (existing) {
     return prisma.draftCandidate.update({
@@ -213,7 +213,7 @@ export async function persistGeneratedExtensionReplyDraft(
       userId: args.userId,
       folderId: null,
       ...baseData,
-    },
+    } satisfies Prisma.DraftCandidateUncheckedCreateInput,
   });
 }
 

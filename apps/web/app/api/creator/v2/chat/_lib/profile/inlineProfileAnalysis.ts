@@ -501,7 +501,9 @@ function buildProfileAnalysisFallback(args: {
             lead: "The current snapshot is too thin to make a confident content-pattern read",
           },
         ];
-  const workingItems = strengths.slice(0, 3).map((strength) => ({ lead: strength }));
+  const workingItems: StructuredSectionItem[] = strengths
+    .slice(0, 3)
+    .map((strength) => ({ lead: strength }));
   if (strongestPost && !isLowLeverageSnippet(strongestPost.text)) {
     const strongestPostMetrics = formatMetricParts(strongestPost.metrics);
     workingItems.push({
