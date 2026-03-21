@@ -16,6 +16,10 @@ import type { SessionConstraint, V2ConversationMemory } from "../contracts/chat"
 import type { CreatorProfileHints } from "../grounding/groundingPacket";
 import type { ProfileReplyContext } from "../grounding/profileReplyContext";
 import type { VoiceStyleCard } from "../core/styleProfile";
+import {
+  createEmptyVoiceProfileContext,
+  type VoiceProfileContext,
+} from "../core/voiceProfileContext";
 import type { RetrievalResult } from "../core/retrieval";
 import type { RuntimeWorkerExecution } from "../runtime/runtimeContracts.ts";
 
@@ -49,6 +53,10 @@ export interface TurnContext {
   sessionConstraints: SessionConstraint[];
   turnPlan: ReturnType<typeof planTurn>;
   
+  voiceProfile: VoiceProfileContext;
+  voiceProfileId: string | null;
+  primaryPersona: VoiceProfileContext["primaryPersona"];
+  goldenExampleCount: number;
   styleCard: VoiceStyleCard | null;
   anchors: RetrievalResult;
   initialWorkerExecutions: RuntimeWorkerExecution[];
@@ -82,6 +90,7 @@ export async function buildTurnContext(
     diagnosticContext,
     preferenceConstraints,
     preloadedRun: inputPreloadedRun,
+    preloadedVoiceProfile,
     preloadedStyleCard,
   } = input;
 
@@ -185,9 +194,27 @@ export async function buildTurnContext(
     effectiveXHandle,
     userMessage,
     topicSummary: memory.topicSummary,
-    preloadedStyleCard,
+    preloadedStyleCard:
+      typeof preloadedStyleCard !== "undefined"
+        ? preloadedStyleCard
+        : preloadedVoiceProfile?.styleCard,
     services,
   });
+  const voiceProfileBase =
+    typeof preloadedVoiceProfile !== "undefined"
+      ? preloadedVoiceProfile ?? createEmptyVoiceProfileContext()
+      : typeof preloadedStyleCard !== "undefined"
+        ? createEmptyVoiceProfileContext({
+            styleCard: preloadedStyleCard,
+          })
+      : await services.getVoiceProfileContext({
+          userId,
+          xHandle: effectiveXHandle,
+        });
+  const voiceProfile: VoiceProfileContext = {
+    ...voiceProfileBase,
+    styleCard,
+  };
 
   return {
     userId,
@@ -217,6 +244,10 @@ export async function buildTurnContext(
     effectiveActiveConstraints,
     sessionConstraints,
     turnPlan,
+    voiceProfile,
+    voiceProfileId: voiceProfile.id,
+    primaryPersona: voiceProfile.primaryPersona,
+    goldenExampleCount: voiceProfile.goldenExampleCount,
     styleCard,
     anchors,
     initialWorkerExecutions,

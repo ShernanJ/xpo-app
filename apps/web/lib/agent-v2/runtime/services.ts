@@ -22,7 +22,15 @@ import {
   updateConversationMemory,
 } from "../memory/memoryStore";
 import { retrieveAnchors } from "../core/retrieval";
-import { generateStyleProfile, saveStyleProfile } from "../core/styleProfile";
+import {
+  generateStyleProfile,
+  saveStyleProfile,
+  StyleCardSchema,
+} from "../core/styleProfile";
+import {
+  createEmptyVoiceProfileContext,
+  type VoiceProfileContext,
+} from "../core/voiceProfileContext";
 import { checkDeterministicNovelty } from "../core/noveltyGate";
 import { loadHistoricalTextWorkers } from "../workers/historicalTextWorkers.ts";
 import {
@@ -62,6 +70,10 @@ export interface ConversationServices {
   retrieveAnchors: typeof retrieveAnchors;
   generateStyleProfile: typeof generateStyleProfile;
   saveStyleProfile: typeof saveStyleProfile;
+  getVoiceProfileContext: (args: {
+    userId: string;
+    xHandle?: string | null;
+  }) => Promise<VoiceProfileContext>;
   checkDeterministicNovelty: typeof checkDeterministicNovelty;
   getOnboardingRun: (runId?: string) => Promise<StoredOnboardingRun | null>;
   loadHistoricalTexts: (args: {
@@ -163,6 +175,44 @@ export function createDefaultConversationServices(): ConversationServices {
     retrieveAnchors,
     generateStyleProfile,
     saveStyleProfile,
+    async getVoiceProfileContext(args: { userId: string; xHandle?: string | null }) {
+      const normalizedHandle = normalizeHandleForContext(args.xHandle);
+      if (!normalizedHandle || normalizedHandle === "default") {
+        return createEmptyVoiceProfileContext();
+      }
+
+      try {
+        const record = await prisma.voiceProfile.findFirst({
+          where: {
+            userId: args.userId,
+            xHandle: normalizedHandle,
+          },
+          select: {
+            id: true,
+            primaryPersona: true,
+            styleCard: true,
+            _count: {
+              select: {
+                goldenExamples: true,
+              },
+            },
+          },
+        });
+        const parsedStyleCard = record?.styleCard
+          ? StyleCardSchema.safeParse(record.styleCard)
+          : null;
+
+        return createEmptyVoiceProfileContext({
+          id: record?.id ?? null,
+          primaryPersona: record?.primaryPersona ?? null,
+          styleCard: parsedStyleCard?.success ? parsedStyleCard.data : null,
+          goldenExampleCount: record?._count.goldenExamples ?? 0,
+        });
+      } catch (error) {
+        console.error("Failed to load voice profile context:", error);
+        return createEmptyVoiceProfileContext();
+      }
+    },
     checkDeterministicNovelty,
     async getOnboardingRun(runId?: string) {
       if (!runId) {

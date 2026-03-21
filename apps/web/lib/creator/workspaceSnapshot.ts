@@ -3,6 +3,10 @@ import {
   type ProfileAuditState,
   type VoiceStyleCard,
 } from "../agent-v2/core/styleProfile";
+import {
+  createEmptyVoiceProfileContext,
+  type VoiceProfileContext,
+} from "../agent-v2/core/voiceProfileContext";
 import { prisma } from "../db";
 import { buildCreatorGenerationContract } from "../onboarding/contracts/generationContract";
 import type { CreatorGenerationContract } from "../onboarding/contracts/generationContract";
@@ -58,6 +62,7 @@ export interface CreatorWorkspaceSnapshotSuccess {
   storedRun: CreatorWorkspaceSnapshotStoredRun;
   onboarding: OnboardingResult;
   tonePreference: TonePreference;
+  voiceProfile: VoiceProfileContext;
   styleCard: VoiceStyleCard | null;
   profileAuditState: ProfileAuditState | null;
   creatorAgentContext: CreatorAgentContext;
@@ -204,13 +209,26 @@ async function loadCreatorWorkspaceSnapshotImpl(
       xHandle: args.xHandle,
     },
     select: {
+      id: true,
+      primaryPersona: true,
       styleCard: true,
+      _count: {
+        select: {
+          goldenExamples: true,
+        },
+      },
     },
   });
   const parsedStyleCard = persistedVoiceProfile?.styleCard
     ? StyleCardSchema.safeParse(persistedVoiceProfile.styleCard)
     : null;
-  const styleCard = parsedStyleCard?.success ? parsedStyleCard.data : null;
+  const voiceProfile = createEmptyVoiceProfileContext({
+    id: persistedVoiceProfile?.id ?? null,
+    primaryPersona: persistedVoiceProfile?.primaryPersona ?? null,
+    styleCard: parsedStyleCard?.success ? parsedStyleCard.data : null,
+    goldenExampleCount: persistedVoiceProfile?._count.goldenExamples ?? 0,
+  });
+  const styleCard = voiceProfile.styleCard;
   const profileAuditState = styleCard?.profileAuditState ?? null;
 
   const creatorAgentContext = buildCreatorAgentContext({
@@ -252,6 +270,7 @@ async function loadCreatorWorkspaceSnapshotImpl(
     storedRun,
     onboarding,
     tonePreference,
+    voiceProfile,
     styleCard,
     profileAuditState,
     creatorAgentContext,

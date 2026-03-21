@@ -32,6 +32,7 @@ import {
   getDurableFactsFromStyleCard,
   type VoiceStyleCard,
 } from "../core/styleProfile";
+import type { VoiceProfileContext } from "../core/voiceProfileContext.ts";
 import { type VoiceTarget } from "../core/voiceTarget";
 import {
   type DraftGroundingMode,
@@ -118,6 +119,7 @@ export interface OrchestratorInput {
   profileReplyContext?: ProfileReplyContext | null;
   diagnosticContext?: ConversationalDiagnosticContext | null;
   preloadedRun?: StoredOnboardingRun | null;
+  preloadedVoiceProfile?: VoiceProfileContext | null;
   preloadedStyleCard?: VoiceStyleCard | null;
 }
 

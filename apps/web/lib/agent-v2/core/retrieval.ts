@@ -1,4 +1,5 @@
 import { prisma } from "../../db.ts";
+import OpenAI from "openai";
 
 export interface RetrievedPostAnchor {
   id: string;
@@ -18,6 +19,20 @@ export interface RetrievalResult {
   formatAnchors: string[];
   rankedAnchors: RetrievedPostAnchor[];
 }
+
+interface GoldenExampleRetrievalDeps {
+  embedPromptIntent: (promptIntent: string) => Promise<number[]>;
+  prismaClient: {
+    $queryRaw: <T = unknown>(
+      query: TemplateStringsArray,
+      ...values: unknown[]
+    ) => Promise<T>;
+  };
+}
+
+const GOLDEN_EXAMPLE_LIMIT_MAX = 5;
+const OPENAI_EMBEDDING_MODEL = "text-embedding-3-small";
+let openAiClient: OpenAI | null = null;
 
 const TOPIC_STOPWORDS = new Set([
   "post",
@@ -56,6 +71,83 @@ const TOPIC_STOPWORDS = new Set([
 
 function normalizeHandle(value: string): string {
   return value.trim().replace(/^@+/, "").toLowerCase();
+}
+
+function getOpenAiApiKey(): string {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is not set");
+  }
+
+  return apiKey;
+}
+
+function getOpenAiClient(): OpenAI {
+  if (!openAiClient) {
+    openAiClient = new OpenAI({
+      apiKey: getOpenAiApiKey(),
+    });
+  }
+
+  return openAiClient;
+}
+
+async function embedPromptIntent(promptIntent: string): Promise<number[]> {
+  const response = await getOpenAiClient().embeddings.create({
+    model: OPENAI_EMBEDDING_MODEL,
+    input: promptIntent,
+  });
+
+  return response.data[0]?.embedding || [];
+}
+
+export async function retrieveGoldenExamplesWithDeps(args: {
+  profileId: string;
+  promptIntent: string;
+  limit?: number;
+  deps?: Partial<GoldenExampleRetrievalDeps>;
+}): Promise<string[]> {
+  const profileId = args.profileId.trim();
+  const promptIntent = args.promptIntent.trim();
+  const limit = Math.max(1, Math.min(args.limit ?? 3, GOLDEN_EXAMPLE_LIMIT_MAX));
+
+  if (!profileId || !promptIntent) {
+    return [];
+  }
+
+  try {
+    const promptEmbedding = await (args.deps?.embedPromptIntent || embedPromptIntent)(promptIntent);
+    if (!Array.isArray(promptEmbedding) || promptEmbedding.length === 0) {
+      return [];
+    }
+
+    const examples = await (args.deps?.prismaClient || prisma).$queryRaw<{ content: string }[]>`
+      SELECT content
+      FROM "GoldenExample"
+      WHERE "profileId" = ${profileId}::uuid
+        AND "embedding" IS NOT NULL
+        AND "embedding" <=> ${JSON.stringify(promptEmbedding)}::vector < 0.45
+      ORDER BY "embedding" <=> ${JSON.stringify(promptEmbedding)}::vector
+      LIMIT ${limit};
+    `;
+
+    return examples.map((row) => row.content);
+  } catch (error) {
+    console.error("Golden Example retrieval failed:", error);
+    return [];
+  }
+}
+
+export async function retrieveGoldenExamples(
+  profileId: string,
+  promptIntent: string,
+  limit: number = 3,
+): Promise<string[]> {
+  return retrieveGoldenExamplesWithDeps({
+    profileId,
+    promptIntent,
+    limit,
+  });
 }
 
 function extractTopicKeywords(focusTopic: string): string[] {

@@ -1,3 +1,4 @@
+import type { Persona } from "../../generated/prisma/client";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { VoiceTarget } from "../core/voiceTarget";
 import type { ThreadFramingStyle } from "../../onboarding/draftArtifacts";
@@ -682,6 +683,8 @@ ${buildPlannerJsonContract({ isThread: formatPreference === "thread" })}
 export interface BuildWriterInstructionArgs {
   plan: StrategyPlan;
   styleCard: VoiceStyleCard | null;
+  primaryPersona?: Persona | null;
+  goldenExamples?: string[] | null;
   topicAnchors: string[];
   referenceAnchorMode?: "historical_posts" | "reference_hints";
   activeConstraints: string[];
@@ -788,11 +791,13 @@ Do NOT turn the product into "another tool", a meetup, a hashtag engine, a growt
     goal,
     conversationState,
     styleCard: args.styleCard,
+    primaryPersona: args.primaryPersona,
     antiPatterns,
     voiceTarget: args.voiceTarget,
     activeConstraints: args.activeConstraints,
     sessionConstraints: args.sessionConstraints,
     creatorProfileHints: args.creatorProfileHints,
+    goldenExamples: args.goldenExamples,
     userContextString: args.userContextString,
     activeTaskSummary: args.options?.activeTaskSummary || null,
     activePlan: args.options?.activePlan || args.plan,

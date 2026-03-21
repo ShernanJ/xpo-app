@@ -22,6 +22,7 @@ import type {
   V2ConversationMemory,
 } from "../../contracts/chat.ts";
 import type { VoiceStyleCard } from "../../core/styleProfile.ts";
+import type { Persona } from "../../../generated/prisma/client";
 import type {
   CapabilityExecutionRequest,
   CapabilityExecutionResult,
@@ -44,6 +45,9 @@ export interface IdeationCapabilityContext {
   memory: V2ConversationMemory;
   effectiveContext: string;
   styleCard: VoiceStyleCard | null;
+  voiceProfileId: string | null;
+  primaryPersona: Persona | null;
+  goldenExampleCount: number;
   relevantTopicAnchors: string[];
   userContextString: string;
   goal: string;
@@ -226,6 +230,9 @@ export async function executeIdeationCapability(
       conversationState: context.memory.conversationState,
       antiPatterns: context.antiPatterns,
       activeConstraints: context.effectiveActiveConstraints,
+      voiceProfileId: context.voiceProfileId,
+      goldenExampleCount: context.goldenExampleCount,
+      primaryPersona: context.primaryPersona,
       activeTaskSummary: context.memory.rollingSummary,
       activePlan: context.memory.pendingPlan,
       latestRefinementInstruction: context.memory.latestRefinementInstruction,

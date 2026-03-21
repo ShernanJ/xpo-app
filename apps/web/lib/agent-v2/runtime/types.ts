@@ -1,5 +1,6 @@
 import type { VoiceTarget } from "../core/voiceTarget";
 import type { VoiceStyleCard } from "../core/styleProfile.ts";
+import type { VoiceProfileContext } from "../core/voiceProfileContext.ts";
 import type {
   CreatorChatQuickReply,
   DraftFormatPreference,
@@ -65,6 +66,7 @@ export interface OrchestratorInput {
   profileReplyContext?: ProfileReplyContext | null;
   diagnosticContext?: ConversationalDiagnosticContext | null;
   preloadedRun?: StoredOnboardingRun | null;
+  preloadedVoiceProfile?: VoiceProfileContext | null;
   preloadedStyleCard?: VoiceStyleCard | null;
 }
 

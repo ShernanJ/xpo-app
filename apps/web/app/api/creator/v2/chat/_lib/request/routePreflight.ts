@@ -7,10 +7,13 @@ import {
   getConversationMemory,
 } from "@/lib/agent-v2/memory/memoryStore";
 import {
-  StyleCardSchema,
   type UserPreferences,
   type VoiceStyleCard,
 } from "@/lib/agent-v2/core/styleProfile";
+import {
+  createEmptyVoiceProfileContext,
+  type VoiceProfileContext,
+} from "@/lib/agent-v2/core/voiceProfileContext";
 import {
   applyGrowthStrategyToCreatorProfileHints,
   buildCreatorProfileHintsFromOnboarding,
@@ -71,6 +74,7 @@ export interface RouteProfileContext {
   creatorAgentContext: ReturnType<typeof buildCreatorAgentContext> | null;
   growthOsPayload: Awaited<ReturnType<typeof buildGrowthOperatingSystemPayload>> | null;
   diagnosticContext: ConversationalDiagnosticContext | null;
+  voiceProfile: VoiceProfileContext;
   styleCard: VoiceStyleCard | null;
   effectiveUserPreferences: UserPreferences | null;
   mergedPreferenceConstraints: string[];
@@ -261,7 +265,13 @@ export async function resolveRouteProfileContext(args: {
           growthOs: growthOsPayload,
         })
       : null;
-  const styleCard = snapshot?.ok ? snapshot.styleCard : null;
+  const voiceProfile = snapshot?.ok
+    ? snapshot.voiceProfile ||
+      createEmptyVoiceProfileContext({
+        styleCard: snapshot.styleCard,
+      })
+    : createEmptyVoiceProfileContext();
+  const styleCard = voiceProfile.styleCard;
 
   const creatorProfileHintsPromise =
     args.storedRun?.id && onboardingResult
@@ -350,6 +360,7 @@ export async function resolveRouteProfileContext(args: {
     creatorAgentContext,
     growthOsPayload,
     diagnosticContext,
+    voiceProfile,
     styleCard,
     effectiveUserPreferences,
     mergedPreferenceConstraints,

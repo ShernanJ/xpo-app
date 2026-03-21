@@ -1,3 +1,4 @@
+import type { Persona } from "../../generated/prisma/client";
 import { fetchStructuredJsonFromGroq } from "./llm.ts";
 import { z } from "zod";
 import type { VoiceStyleCard } from "../core/styleProfile";
@@ -11,6 +12,7 @@ import {
   buildPromptHydrationEnvelope,
 } from "../prompts/promptHydrator";
 import { dedupeAngleTitlesForRetry } from "../core/angleNovelty";
+import { retrieveGoldenExamples } from "../core/retrieval";
 import type { CreatorProfileHints } from "../grounding/groundingPacket";
 
 export const IdeaSchema = z.object({
@@ -27,6 +29,25 @@ export const IdeasMenuSchema = z.object({
 });
 
 export type IdeasMenu = z.infer<typeof IdeasMenuSchema>;
+
+export async function resolveIdeationGoldenExamples(args: {
+  userMessage: string;
+  voiceProfileId?: string | null;
+  goldenExampleCount?: number;
+  deps?: {
+    retrieveGoldenExamples?: typeof retrieveGoldenExamples;
+  };
+}): Promise<string[] | undefined> {
+  const promptIntent = args.userMessage.trim();
+  if (!args.voiceProfileId || (args.goldenExampleCount ?? 0) <= 0 || !promptIntent) {
+    return undefined;
+  }
+
+  return (args.deps?.retrieveGoldenExamples || retrieveGoldenExamples)(
+    args.voiceProfileId,
+    promptIntent,
+  );
+}
 
 const GENERIC_IDEA_QUESTION_FRAGMENTS = [
   "what project are you building",
@@ -491,6 +512,9 @@ export async function generateIdeasMenu(
     activeConstraints?: string[];
     sessionConstraints?: SessionConstraint[];
     creatorProfileHints?: CreatorProfileHints | null;
+    voiceProfileId?: string | null;
+    goldenExampleCount?: number;
+    primaryPersona?: Persona | null;
     activeTaskSummary?: string | null;
     activePlan?: StrategyPlan | null;
     activeDraft?: string;
@@ -512,11 +536,17 @@ export async function generateIdeasMenu(
   const voiceHint = styleCard
     ? `Voice: ${styleCard.pacing}. Openers they use: ${styleCard.sentenceOpenings?.slice(0, 2).join(", ") || "N/A"}.`
     : "No voice profile loaded.";
+  const goldenExamples = await resolveIdeationGoldenExamples({
+    userMessage,
+    voiceProfileId: options?.voiceProfileId,
+    goldenExampleCount: options?.goldenExampleCount,
+  });
   const hydrationEnvelope = buildPromptHydrationEnvelope({
     mode: "ideate",
     goal,
     conversationState,
     styleCard,
+    primaryPersona: options?.primaryPersona,
     antiPatterns,
     activeConstraints:
       options?.sessionConstraints?.map((constraint) => constraint.text) ||
@@ -524,6 +554,7 @@ export async function generateIdeasMenu(
       [],
     sessionConstraints: options?.sessionConstraints,
     creatorProfileHints: options?.creatorProfileHints,
+    goldenExamples,
     userContextString,
     activeTaskSummary: options?.activeTaskSummary,
     activePlan: options?.activePlan || null,

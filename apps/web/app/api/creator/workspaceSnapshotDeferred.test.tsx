@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   shouldDeferLiveScrapesToWorker: vi.fn(),
   enqueueProfileRefreshJobIfNeeded: vi.fn(),
   readLatestOnboardingRunByHandle: vi.fn(),
+  readLatestActiveOnboardingSyncJobForUser: vi.fn(),
   prismaVoiceProfileFindFirst: vi.fn(),
   buildCreatorAgentContext: vi.fn(),
   buildGrowthOperatingSystemPayload: vi.fn(),
@@ -36,6 +37,11 @@ vi.mock("@/lib/onboarding/pipeline/scrapeJob", () => ({
 
 vi.mock("@/lib/onboarding/store/onboardingRunStore", () => ({
   readLatestOnboardingRunByHandle: mocks.readLatestOnboardingRunByHandle,
+}));
+
+vi.mock("@/lib/onboarding/store/onboardingScrapeJobStore", () => ({
+  readLatestActiveOnboardingSyncJobForUser:
+    mocks.readLatestActiveOnboardingSyncJobForUser,
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -80,6 +86,7 @@ beforeEach(() => {
     deduped: false,
   });
   mocks.readLatestOnboardingRunByHandle.mockResolvedValue(null);
+  mocks.readLatestActiveOnboardingSyncJobForUser.mockResolvedValue(null);
   mocks.prismaVoiceProfileFindFirst.mockResolvedValue(null);
   mocks.buildCreatorAgentContext.mockReturnValue({
     growthStrategySnapshot: null,
@@ -400,5 +407,140 @@ describe("loadCreatorWorkspaceSnapshot", () => {
       userId: "user_1",
     });
     expect(mocks.hydrateOnboardingProfileForAnalysis).toHaveBeenCalled();
+  });
+
+  test("returns expanded voice profile context with persona and golden example count", async () => {
+    const onboarding = {
+      account: "stan",
+      source: "scrape" as const,
+      generatedAt: "2026-03-19T00:00:00.000Z",
+      profile: {
+        username: "stan",
+        name: "Stan",
+        bio: "builder",
+        avatarUrl: null,
+        headerImageUrl: null,
+        isVerified: false,
+        followersCount: 1200,
+        followingCount: 140,
+        createdAt: "2020-01-01T00:00:00.000Z",
+      },
+      pinnedPost: null,
+      recentPosts: [],
+      recentReplyPosts: [],
+      recentQuotePosts: [],
+      recentPostSampleCount: 0,
+      replyPostSampleCount: 0,
+      quotePostSampleCount: 0,
+      capturedPostCount: 0,
+      capturedReplyPostCount: 0,
+      capturedQuotePostCount: 0,
+      totalCapturedActivityCount: 0,
+      analysisConfidence: {
+        sampleSize: 0,
+        score: 20,
+        band: "very_low" as const,
+        minimumViableReached: false,
+        recommendedDepthReached: false,
+        backgroundBackfillRecommended: true,
+        targetPostCount: 80,
+        message: "thin sample",
+      },
+      baseline: {
+        averageEngagement: 0,
+        medianEngagement: 0,
+        engagementRate: 0,
+        postingCadencePerWeek: 0,
+        averagePostLength: 0,
+      },
+      growthStage: "1k-10k" as const,
+      contentDistribution: [],
+      hookPatterns: [],
+      bestFormats: [],
+      underperformingFormats: [],
+      strategyState: {
+        growthStage: "1k-10k" as const,
+        goal: "followers" as const,
+        postingCadenceCapacity: "1_per_day" as const,
+        replyBudgetPerDay: "5_15" as const,
+        transformationMode: "preserve" as const,
+        transformationModeSource: "default" as const,
+        recommendedPostsPerWeek: 5,
+        weights: {
+          distribution: 0.35,
+          authority: 0.55,
+          leverage: 0.1,
+        },
+        rationale: "keep compounding",
+      },
+      warnings: [],
+    };
+
+    mocks.safeParse.mockReturnValue({
+      success: true,
+      data: {
+        pacing: "direct",
+        sentenceOpenings: [],
+        sentenceClosers: [],
+        emojiPatterns: [],
+        slangAndVocabulary: [],
+        formattingRules: [],
+        customGuidelines: [],
+        contextAnchors: [],
+        factLedger: {
+          durableFacts: [],
+          allowedFirstPersonClaims: [],
+          allowedNumbers: [],
+          forbiddenClaims: [],
+          sourceMaterials: [],
+        },
+        antiExamples: [],
+        profileAuditState: {
+          lastRunAt: null,
+          needsAudit: false,
+        },
+      },
+    });
+    mocks.prismaVoiceProfileFindFirst.mockResolvedValue({
+      id: "vp_1",
+      primaryPersona: "EDUCATOR",
+      styleCard: { pacing: "direct" },
+      _count: {
+        goldenExamples: 4,
+      },
+    });
+
+    const result = await loadCreatorWorkspaceSnapshot({
+      userId: "user_1",
+      xHandle: "stan",
+      storedRun: {
+        id: "or_123",
+        input: {
+          account: "stan",
+          goal: "followers",
+          timeBudgetMinutes: 30,
+          tone: {
+            casing: "lowercase",
+            risk: "safe",
+          },
+        },
+        result: onboarding,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.voiceProfile).toEqual({
+      id: "vp_1",
+      primaryPersona: "EDUCATOR",
+      styleCard: expect.objectContaining({
+        pacing: "direct",
+      }),
+      goldenExampleCount: 4,
+    });
+    expect(result.styleCard).toEqual(result.voiceProfile.styleCard);
   });
 });

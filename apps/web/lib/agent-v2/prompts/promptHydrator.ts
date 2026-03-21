@@ -1,3 +1,4 @@
+import type { Persona } from "../../generated/prisma/client";
 import type { VoiceStyleCard } from "../core/styleProfile.ts";
 import type { VoiceTarget } from "../core/voiceTarget.ts";
 import {
@@ -21,16 +22,33 @@ function normalizeList(values: string[], fallback: string): string {
 
 type PromptHydrationMode = "coach" | "ideate" | "plan" | "draft" | "critic";
 
+const PERSONA_PROMPT_HINTS: Record<Persona, string> = {
+  EDUCATOR:
+    "You are an educator. Prioritize clear, actionable breakdowns and high-signal teaching.",
+  CURATOR:
+    "You are a curator. Synthesize patterns, distill what matters, and frame ideas through sharp selection and commentary.",
+  ENTERTAINER:
+    "You are an entertainer. Focus on observational humor, irony, and casual pacing.",
+  DOCUMENTARIAN:
+    "You are a documentarian. Lean on build-in-public details, behind-the-scenes process, and real operating lessons.",
+  PROVOCATEUR:
+    "You are a provocateur. Lean into contrarian angles, bold claims, and debate-sparking hooks.",
+  CASUAL:
+    "You are casual. Keep the tone conversational, low-friction, and human.",
+};
+
 export interface PromptHydrationEnvelopeArgs {
   mode: PromptHydrationMode;
   goal: string;
   conversationState: ConversationState;
   styleCard: VoiceStyleCard | null;
+  primaryPersona?: Persona | null;
   antiPatterns: string[];
   voiceTarget?: VoiceTarget | null;
   activeConstraints?: string[];
   sessionConstraints?: SessionConstraint[];
   creatorProfileHints?: CreatorProfileHints | null;
+  goldenExamples?: string[] | null;
   userContextString?: string;
   activeTaskSummary?: string | null;
   activePlan?: StrategyPlan | null;
@@ -106,10 +124,15 @@ function buildResolvedStylePayload(args: {
 }
 
 function buildTargetPersonaValue(args: {
+  primaryPersona?: Persona | null;
   creatorProfileHints?: CreatorProfileHints | null;
   userContextString?: string;
 }): string {
   const personaLines: string[] = [];
+
+  if (args.primaryPersona) {
+    personaLines.push(PERSONA_PROMPT_HINTS[args.primaryPersona]);
+  }
 
   if (args.creatorProfileHints?.knownFor) {
     personaLines.push(`Known for: ${args.creatorProfileHints.knownFor}`);
@@ -208,12 +231,21 @@ function buildSessionConstraintsXml(args: {
 }
 
 function buildGoldenExamplesXml(
-  creatorProfileHints?: CreatorProfileHints | null,
+  args: {
+    creatorProfileHints?: CreatorProfileHints | null;
+    goldenExamples?: string[] | null;
+  },
 ): string {
-  const examples = creatorProfileHints?.topExampleSnippets
-    ?.map((example) => example.trim())
-    .filter(Boolean)
-    .slice(0, 3) || [];
+  const examples =
+    typeof args.goldenExamples !== "undefined"
+      ? (args.goldenExamples || [])
+          .map((example) => example.trim())
+          .filter(Boolean)
+          .slice(0, 3)
+      : (args.creatorProfileHints?.topExampleSnippets || [])
+          .map((example) => example.trim())
+          .filter(Boolean)
+          .slice(0, 3);
 
   if (examples.length === 0) {
     return "<golden_examples></golden_examples>";
@@ -243,6 +275,7 @@ export function buildPromptHydrationEnvelope(
     buildAntiPatternBlock(args.antiPatterns),
   );
   const targetPersona = buildTargetPersonaValue({
+    primaryPersona: args.primaryPersona,
     creatorProfileHints: args.creatorProfileHints,
     userContextString: args.userContextString,
   });
@@ -279,7 +312,10 @@ export function buildPromptHydrationEnvelope(
       .split("\n")
       .map((line) => `  ${line}`)
       .join("\n"),
-    buildGoldenExamplesXml(args.creatorProfileHints)
+    buildGoldenExamplesXml({
+      creatorProfileHints: args.creatorProfileHints,
+      goldenExamples: args.goldenExamples,
+    })
       .split("\n")
       .map((line) => `  ${line}`)
       .join("\n"),

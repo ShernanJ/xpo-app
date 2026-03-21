@@ -1,7 +1,9 @@
+import type { Persona } from "../../generated/prisma/client";
 import { fetchStructuredJsonFromGroq } from "./llm.ts";
 import { z } from "zod";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { VoiceTarget } from "../core/voiceTarget";
+import { retrieveGoldenExamples } from "../core/retrieval";
 import type { PlannerOutput } from "./planner";
 import type { ThreadFramingStyle } from "../../onboarding/draftArtifacts";
 import type {
@@ -29,6 +31,29 @@ export const WriterOutputSchema = z.object({
 
 export type WriterOutput = z.infer<typeof WriterOutputSchema>;
 
+export async function resolveWriterGoldenExamples(args: {
+  plan: PlannerOutput;
+  sourceUserMessage?: string;
+  voiceProfileId?: string | null;
+  goldenExampleCount?: number;
+  deps?: {
+    retrieveGoldenExamples?: typeof retrieveGoldenExamples;
+  };
+}): Promise<string[] | undefined> {
+  const promptIntent = (
+    args.sourceUserMessage || [args.plan.objective, args.plan.angle].join(" ")
+  ).trim();
+
+  if (!args.voiceProfileId || (args.goldenExampleCount ?? 0) <= 0 || !promptIntent) {
+    return undefined;
+  }
+
+  return (args.deps?.retrieveGoldenExamples || retrieveGoldenExamples)(
+    args.voiceProfileId,
+    promptIntent,
+  );
+}
+
 /**
  * High capability draft writer. Takes the constraints from the Planner and the StyleCard
  * from the Profile to generate exactly 1 focused draft.
@@ -53,6 +78,9 @@ export async function generateDrafts(
     voiceTarget?: VoiceTarget | null;
     referenceAnchorMode?: "historical_posts" | "reference_hints";
     threadFramingStyle?: ThreadFramingStyle | null;
+    voiceProfileId?: string | null;
+    goldenExampleCount?: number;
+    primaryPersona?: Persona | null;
     activePlan?: StrategyPlan | null;
     latestRefinementInstruction?: string | null;
     lastIdeationAngles?: string[];
@@ -68,9 +96,17 @@ export async function generateDrafts(
       options?.sourceUserMessage || [plan.objective, plan.angle].join(" "),
     formatIntent: options?.formatIntent || plan.formatIntent,
   });
+  const goldenExamples = await resolveWriterGoldenExamples({
+    plan,
+    sourceUserMessage: options?.sourceUserMessage,
+    voiceProfileId: options?.voiceProfileId,
+    goldenExampleCount: options?.goldenExampleCount,
+  });
   const instruction = buildWriterInstruction({
     plan,
     styleCard,
+    primaryPersona: options?.primaryPersona,
+    goldenExamples,
     topicAnchors,
     referenceAnchorMode: options?.referenceAnchorMode,
     activeConstraints,

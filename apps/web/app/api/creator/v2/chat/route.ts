@@ -1066,6 +1066,7 @@ async function handleChatRouteRequest(args: {
     creatorAgentContext,
     growthOsPayload,
     diagnosticContext,
+    voiceProfile,
     styleCard,
     effectiveUserPreferences,
     mergedPreferenceConstraints,
@@ -1688,6 +1689,7 @@ async function handleChatRouteRequest(args: {
       profileReplyContext,
       diagnosticContext: effectiveDiagnosticContext,
       preloadedRun: storedRun,
+      preloadedVoiceProfile: voiceProfile,
       preloadedStyleCard: styleCard,
     });
     routingTrace.timings = {
