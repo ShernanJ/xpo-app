@@ -67,6 +67,59 @@ interface OnboardingRunFailure {
 
 type OnboardingRunResponse = OnboardingRunSuccess | OnboardingRunFailure;
 
+interface ScrapeCaptureDebugSuccess {
+  ok: true;
+  capture: unknown;
+}
+
+interface ScrapeCaptureDebugFailure {
+  ok: false;
+  error?: string;
+  errors?: ValidationError[];
+}
+
+type ScrapeCaptureDebugResponse =
+  | ScrapeCaptureDebugSuccess
+  | ScrapeCaptureDebugFailure;
+
+type ScrapeDebugAction = "recent_sync" | "deep_backfill";
+
+interface ScrapeDebugActionSuccess {
+  ok: true;
+  action: ScrapeDebugAction;
+  capture: unknown | null;
+  notice: string;
+}
+
+interface ScrapeDebugActionFailure {
+  ok: false;
+  error?: string;
+  errors?: ValidationError[];
+}
+
+type ScrapeDebugActionResponse = ScrapeDebugActionSuccess | ScrapeDebugActionFailure;
+
+function getValidationErrorMessage(
+  payload:
+    | {
+        error?: string;
+        errors?: ValidationError[];
+      }
+    | null
+    | undefined,
+  fallback: string,
+): string {
+  if (payload?.errors && Array.isArray(payload.errors) && payload.errors[0]?.message) {
+    return payload.errors[0].message;
+  }
+
+  if (typeof payload?.error === "string" && payload.error.trim().length > 0) {
+    return payload.error;
+  }
+
+  return fallback;
+}
+
 export const CHAT_ONBOARDING_LOADING_STEPS = [
   "collecting the account...",
   "reading how they write...",
@@ -109,9 +162,19 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
   const [addAccountPreview, setAddAccountPreview] = useState<XPublicProfile | null>(null);
   const [isAddAccountPreviewLoading, setIsAddAccountPreviewLoading] = useState(false);
   const [isAddAccountSubmitting, setIsAddAccountSubmitting] = useState(false);
+  const [removingHandle, setRemovingHandle] = useState<string | null>(null);
+  const [isScrapeDebugDialogOpen, setIsScrapeDebugDialogOpen] = useState(false);
+  const [scrapeDebugHandle, setScrapeDebugHandle] = useState<string | null>(null);
+  const [scrapeDebugCapture, setScrapeDebugCapture] = useState<unknown | null>(null);
+  const [isScrapeDebugLoading, setIsScrapeDebugLoading] = useState(false);
+  const [scrapeDebugActionInFlight, setScrapeDebugActionInFlight] =
+    useState<ScrapeDebugAction | null>(null);
+  const [scrapeDebugError, setScrapeDebugError] = useState<string | null>(null);
+  const [scrapeDebugNotice, setScrapeDebugNotice] = useState<string | null>(null);
   const [addAccountLoadingStepIndex, setAddAccountLoadingStepIndex] = useState(0);
   const [addAccountError, setAddAccountError] = useState<string | null>(null);
   const [readyAccountHandle, setReadyAccountHandle] = useState<string | null>(null);
+  const showScrapeDebugControls = process.env.NODE_ENV !== "production";
 
   const normalizedAddAccount = useMemo(
     () => normalizeAccountHandle(addAccountInput),
@@ -323,6 +386,185 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
     refreshSession,
   ]);
 
+  const removeHandle = useCallback(
+    async (handle: string) => {
+      const normalizedHandle = normalizeAccountHandle(handle);
+      const activeHandle = normalizeAccountHandle(accountName ?? "");
+
+      if (!normalizedHandle || normalizedHandle === activeHandle) {
+        return;
+      }
+
+      setRemovingHandle(normalizedHandle);
+      onErrorMessage(null);
+
+      try {
+        const response = await fetch("/api/creator/profile/handles", {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ handle: normalizedHandle }),
+        });
+        const payload = (await response.json().catch(() => null)) as
+          | {
+              ok?: boolean;
+              error?: string;
+              data?: {
+                handles?: string[];
+              };
+            }
+          | null;
+
+        if (!response.ok || !payload?.ok) {
+          throw new Error(payload?.error || `Could not remove @${normalizedHandle}.`);
+        }
+
+        setAvailableHandles(payload.data?.handles ?? []);
+      } catch (error) {
+        console.error(error);
+        onErrorMessage(
+          error instanceof Error ? error.message : `Could not remove @${normalizedHandle}.`,
+        );
+      } finally {
+        setRemovingHandle(null);
+      }
+    },
+    [accountName, normalizeAccountHandle, onErrorMessage, setAvailableHandles],
+  );
+
+  const reloadScrapeDebugCapture = useCallback(async () => {
+    if (!showScrapeDebugControls || !scrapeDebugHandle) {
+      return;
+    }
+
+    setIsScrapeDebugLoading(true);
+    setScrapeDebugError(null);
+
+    try {
+      const response = await window.fetch(
+        `/api/creator/profile/scrape?xHandle=${encodeURIComponent(scrapeDebugHandle)}`,
+      );
+      const payload = (await response.json().catch(() => null)) as ScrapeCaptureDebugResponse | null;
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(
+          getValidationErrorMessage(
+            payload && !payload.ok ? payload : null,
+            `Could not load scrape capture for @${scrapeDebugHandle}.`,
+          ),
+        );
+      }
+
+      setScrapeDebugCapture(payload.capture);
+    } catch (error) {
+      console.error(error);
+      setScrapeDebugCapture(null);
+      setScrapeDebugError(
+        error instanceof Error
+          ? error.message
+          : `Could not load scrape capture for @${scrapeDebugHandle}.`,
+      );
+    } finally {
+      setIsScrapeDebugLoading(false);
+    }
+  }, [scrapeDebugHandle, showScrapeDebugControls]);
+
+  useEffect(() => {
+    if (!isScrapeDebugDialogOpen || !scrapeDebugHandle) {
+      return;
+    }
+
+    void reloadScrapeDebugCapture();
+  }, [isScrapeDebugDialogOpen, reloadScrapeDebugCapture, scrapeDebugHandle]);
+
+  const openScrapeDebug = useCallback(
+    (handle: string) => {
+      if (!showScrapeDebugControls) {
+        return;
+      }
+
+      const normalizedHandle = normalizeAccountHandle(handle);
+      if (!normalizedHandle) {
+        return;
+      }
+
+      setScrapeDebugHandle(normalizedHandle);
+      setScrapeDebugCapture(null);
+      setScrapeDebugError(null);
+      setScrapeDebugNotice(null);
+      setIsScrapeDebugDialogOpen(true);
+    },
+    [normalizeAccountHandle, showScrapeDebugControls],
+  );
+
+  const closeScrapeDebug = useCallback((open: boolean) => {
+    setIsScrapeDebugDialogOpen(open);
+    if (open) {
+      return;
+    }
+
+    setScrapeDebugActionInFlight(null);
+    setScrapeDebugError(null);
+    setScrapeDebugNotice(null);
+  }, []);
+
+  const runScrapeDebugAction = useCallback(
+    async (action: ScrapeDebugAction) => {
+      if (!showScrapeDebugControls || !scrapeDebugHandle) {
+        return;
+      }
+
+      setScrapeDebugActionInFlight(action);
+      setScrapeDebugError(null);
+      setScrapeDebugNotice(null);
+
+      try {
+        const response = await window.fetch("/api/creator/profile/scrape/debug", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action,
+            xHandle: scrapeDebugHandle,
+          }),
+        });
+        const payload = (await response.json().catch(() => null)) as ScrapeDebugActionResponse | null;
+
+        if (!response.ok || !payload?.ok) {
+          throw new Error(
+            getValidationErrorMessage(
+              payload && !payload.ok ? payload : null,
+              `Could not run ${action} for @${scrapeDebugHandle}.`,
+            ),
+          );
+        }
+
+        setScrapeDebugCapture(payload.capture);
+        setScrapeDebugNotice(payload.notice);
+      } catch (error) {
+        console.error(error);
+        setScrapeDebugError(
+          error instanceof Error
+            ? error.message
+            : `Could not run ${action} for @${scrapeDebugHandle}.`,
+        );
+      } finally {
+        setScrapeDebugActionInFlight(null);
+      }
+    },
+    [scrapeDebugHandle, showScrapeDebugControls],
+  );
+
+  const runRecentScrapeDebugSync = useCallback(async () => {
+    await runScrapeDebugAction("recent_sync");
+  }, [runScrapeDebugAction]);
+
+  const runDeepBackfillDebug = useCallback(async () => {
+    await runScrapeDebugAction("deep_backfill");
+  }, [runScrapeDebugAction]);
+
   const handleAddAccountSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -428,7 +670,22 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
     normalizedAddAccount,
     hasValidAddAccountPreview,
     loadingSteps: CHAT_ONBOARDING_LOADING_STEPS,
+    removingHandle,
+    showScrapeDebugControls,
+    isScrapeDebugDialogOpen,
+    scrapeDebugHandle,
+    scrapeDebugCapture,
+    isScrapeDebugLoading,
+    scrapeDebugActionInFlight,
+    scrapeDebugError,
+    scrapeDebugNotice,
     switchActiveHandle,
+    removeHandle,
+    openScrapeDebug,
+    setScrapeDebugDialogOpen: closeScrapeDebug,
+    reloadScrapeDebugCapture,
+    runRecentScrapeDebugSync,
+    runDeepBackfillDebug,
     openAddAccountModal,
     closeAddAccountModal,
     handleAddAccountSubmit,

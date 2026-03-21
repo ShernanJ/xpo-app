@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getServerSession } from "@/lib/auth/serverSession";
+import { listWorkspaceHandlesForUser } from "@/lib/workspaceHandle.server";
+import { normalizeWorkspaceHandle } from "@/lib/workspaceHandle";
 import {
   enforceSessionMutationRateLimit,
   parseJsonBody,
@@ -14,39 +16,10 @@ export async function GET() {
   }
 
   try {
-    // Determine the handles this user has engaged with based on Voice Profiles
-    // 1. Fetch from VoiceProfiles
-    const userProfiles = await prisma.voiceProfile.findMany({
-      where: { userId: session.user.id },
-      select: { xHandle: true },
+    const handles = await listWorkspaceHandlesForUser({
+      userId: session.user.id,
+      sessionActiveHandle: session.user.activeXHandle,
     });
-
-    // 2. Fetch from OnboardingRuns (since users might have scraped without chatting yet)
-    const onboardingRuns = await prisma.onboardingRun.findMany({
-      where: { userId: session.user.id },
-      select: { input: true },
-    });
-
-    // Extract handles from Onboarding JSON inputs
-    const onboardingHandles = onboardingRuns
-      .map((run) => {
-        const input = run.input as { account?: string } | null;
-        return input?.account ? input.account.replace(/^@/, "").toLowerCase() : null;
-      })
-      .filter(Boolean);
-
-    // Create a distinct list combining both sources
-    const profileHandles = userProfiles
-      .map((p) => p.xHandle)
-      .filter((h): h is string => h !== null);
-    const activeHandle = session.user.activeXHandle?.replace(/^@/, "").toLowerCase() ?? null;
-    const handles = Array.from(
-      new Set([
-        ...profileHandles,
-        ...onboardingHandles,
-        ...(activeHandle ? [activeHandle] : []),
-      ]),
-    );
 
     return NextResponse.json({ ok: true, data: { handles } });
   } catch (error) {
@@ -105,6 +78,131 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("Failed to update active handle:", error);
+    return NextResponse.json({ ok: false, error: "Internal Server Error" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  const originError = requireAllowedOrigin(req);
+  if (originError) {
+    return originError;
+  }
+
+  const session = await getServerSession();
+  if (!session?.user?.id) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  const rateLimitError = await enforceSessionMutationRateLimit(req, {
+    userId: session.user.id,
+    scope: "creator:profile_handles",
+    user: {
+      limit: 20,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many handle updates. Please wait before trying again.",
+    },
+    ip: {
+      limit: 50,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many handle updates from this network. Please wait before trying again.",
+    },
+  });
+  if (rateLimitError) {
+    return rateLimitError;
+  }
+
+  try {
+    const bodyResult = await parseJsonBody<{ handle?: unknown }>(req, {
+      maxBytes: 4 * 1024,
+    });
+    if (!bodyResult.ok) {
+      return bodyResult.response;
+    }
+
+    const normalizedHandle =
+      typeof bodyResult.value.handle === "string"
+        ? normalizeWorkspaceHandle(bodyResult.value.handle)
+        : null;
+
+    if (!normalizedHandle) {
+      return NextResponse.json({ ok: false, error: "Handle is required" }, { status: 400 });
+    }
+
+    const activeHandle = normalizeWorkspaceHandle(session.user.activeXHandle ?? null);
+    if (normalizedHandle === activeHandle) {
+      return NextResponse.json(
+        { ok: false, error: "The active handle cannot be removed from settings." },
+        { status: 400 },
+      );
+    }
+
+    const attachedHandles = await listWorkspaceHandlesForUser({
+      userId: session.user.id,
+      sessionActiveHandle: session.user.activeXHandle,
+    });
+    if (!attachedHandles.includes(normalizedHandle)) {
+      return NextResponse.json({ ok: false, error: "Handle not found." }, { status: 404 });
+    }
+
+    const onboardingRuns = await prisma.onboardingRun.findMany({
+      where: { userId: session.user.id },
+      select: { id: true, input: true },
+    });
+    const onboardingRunIds = onboardingRuns
+      .filter((run) => {
+        const input = run.input as { account?: string } | null;
+        return normalizeWorkspaceHandle(input?.account ?? null) === normalizedHandle;
+      })
+      .map((run) => run.id);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.productEvent.deleteMany({
+        where: { userId: session.user.id, xHandle: normalizedHandle },
+      });
+      await tx.replyGoldenExample.deleteMany({
+        where: { userId: session.user.id, xHandle: normalizedHandle },
+      });
+      await tx.replyOpportunity.deleteMany({
+        where: { userId: session.user.id, xHandle: normalizedHandle },
+      });
+      await tx.feedbackSubmission.deleteMany({
+        where: { userId: session.user.id, xHandle: normalizedHandle },
+      });
+      await tx.sourceMaterialAsset.deleteMany({
+        where: { userId: session.user.id, xHandle: normalizedHandle },
+      });
+      await tx.voiceProfile.deleteMany({
+        where: { userId: session.user.id, xHandle: normalizedHandle },
+      });
+      await tx.post.deleteMany({
+        where: { userId: session.user.id, xHandle: normalizedHandle },
+      });
+      await tx.draftCandidate.deleteMany({
+        where: { userId: session.user.id, xHandle: normalizedHandle },
+      });
+      await tx.chatThread.deleteMany({
+        where: { userId: session.user.id, xHandle: normalizedHandle },
+      });
+
+      if (onboardingRunIds.length > 0) {
+        await tx.onboardingRun.deleteMany({
+          where: {
+            id: {
+              in: onboardingRunIds,
+            },
+          },
+        });
+      }
+    });
+
+    const handles = await listWorkspaceHandlesForUser({
+      userId: session.user.id,
+      sessionActiveHandle: session.user.activeXHandle,
+    });
+
+    return NextResponse.json({ ok: true, data: { handles } });
+  } catch (error) {
+    console.error("Failed to remove handle:", error);
     return NextResponse.json({ ok: false, error: "Internal Server Error" }, { status: 500 });
   }
 }

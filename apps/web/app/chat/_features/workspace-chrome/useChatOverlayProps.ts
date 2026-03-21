@@ -98,6 +98,23 @@ export interface UseChatOverlayPropsOptions {
   settingsCreditsUsed: number;
   settingsCreditLimit: number;
   settingsCreditsRemainingPercent: number | null;
+  availableHandles: string[];
+  accountName: string | null;
+  removingHandle: string | null;
+  removeHandle: (handle: string) => Promise<void>;
+  showScrapeDebugControls: boolean;
+  openScrapeDebug: (handle: string) => void;
+  scrapeDebugDialogOpen: boolean;
+  setScrapeDebugDialogOpen: (open: boolean) => void;
+  scrapeDebugHandle: string | null;
+  scrapeDebugCapture: unknown | null;
+  isScrapeDebugLoading: boolean;
+  scrapeDebugActionInFlight: "recent_sync" | "deep_backfill" | null;
+  scrapeDebugError: string | null;
+  scrapeDebugNotice: string | null;
+  reloadScrapeDebugCapture: () => Promise<void>;
+  runRecentScrapeDebugSync: () => Promise<void>;
+  runDeepBackfillDebug: () => Promise<void>;
   pricingModalOpen: boolean;
   handlePricingModalOpenChange: (open: boolean) => void;
   pricingModalDismissLabel: string;
@@ -147,7 +164,6 @@ export interface UseChatOverlayPropsOptions {
   handleFeedbackDropZoneDragLeave: DragEventHandler<HTMLDivElement>;
   handleFeedbackDropZoneDrop: DragEventHandler<HTMLDivElement>;
   removeFeedbackImage: (imageId: string) => void;
-  accountName: string | null;
   activeThreadId: string | null;
   feedbackHistory: FeedbackHistoryItem[];
   feedbackHistoryFilter: FeedbackReportFilter;
@@ -381,6 +397,31 @@ export function useChatOverlayProps(
           settingsCreditsUsed: options.settingsCreditsUsed,
           settingsCreditLimit: options.settingsCreditLimit,
           settingsCreditsRemainingPercent: options.settingsCreditsRemainingPercent,
+          accountName: options.accountName,
+          availableHandles: options.availableHandles,
+          removingHandle: options.removingHandle,
+          onRemoveHandle: options.removeHandle,
+          showScrapeDebugControls: options.showScrapeDebugControls,
+          onOpenScrapeDebug: options.openScrapeDebug,
+        },
+        scrapeDebugDialogProps: {
+          open: options.scrapeDebugDialogOpen,
+          onOpenChange: options.setScrapeDebugDialogOpen,
+          handle: options.scrapeDebugHandle,
+          capture: options.scrapeDebugCapture,
+          isLoading: options.isScrapeDebugLoading,
+          actionInFlight: options.scrapeDebugActionInFlight,
+          errorMessage: options.scrapeDebugError,
+          notice: options.scrapeDebugNotice,
+          onReload: () => {
+            void options.reloadScrapeDebugCapture();
+          },
+          onRunRecentSync: () => {
+            void options.runRecentScrapeDebugSync();
+          },
+          onRunDeepBackfill: () => {
+            void options.runDeepBackfillDebug();
+          },
         },
         pricingDialogProps: {
           open: options.pricingModalOpen,

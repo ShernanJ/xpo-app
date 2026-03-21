@@ -3,6 +3,7 @@
 import type { ComponentProps } from "react";
 
 import { PricingDialog } from "./PricingDialog";
+import { ScrapeDebugDialog } from "./ScrapeDebugDialog";
 import { SettingsDialog } from "./SettingsDialog";
 
 export interface BillingDialogsProps {
@@ -18,6 +19,7 @@ export interface BillingDialogsProps {
     ComponentProps<typeof SettingsDialog>,
     "monetizationEnabled" | "supportEmail" | "onSignOut"
   >;
+  scrapeDebugDialogProps: ComponentProps<typeof ScrapeDebugDialog>;
 }
 
 export function BillingDialogs(props: BillingDialogsProps) {
@@ -28,6 +30,7 @@ export function BillingDialogs(props: BillingDialogsProps) {
     onSignOut,
     pricingDialogProps,
     settingsDialogProps,
+    scrapeDebugDialogProps,
   } = props;
 
   return (
@@ -38,6 +41,8 @@ export function BillingDialogs(props: BillingDialogsProps) {
         supportEmail={supportEmail}
         onSignOut={onSignOut}
       />
+
+      <ScrapeDebugDialog {...scrapeDebugDialogProps} />
 
       {monetizationEnabled ? (
         <PricingDialog

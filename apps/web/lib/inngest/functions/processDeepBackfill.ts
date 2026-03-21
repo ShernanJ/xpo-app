@@ -126,6 +126,7 @@ export const processDeepBackfill = inngest.createFunction(
     concurrency: [
       {
         limit: 2,
+        key: '"deep-backfill"',
         scope: "env",
       },
       {

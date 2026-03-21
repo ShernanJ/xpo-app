@@ -353,7 +353,22 @@ function ChatPageContent() {
     normalizedAddAccount,
     hasValidAddAccountPreview,
     loadingSteps: addAccountLoadingSteps,
+    removingHandle,
+    showScrapeDebugControls,
+    isScrapeDebugDialogOpen,
+    scrapeDebugHandle,
+    scrapeDebugCapture,
+    isScrapeDebugLoading,
+    scrapeDebugActionInFlight,
+    scrapeDebugError,
+    scrapeDebugNotice,
     switchActiveHandle,
+    removeHandle,
+    openScrapeDebug,
+    setScrapeDebugDialogOpen,
+    reloadScrapeDebugCapture,
+    runRecentScrapeDebugSync,
+    runDeepBackfillDebug,
     openAddAccountModal,
     closeAddAccountModal,
     handleAddAccountSubmit,
@@ -2232,6 +2247,22 @@ function ChatPageContent() {
         settingsCreditsUsed={settingsCreditsUsed}
         settingsCreditLimit={settingsCreditLimit}
         settingsCreditsRemainingPercent={settingsCreditsRemainingPercent}
+        availableHandles={availableHandles}
+        removingHandle={removingHandle}
+        removeHandle={removeHandle}
+        showScrapeDebugControls={showScrapeDebugControls}
+        openScrapeDebug={openScrapeDebug}
+        scrapeDebugDialogOpen={isScrapeDebugDialogOpen}
+        setScrapeDebugDialogOpen={setScrapeDebugDialogOpen}
+        scrapeDebugHandle={scrapeDebugHandle}
+        scrapeDebugCapture={scrapeDebugCapture}
+        isScrapeDebugLoading={isScrapeDebugLoading}
+        scrapeDebugActionInFlight={scrapeDebugActionInFlight}
+        scrapeDebugError={scrapeDebugError}
+        scrapeDebugNotice={scrapeDebugNotice}
+        reloadScrapeDebugCapture={reloadScrapeDebugCapture}
+        runRecentScrapeDebugSync={runRecentScrapeDebugSync}
+        runDeepBackfillDebug={runDeepBackfillDebug}
         pricingModalOpen={pricingModalOpen}
         handlePricingModalOpenChange={handlePricingModalOpenChange}
         pricingModalDismissLabel={pricingModalDismissLabel}

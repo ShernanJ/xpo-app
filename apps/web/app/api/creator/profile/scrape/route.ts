@@ -468,3 +468,56 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export async function GET(request: NextRequest) {
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json(
+      {
+        ok: false,
+        errors: parseRequestError("account", "Not found."),
+      },
+      { status: 404 },
+    );
+  }
+
+  const session = await getServerSession();
+  if (!session?.user?.id) {
+    return NextResponse.json(
+      {
+        ok: false,
+        errors: parseRequestError("account", "Unauthorized or no active handle selected."),
+      },
+      { status: 401 },
+    );
+  }
+
+  const workspaceHandle = await resolveWorkspaceHandleForRequest({
+    request,
+    session,
+  });
+  if (!workspaceHandle.ok) {
+    return workspaceHandle.response;
+  }
+
+  const capture = await readLatestScrapeCaptureByAccount(workspaceHandle.xHandle);
+  if (!capture) {
+    return NextResponse.json(
+      {
+        ok: false,
+        errors: parseRequestError(
+          "account",
+          `No scrape capture found for @${workspaceHandle.xHandle}.`,
+        ),
+      },
+      { status: 404 },
+    );
+  }
+
+  return NextResponse.json(
+    {
+      ok: true,
+      capture,
+    },
+    { status: 200 },
+  );
+}
