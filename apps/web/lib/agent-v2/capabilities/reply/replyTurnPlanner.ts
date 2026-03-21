@@ -204,17 +204,38 @@ export function resolveReplyTurnState(args: {
   const replyStrategy = args.creatorAgentContext
     ? args.creatorAgentContext.growthStrategySnapshot
     : buildFallbackGrowthStrategySnapshot(args.activeHandle);
+  const directReplyRequestFromStructuredContext =
+    args.artifactContext?.kind === "reply_request" && args.structuredReplyContext
+      ? parseEmbeddedReplyRequest({
+          message: "write me a reply",
+          replyContext: args.structuredReplyContext,
+        })
+      : null;
   const directReplyRequestContext =
     args.artifactContext?.kind === "reply_request" && args.effectiveMessage.trim()
-      ? {
-          sourceText: args.effectiveMessage.trim(),
-          sourceUrl: null,
-          authorHandle: null,
-          sourceContext: null,
-          quotedUserAsk: null,
-          confidence: "high" as const,
-          parseReason: "structured_reply_request",
-        }
+      ? directReplyRequestFromStructuredContext?.classification ===
+          "reply_request_with_embedded_post" &&
+        directReplyRequestFromStructuredContext.context
+        ? {
+            ...directReplyRequestFromStructuredContext.context,
+            quotedUserAsk: null,
+            confidence: "high" as const,
+            parseReason: "structured_reply_request",
+          }
+        : {
+            sourceText: args.effectiveMessage.trim(),
+            sourceUrl: isStandaloneXStatusUrl(args.effectiveMessage.trim())
+              ? args.effectiveMessage.trim()
+              : null,
+            authorHandle:
+              args.structuredReplyContext?.authorHandle?.trim().replace(/^@+/, "") || null,
+            sourceContext: null,
+            quotedUserAsk: null,
+            confidence: "high" as const,
+            parseReason: isStandaloneXStatusUrl(args.effectiveMessage.trim())
+              ? "structured_reply_request_url"
+              : "structured_reply_request",
+          }
       : null;
   const replyParseResult = directReplyRequestContext
     ? {

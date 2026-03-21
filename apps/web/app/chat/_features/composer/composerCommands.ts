@@ -27,6 +27,11 @@ interface ComposerCommandRequest {
     | "edit";
   formatPreferenceOverride?: DraftFormatPreference | null;
   artifactContext?: ChatArtifactContext | null;
+  replyContext?: {
+    sourceText?: string | null;
+    sourceUrl?: string | null;
+    authorHandle?: string | null;
+  } | null;
 }
 
 export type ComposerCommandSubmitResult =
@@ -244,6 +249,17 @@ export function resolveComposerCommandSubmitResult(args: {
             kind: "reply_request",
             responseMode: "direct_draft",
           },
+          replyContext: isStandaloneXStatusUrl(trimmedInput)
+            ? {
+                sourceText: null,
+                sourceUrl: trimmedInput,
+                authorHandle: null,
+              }
+            : {
+                sourceText: trimmedInput,
+                sourceUrl: null,
+                authorHandle: null,
+              },
         },
       };
     default:

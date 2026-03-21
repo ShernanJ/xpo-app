@@ -285,3 +285,27 @@ test("prepareAssistantReplyTransport infers reply workflow from direct-draft rep
   assert.equal(prepared.transportRequest?.artifactContext?.kind, "reply_request");
   assert.equal(prepared.pendingStatusPlan?.workflow, "reply_to_post");
 });
+
+test("prepareAssistantReplyTransport carries structured reply context for direct slash reply requests", () => {
+  const prepared = prepareAssistantReplyTransport({
+    prompt: "https://x.com/naval/status/123456789",
+    history: [],
+    runId: "run-4",
+    threadId: "thread-4",
+    workspaceHandle: "stan",
+    artifactContext: {
+      kind: "reply_request",
+      responseMode: "direct_draft",
+    },
+    replyContext: {
+      sourceUrl: "https://x.com/naval/status/123456789",
+    },
+    selectedDraftContext: null,
+    strategyInputs: baseStrategyInputs,
+    toneInputs: baseToneInputs,
+  });
+
+  assert.deepEqual(prepared.transportRequest?.replyContext, {
+    sourceUrl: "https://x.com/naval/status/123456789",
+  });
+});

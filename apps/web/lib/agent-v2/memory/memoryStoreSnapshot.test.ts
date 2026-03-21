@@ -85,3 +85,134 @@ test("createConversationMemorySnapshot preserves pending plan live-context field
   ]);
   assert.equal(snapshot.liveContextCache?.content, "cached context");
 });
+
+test("createConversationMemorySnapshot preserves active reply source context and preview metadata", () => {
+  const snapshot = createConversationMemorySnapshot({
+    topicSummary: "reply workflow",
+    concreteAnswerCount: 1,
+    activeConstraints: {
+      constraints: [],
+      inferredConstraints: [],
+      conversationState: "draft_ready",
+      pendingPlan: null,
+      clarificationState: null,
+      continuationState: {
+        capability: "replying",
+        pendingAction: "reply_regenerate",
+        formatPreference: "shortform",
+        sourceUserMessage: "Perfect algo pull",
+      },
+      lastIdeationAngles: [],
+      rollingSummary: null,
+      assistantTurnCount: 2,
+      activeDraftRef: null,
+      latestRefinementInstruction: null,
+      unresolvedQuestion: null,
+      clarificationQuestionsAsked: 0,
+      preferredSurfaceMode: "structured",
+      formatPreference: "shortform",
+      activeReplyContext: {
+        sourceText: "Perfect algo pull",
+        sourceUrl: "https://x.com/elkelk/status/2034751673290350617",
+        authorHandle: "elkelk",
+        sourceContext: {
+          primaryPost: {
+            id: "2034751673290350617",
+            url: "https://x.com/elkelk/status/2034751673290350617",
+            text: "Perfect algo pull",
+            authorHandle: "elkelk",
+            authorDisplayName: "elkelk",
+            postType: "original",
+          },
+          quotedPost: {
+            id: "quoted-1",
+            url: "https://x.com/thejustinguo/status/1",
+            text: "founder mode but the screenshot is doing half the work",
+            authorHandle: "thejustinguo",
+            authorDisplayName: "Justin Guo",
+          },
+          media: {
+            images: [
+              {
+                imageUrl: "https://pbs.twimg.com/media/post-image.jpg?format=jpg&name=large",
+                altText: "dashboard screenshot",
+              },
+            ],
+            hasVideo: false,
+            hasGif: false,
+            hasLink: false,
+          },
+        },
+        replySourcePreview: {
+          postId: "2034751673290350617",
+          sourceUrl: "https://x.com/elkelk/status/2034751673290350617",
+          author: {
+            displayName: "elkelk",
+            username: "elkelk",
+            avatarUrl: null,
+            isVerified: false,
+          },
+          text: "Perfect algo pull",
+          media: [
+            {
+              type: "image",
+              url: "https://pbs.twimg.com/media/post-image.jpg?format=jpg&name=large",
+              altText: "dashboard screenshot",
+            },
+          ],
+          quotedPost: {
+            postId: "quoted-1",
+            sourceUrl: "https://x.com/thejustinguo/status/1",
+            author: {
+              displayName: "Justin Guo",
+              username: "thejustinguo",
+              avatarUrl: null,
+              isVerified: false,
+            },
+            text: "founder mode but the screenshot is doing half the work",
+            media: [],
+          },
+        },
+        quotedUserAsk: null,
+        confidence: "high",
+        parseReason: "reply_draft_revised",
+        awaitingConfirmation: false,
+        stage: "1k_to_10k",
+        tone: "builder",
+        goal: "followers",
+        opportunityId: "chat-reply-1",
+        latestReplyOptions: [],
+        latestReplyDraftOptions: [],
+        selectedReplyOptionId: "option_2",
+      },
+      activeReplyArtifactRef: {
+        messageId: "assistant-reply-1",
+        kind: "reply_draft",
+      },
+      activeProfileAnalysisRef: null,
+      selectedReplyOptionId: "option_2",
+      liveContextCache: null,
+    },
+  });
+
+  assert.equal(
+    snapshot.activeReplyContext?.sourceContext?.primaryPost.authorHandle,
+    "elkelk",
+  );
+  assert.equal(
+    snapshot.activeReplyContext?.sourceContext?.quotedPost?.authorHandle,
+    "thejustinguo",
+  );
+  assert.equal(
+    snapshot.activeReplyContext?.replySourcePreview?.author.username,
+    "elkelk",
+  );
+  assert.equal(
+    snapshot.activeReplyContext?.replySourcePreview?.quotedPost?.author.username,
+    "thejustinguo",
+  );
+  assert.equal(
+    snapshot.activeReplyContext?.replySourcePreview?.media[0]?.url,
+    "https://pbs.twimg.com/media/post-image.jpg?format=jpg&name=large",
+  );
+});

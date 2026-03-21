@@ -103,6 +103,11 @@ test("reply command blocks empty input, accepts bare status urls, and emits a di
           kind: "reply_request",
           responseMode: "direct_draft",
         },
+        replyContext: {
+          sourceText: null,
+          sourceUrl: "https://x.com/naval/status/123456789",
+          authorHandle: null,
+        },
       },
     },
   );
@@ -119,6 +124,11 @@ test("reply command blocks empty input, accepts bare status urls, and emits a di
         artifactContext: {
           kind: "reply_request",
           responseMode: "direct_draft",
+        },
+        replyContext: {
+          sourceText: "@naval\n\nSpecific knowledge is becoming the only durable leverage.",
+          sourceUrl: null,
+          authorHandle: null,
         },
       },
     },

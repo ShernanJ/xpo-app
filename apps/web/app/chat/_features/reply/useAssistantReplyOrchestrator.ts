@@ -108,6 +108,7 @@ export interface RequestAssistantReplyOptions<
   strategyInputOverride?: TStrategyInputs;
   toneInputOverride?: TToneInputs;
   contentFocusOverride?: string | null;
+  replyContext?: unknown;
   fallbackContext?: TContext;
   fallbackContract?: TContract;
 }
@@ -456,6 +457,9 @@ export function useAssistantReplyOrchestrator<
             ? requestOptions.selectedDraftContextOverride
             : undefined,
         contentFocus: resolvedContentFocus,
+        ...(requestOptions.replyContext !== undefined
+          ? { replyContext: requestOptions.replyContext }
+          : {}),
         preferenceSettings: currentPreferencePayload,
         preferenceConstraints: preferenceConstraintRules,
         strategyInputs: resolvedStrategyInputs,

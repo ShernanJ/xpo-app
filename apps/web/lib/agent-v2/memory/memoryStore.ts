@@ -16,6 +16,20 @@ import type {
   V2ConversationMemory,
 } from "../contracts/chat.ts";
 import type { ReplyContextCard } from "../core/replyContextExtractor.ts";
+import type {
+  ReplySourceContext,
+  ReplySourceConversationContext,
+  ReplySourceImage,
+  ReplySourceMediaContext,
+  ReplySourcePost,
+  ReplySourceQuotedPost,
+} from "../../reply-engine/types.ts";
+import type {
+  ReplySourcePreview,
+  ReplySourcePreviewAuthor,
+  ReplySourcePreviewMediaItem,
+  ReplySourcePreviewPost,
+} from "../../reply-engine/replySourcePreview.ts";
 
 export interface CreateMemoryArgs {
   runId?: string;
@@ -471,6 +485,234 @@ function normalizeReplyContextCard(value: unknown): ReplyContextCard | null {
   };
 }
 
+function normalizeReplySourceImage(value: unknown): ReplySourceImage | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const imageUrl = typeof record.imageUrl === "string" ? record.imageUrl.trim() : "";
+  const imageDataUrl = typeof record.imageDataUrl === "string" ? record.imageDataUrl.trim() : "";
+  const altText = typeof record.altText === "string" ? record.altText.trim() : "";
+
+  if (!imageUrl && !imageDataUrl && !altText) {
+    return null;
+  }
+
+  return {
+    ...(imageUrl ? { imageUrl } : {}),
+    ...(imageDataUrl ? { imageDataUrl } : {}),
+    ...(altText ? { altText } : {}),
+  };
+}
+
+function normalizeReplySourceMediaContext(value: unknown): ReplySourceMediaContext | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    images: Array.isArray(record.images)
+      ? record.images
+          .map((entry) => normalizeReplySourceImage(entry))
+          .filter((entry): entry is ReplySourceImage => Boolean(entry))
+      : [],
+    hasVideo: record.hasVideo === true,
+    hasGif: record.hasGif === true,
+    hasLink: record.hasLink === true,
+  };
+}
+
+function normalizeReplySourceConversationContext(
+  value: unknown,
+): ReplySourceConversationContext | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const inReplyToPostId =
+    typeof record.inReplyToPostId === "string" ? record.inReplyToPostId.trim() || null : null;
+  const inReplyToHandle =
+    typeof record.inReplyToHandle === "string"
+      ? record.inReplyToHandle.trim().replace(/^@+/, "").toLowerCase() || null
+      : null;
+
+  if (!inReplyToPostId && !inReplyToHandle) {
+    return null;
+  }
+
+  return {
+    ...(inReplyToPostId ? { inReplyToPostId } : {}),
+    ...(inReplyToHandle ? { inReplyToHandle } : {}),
+  };
+}
+
+function normalizeReplySourcePost(value: unknown): ReplySourcePost | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id.trim() : "";
+  const text = typeof record.text === "string" ? record.text.trim() : "";
+
+  if (!id || !text) {
+    return null;
+  }
+
+  return {
+    id,
+    url: typeof record.url === "string" ? record.url.trim() || null : null,
+    text,
+    authorHandle:
+      typeof record.authorHandle === "string"
+        ? record.authorHandle.trim().replace(/^@+/, "").toLowerCase() || null
+        : null,
+    authorDisplayName:
+      typeof record.authorDisplayName === "string" ? record.authorDisplayName.trim() || null : null,
+    postType:
+      record.postType === "reply" ||
+      record.postType === "quote" ||
+      record.postType === "repost" ||
+      record.postType === "unknown"
+        ? record.postType
+        : "original",
+  };
+}
+
+function normalizeReplySourceQuotedPost(value: unknown): ReplySourceQuotedPost | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const text = typeof record.text === "string" ? record.text.trim() : "";
+
+  if (!text) {
+    return null;
+  }
+
+  return {
+    id: typeof record.id === "string" ? record.id.trim() || null : null,
+    url: typeof record.url === "string" ? record.url.trim() || null : null,
+    text,
+    authorHandle:
+      typeof record.authorHandle === "string"
+        ? record.authorHandle.trim().replace(/^@+/, "").toLowerCase() || null
+        : null,
+    authorDisplayName:
+      typeof record.authorDisplayName === "string" ? record.authorDisplayName.trim() || null : null,
+  };
+}
+
+function normalizeReplySourceContext(value: unknown): ReplySourceContext | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const primaryPost = normalizeReplySourcePost(record.primaryPost);
+  const quotedPost = normalizeReplySourceQuotedPost(record.quotedPost);
+  const media = normalizeReplySourceMediaContext(record.media);
+  const conversation = normalizeReplySourceConversationContext(record.conversation);
+
+  if (!primaryPost) {
+    return null;
+  }
+
+  return {
+    primaryPost,
+    ...(quotedPost ? { quotedPost } : {}),
+    ...(media ? { media } : {}),
+    ...(conversation ? { conversation } : {}),
+  };
+}
+
+function normalizeReplySourcePreviewAuthor(value: unknown): ReplySourcePreviewAuthor {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      displayName: null,
+      username: null,
+      avatarUrl: null,
+      isVerified: false,
+    };
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    displayName: typeof record.displayName === "string" ? record.displayName.trim() || null : null,
+    username:
+      typeof record.username === "string"
+        ? record.username.trim().replace(/^@+/, "").toLowerCase() || null
+        : null,
+    avatarUrl: typeof record.avatarUrl === "string" ? record.avatarUrl.trim() || null : null,
+    isVerified: record.isVerified === true,
+  };
+}
+
+function normalizeReplySourcePreviewMediaItem(
+  value: unknown,
+): ReplySourcePreviewMediaItem | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (record.type !== "image" && record.type !== "video" && record.type !== "gif") {
+    return null;
+  }
+
+  return {
+    type: record.type,
+    url: typeof record.url === "string" ? record.url.trim() || null : null,
+    ...(typeof record.altText === "string" ? { altText: record.altText.trim() || null } : {}),
+  };
+}
+
+function normalizeReplySourcePreviewPost(value: unknown): ReplySourcePreviewPost | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const text = typeof record.text === "string" ? record.text.trim() : "";
+
+  if (!text) {
+    return null;
+  }
+
+  return {
+    postId: typeof record.postId === "string" ? record.postId.trim() || null : null,
+    sourceUrl: typeof record.sourceUrl === "string" ? record.sourceUrl.trim() || null : null,
+    author: normalizeReplySourcePreviewAuthor(record.author),
+    text,
+    media: Array.isArray(record.media)
+      ? record.media
+          .map((entry) => normalizeReplySourcePreviewMediaItem(entry))
+          .filter((entry): entry is ReplySourcePreviewMediaItem => Boolean(entry))
+      : [],
+  };
+}
+
+function normalizeReplySourcePreview(value: unknown): ReplySourcePreview | null {
+  const primaryPost = normalizeReplySourcePreviewPost(value);
+  if (!primaryPost) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const quotedPost = normalizeReplySourcePreviewPost(record.quotedPost);
+  const conversation = normalizeReplySourceConversationContext(record.conversation);
+
+  return {
+    ...primaryPost,
+    ...(quotedPost ? { quotedPost } : {}),
+    ...(conversation ? { conversation } : {}),
+  };
+}
+
 function normalizeActiveReplyContext(value: unknown): ActiveReplyContext | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -483,11 +725,16 @@ function normalizeActiveReplyContext(value: unknown): ActiveReplyContext | null 
     return null;
   }
 
+  const sourceContext = normalizeReplySourceContext(record.sourceContext);
+  const replySourcePreview = normalizeReplySourcePreview(record.replySourcePreview);
+
   return {
     sourceText,
     sourceUrl: typeof record.sourceUrl === "string" ? record.sourceUrl.trim() || null : null,
     authorHandle:
       typeof record.authorHandle === "string" ? record.authorHandle.trim().replace(/^@+/, "").toLowerCase() || null : null,
+    ...(sourceContext ? { sourceContext } : {}),
+    ...(replySourcePreview ? { replySourcePreview } : {}),
     replyContext: normalizeReplyContextCard(record.replyContext),
     quotedUserAsk: typeof record.quotedUserAsk === "string" ? record.quotedUserAsk.trim() || null : null,
     confidence:

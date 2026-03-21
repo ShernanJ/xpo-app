@@ -79,3 +79,41 @@ test("resolveReplyTurnState prefers structured artifact continuations at the rou
   assert.equal(state.replyContinuation?.optionIndex, 0);
   assert.equal(state.shouldResetReplyWorkflow, true);
 });
+
+test("resolveReplyTurnState prefers structured reply context for direct slash reply requests", () => {
+  const state = resolveReplyTurnState({
+    activeHandle: "example",
+    creatorAgentContext: {
+      growthStrategySnapshot: baseStrategy,
+      creatorProfile: null,
+    },
+    effectiveMessage: "https://x.com/naval/status/123456789",
+    structuredReplyContext: {
+      sourceText: "Specific knowledge is becoming the only durable leverage.",
+      sourceUrl: "https://x.com/naval/status/123456789",
+      authorHandle: "naval",
+    },
+    artifactContext: {
+      kind: "reply_request",
+      responseMode: "direct_draft",
+    },
+    turnSource: "reply_action",
+    shouldBypassReplyHandling: true,
+    activeReplyContext: null,
+    toneRisk: "builder",
+    goal: "followers",
+  });
+
+  assert.equal(state.replyRequestMode, "direct_draft");
+  assert.equal(state.replyParseResult.classification, "reply_request_with_embedded_post");
+  assert.equal(
+    state.replyParseResult.context?.sourceText,
+    "Specific knowledge is becoming the only durable leverage.",
+  );
+  assert.equal(
+    state.replyParseResult.context?.sourceUrl,
+    "https://x.com/naval/status/123456789",
+  );
+  assert.equal(state.replyParseResult.context?.authorHandle, "naval");
+  assert.equal(state.replyParseResult.context?.parseReason, "structured_reply_request");
+});

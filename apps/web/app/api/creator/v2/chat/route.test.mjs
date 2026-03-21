@@ -1244,6 +1244,7 @@ test("validatePreparedTurnPlan only accepts complete strategy plans", () => {
     mustAvoid: ["vague opener"],
     hookType: "confession",
     pitchResponse: "keep it grounded",
+    extractedConstraints: [],
     formatPreference: "thread",
   });
 });
@@ -1389,6 +1390,7 @@ test("prepareManagedMainTurnWithDeps owns plan validation, title promotion, and 
     mustAvoid: ["vague opener"],
     hookType: "confession",
     pitchResponse: "keep it grounded",
+    extractedConstraints: [],
     formatPreference: "thread",
   });
   assert.equal(preparedArgs.nextThreadTitle, "Founder-led sales retention lesson");
@@ -1679,6 +1681,14 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
         messageId: "assistant-msg-reply",
         kind: "reply_draft",
       },
+      activeProfileAnalysisRef: null,
+      continuationState: {
+        capability: "replying",
+        pendingAction: "reply_regenerate",
+        formatPreference: "shortform",
+        sourceUserMessage: "Founders should write every day even if nobody reads it yet.",
+        sourcePrompt: "how should i reply?",
+      },
       selectedReplyOptionId: "option_2",
     },
   );
@@ -1701,6 +1711,18 @@ test("finalizeReplyTurnWithDeps keeps reply planning separate from route persist
 
 test("finalizeReplyTurnWithDeps versions revised replies against the active reply draft", async () => {
   let persistedArgs = null;
+  const replySourcePreview = {
+    postId: "status_1",
+    sourceUrl: "https://x.com/example/status/1",
+    author: {
+      displayName: "example",
+      username: "example",
+      avatarUrl: null,
+      isVerified: false,
+    },
+    text: "Founders should write every day even if nobody reads it yet.",
+    media: [],
+  };
 
   await finalizeReplyTurnWithDeps(
     {
@@ -1714,6 +1736,7 @@ test("finalizeReplyTurnWithDeps versions revised replies against the active repl
             sourceText: "Founders should write every day even if nobody reads it yet.",
             sourceUrl: "https://x.com/example/status/1",
             authorHandle: "example",
+            replySourcePreview,
             quotedUserAsk: "how should i reply?",
             confidence: "high",
             parseReason: "reply_draft_revised",
@@ -1732,6 +1755,7 @@ test("finalizeReplyTurnWithDeps versions revised replies against the active repl
             sourceText: "Founders should write every day even if nobody reads it yet.",
             sourceUrl: "https://x.com/example/status/1",
             authorHandle: "example",
+            replySourcePreview,
             options: [
               {
                 id: "option_2",
@@ -1748,6 +1772,7 @@ test("finalizeReplyTurnWithDeps versions revised replies against the active repl
             needsConfirmation: false,
             parseReason: "reply_draft_revised",
           },
+          replySourcePreview,
           eventType: "chat_reply_draft_revised",
         },
         routingTrace: createBaseRoutingTrace(),
@@ -1812,6 +1837,14 @@ test("finalizeReplyTurnWithDeps versions revised replies against the active repl
     "version-prev",
   );
   assert.equal(persistedArgs.assistantMessageData.revisionChainId, "revision-chain-reply-1");
+  assert.equal(
+    persistedArgs.assistantMessageData.draftArtifacts?.[0]?.replySourcePreview?.author?.username,
+    "example",
+  );
+  assert.equal(
+    persistedArgs.assistantMessageData.draftArtifacts?.[0]?.replySourcePreview?.sourceUrl,
+    "https://x.com/example/status/1",
+  );
 });
 
 test("finalizeMainAssistantTurnWithDeps keeps prepared turns separate from route persistence and response assembly", async () => {
@@ -2049,6 +2082,8 @@ test("finalizeMainAssistantTurnWithDeps keeps prepared turns separate from route
       preferredSurfaceMode: "structured",
       activeReplyContext: null,
       activeReplyArtifactRef: null,
+      continuationState: null,
+      activeProfileAnalysisRef: null,
       selectedReplyOptionId: null,
     },
   );

@@ -1717,6 +1717,7 @@ function ChatPageContent() {
         formatPreferenceOverride:
           commandResult.request.formatPreferenceOverride ?? null,
         artifactContextOverride: commandResult.request.artifactContext ?? null,
+        replyContextOverride: commandResult.request.replyContext ?? null,
       });
       setActiveComposerCommand(null);
       return;

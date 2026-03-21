@@ -284,7 +284,7 @@ test("planReplyTurn resolves bare status urls for structured slash requests befo
     assert.equal(planned.activeReplyContext?.authorHandle, "naval");
     assert.equal(
       planned.activeReplyContext?.sourceContext?.media?.images?.[0]?.imageUrl,
-      "https://pbs.twimg.com/media/post-image.jpg",
+      "https://pbs.twimg.com/media/post-image.jpg?format=jpg&name=large",
     );
   } finally {
     globalThis.fetch = originalFetch;

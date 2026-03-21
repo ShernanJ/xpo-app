@@ -190,6 +190,7 @@ export function useComposerInteractions<
         intentOverride?: V2ChatIntent;
         formatPreferenceOverride?: "shortform" | "longform" | "thread" | null;
         artifactContextOverride?: ChatArtifactContext | null;
+        replyContextOverride?: unknown;
       },
     ) => {
       const submission = prepareComposerSubmission({
@@ -229,6 +230,9 @@ export function useComposerInteractions<
           : { turnSource: "free_text" as const }),
         intent: options?.intentOverride,
         formatPreferenceOverride: options?.formatPreferenceOverride ?? null,
+        ...(options?.replyContextOverride !== undefined
+          ? { replyContext: options.replyContextOverride }
+          : {}),
         strategyInputOverride: activeStrategyInputs as TStrategyInputs,
         toneInputOverride: activeToneInputs as TToneInputs,
         contentFocusOverride: options?.contentFocusOverride ?? activeContentFocus,

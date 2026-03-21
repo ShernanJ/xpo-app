@@ -73,6 +73,7 @@ export interface PrepareAssistantReplyTransportArgs {
   selectedDraftContext: DraftVersionSnapshotLike | null;
   selectedDraftContextOverride?: DraftVersionSnapshotLike | null;
   contentFocus?: string | null;
+  replyContext?: unknown;
   preferenceSettings?: unknown;
   preferenceConstraints?: string[];
   strategyInputs: ChatStrategyInputsLike;
@@ -177,6 +178,7 @@ export function prepareAssistantReplyTransport(
       formatPreference: args.formatPreferenceOverride ?? null,
       threadFramingStyle: args.threadFramingStyleOverride ?? null,
       contentFocus: args.contentFocus,
+      replyContext: args.replyContext,
       selectedDraftContext: effectiveSelectedDraftContext,
       preferenceSettings: args.preferenceSettings,
       preferenceConstraints:
