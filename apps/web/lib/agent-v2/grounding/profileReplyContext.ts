@@ -2,6 +2,7 @@ import type { OnboardingResult, XPostMetrics, XPublicPost } from "../../onboardi
 import type { CreatorProfileHints } from "./groundingPacket.ts";
 import type { ConversationalDiagnosticContext } from "../runtime/diagnostics.ts";
 import type { CreatorAgentContext } from "../../onboarding/strategy/agentContext.ts";
+import { getPostEngagementTotal, splitCuratedOnboardingPosts } from "../../onboarding/shared/postSampling";
 import type {
   ContentType,
   CreatorRepresentativePost,
@@ -140,13 +141,7 @@ function formatCount(value: number): string {
 }
 
 function getEngagementTotal(metrics: XPostMetrics | null | undefined): number {
-  if (!metrics) {
-    return 0;
-  }
-
-  return [metrics.likeCount, metrics.replyCount, metrics.repostCount, metrics.quoteCount]
-    .filter((value) => typeof value === "number" && Number.isFinite(value))
-    .reduce((sum, value) => sum + value, 0);
+  return getPostEngagementTotal(metrics);
 }
 
 function isDirectiveLikeTheme(value: string): boolean {
@@ -237,8 +232,11 @@ function shouldIgnoreRecentPostForTopicExtraction(post: XPublicPost): boolean {
 function collectRecentPosts(
   onboardingResult?: Partial<OnboardingResult> | null,
 ): XPublicPost[] {
-  return Array.isArray(onboardingResult?.recentPosts)
-    ? onboardingResult.recentPosts.filter(
+  const { recentPosts } = splitCuratedOnboardingPosts(
+    Array.isArray(onboardingResult?.recentPosts) ? onboardingResult.recentPosts : [],
+  );
+
+  return recentPosts.filter(
         (post): post is XPublicPost =>
           Boolean(post) &&
           typeof post === "object" &&
@@ -247,8 +245,7 @@ function collectRecentPosts(
           typeof post.createdAt === "string" &&
           typeof post.metrics === "object" &&
           post.metrics !== null,
-      )
-    : [];
+      );
 }
 
 function collectRecentPostSnippets(onboardingResult?: Partial<OnboardingResult> | null): string[] {
@@ -282,23 +279,21 @@ function collectTopicBullets(args: {
         (value.includes(" ") || !TOPIC_INSIGHT_STOPWORDS.has(value.toLowerCase())),
     );
 
-  const recentPostCandidates = Array.isArray(args.onboardingResult?.recentPosts)
-    ? args.onboardingResult.recentPosts
-        .filter((post) => !shouldIgnoreRecentPostForTopicExtraction(post))
-        .map((post) =>
-          post && typeof post === "object" && !Array.isArray(post) && typeof post.text === "string"
-            ? summarizeRecentPostToBullet(post.text)
-            : null,
-        )
-        .filter(
-          (value): value is string =>
-            typeof value === "string" &&
-            value.length > 0 &&
-            !/\b(i|my|me|we|our)\b/i.test(value) &&
-            !isLowLeverageRecentSignal(value) &&
-            isHumanSafeTopicLabel(value),
-        )
-      : [];
+  const recentPostCandidates = collectRecentPosts(args.onboardingResult)
+    .filter((post) => !shouldIgnoreRecentPostForTopicExtraction(post))
+    .map((post) =>
+      post && typeof post === "object" && !Array.isArray(post) && typeof post.text === "string"
+        ? summarizeRecentPostToBullet(post.text)
+        : null,
+    )
+    .filter(
+      (value): value is string =>
+        typeof value === "string" &&
+        value.length > 0 &&
+        !/\b(i|my|me|we|our)\b/i.test(value) &&
+        !isLowLeverageRecentSignal(value) &&
+        isHumanSafeTopicLabel(value),
+    );
 
   return dedupeLines([...pillarCandidates, ...recentPostCandidates]).slice(0, 4);
 }
@@ -670,18 +665,7 @@ function buildStrongestPostInsight(args: {
   onboardingResult?: Partial<OnboardingResult> | null;
   creatorAgentContext?: CreatorAgentContext | null;
 }): ProfileReplyStrongestPost | null {
-  const posts = Array.isArray(args.onboardingResult?.recentPosts)
-    ? args.onboardingResult.recentPosts.filter(
-        (post): post is XPublicPost =>
-          Boolean(post) &&
-          typeof post === "object" &&
-          !Array.isArray(post) &&
-          typeof post.text === "string" &&
-          typeof post.createdAt === "string" &&
-          typeof post.metrics === "object" &&
-          post.metrics !== null,
-      )
-    : [];
+  const posts = collectRecentPosts(args.onboardingResult);
 
   if (posts.length === 0) {
     return null;
@@ -833,7 +817,7 @@ export function buildProfileReplyContext(args: BuildProfileReplyContextArgs): Pr
     onboardingResult: onboarding,
     creatorAgentContext: args.creatorAgentContext,
   });
-  const recentPostCount = Array.isArray(onboarding?.recentPosts) ? onboarding.recentPosts.length : 0;
+  const recentPostCount = collectRecentPosts(onboarding).length;
 
   const hasMeaningfulContext = Boolean(
     accountLabel ||

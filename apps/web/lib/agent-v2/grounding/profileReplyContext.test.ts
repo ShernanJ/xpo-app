@@ -123,3 +123,58 @@ test("buildProfileReplyContext ignores media-only chatter when extracting progre
     true,
   );
 });
+
+test("buildProfileReplyContext keeps top historical hooks out of recent-post topic inference", () => {
+  const recentPosts = Array.from({ length: 50 }, (_, index) => ({
+    id: `recent-${index}`,
+    text:
+      index < 3
+        ? "agentic product experiments keep teaching me where automation breaks"
+        : `recent product build note ${index}`,
+    createdAt: new Date(Date.UTC(2026, 2, 20, 0, index, 0)).toISOString(),
+    metrics: {
+      likeCount: 10,
+      replyCount: 1,
+      repostCount: 1,
+      quoteCount: 0,
+    },
+  }));
+
+  const historicalHook = {
+    id: "historical-1",
+    text: "crypto alpha threads still print if you manufacture urgency",
+    createdAt: "2024-01-01T00:00:00.000Z",
+    metrics: {
+      likeCount: 900,
+      replyCount: 60,
+      repostCount: 30,
+      quoteCount: 10,
+    },
+  };
+
+  const context = buildProfileReplyContext({
+    onboardingResult: {
+      profile: {
+        username: "stan",
+        name: "Stan",
+        bio: "building ai tools",
+        followersCount: 500,
+        followingCount: 300,
+        createdAt: "2025-08-01T00:00:00.000Z",
+      },
+      pinnedPost: null,
+      recentPosts: [...recentPosts, historicalHook],
+    } as never,
+    creatorProfileHints: {
+      knownFor: "agentic product experiments",
+      targetAudience: "builders",
+      contentPillars: [],
+    } as never,
+  });
+
+  expect(context).not.toBeNull();
+  expect(context?.recentPostCount).toBe(50);
+  expect(context?.topicBullets.some((bullet) => /crypto alpha/i.test(bullet))).toBe(false);
+  expect(context?.topicInsights?.some((insight) => /crypto alpha/i.test(insight.label))).toBe(false);
+  expect(context?.recentPostSnippets.some((snippet) => /crypto alpha/i.test(snippet))).toBe(false);
+});

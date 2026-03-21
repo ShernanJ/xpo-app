@@ -4,7 +4,7 @@ import { runUserTweetsCapture } from "../../x-scrape/userTweetsCapture.mjs";
 import { importUserTweetsPayload } from "./importScrapePayload";
 import { parseUserTweetsGraphqlPayload } from "./scrapeUserTweetsParser";
 
-interface BootstrapImportResult {
+export interface BootstrapImportResult {
   captureId: string;
   capturedAt: string;
   account: string;
@@ -12,6 +12,8 @@ interface BootstrapImportResult {
   postsImported: number;
   replyPostsImported: number;
   quotePostsImported: number;
+  nextCursor: string | null;
+  usedExistingCapture: boolean;
   scrapeTelemetry: {
     uniqueOriginalPostsCollected: number;
     totalRawPostCount: number;
@@ -165,6 +167,8 @@ export async function bootstrapScrapeCaptureWithOptions(
       postsImported: existingCapture.posts.length,
       replyPostsImported: existingCapture.replyPosts?.length ?? 0,
       quotePostsImported: existingCapture.quotePosts?.length ?? 0,
+      nextCursor: null,
+      usedExistingCapture: true,
       scrapeTelemetry: null,
     } satisfies BootstrapImportResult;
   }
@@ -187,6 +191,7 @@ export async function bootstrapScrapeCaptureWithOptions(
       pages,
       targetOriginals: targetOriginalPostCount,
       maxDurationMs,
+      userAgent: options.userAgent,
     });
     const parsed = parseUserTweetsGraphqlPayload({
       payload,
@@ -202,6 +207,18 @@ export async function bootstrapScrapeCaptureWithOptions(
     });
     return {
       ...imported,
+      nextCursor:
+        typeof payload === "object" &&
+        payload &&
+        !Array.isArray(payload) &&
+        typeof payload.__scrapeMeta === "object" &&
+        payload.__scrapeMeta &&
+        !Array.isArray(payload.__scrapeMeta) &&
+        (typeof payload.__scrapeMeta.nextCursor === "string" ||
+          payload.__scrapeMeta.nextCursor === null)
+          ? payload.__scrapeMeta.nextCursor
+          : null,
+      usedExistingCapture: false,
       scrapeTelemetry,
     } satisfies BootstrapImportResult;
   } catch (error) {

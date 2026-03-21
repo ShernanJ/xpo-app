@@ -1,4 +1,5 @@
 import type { OnboardingResult } from "../../onboarding/types.ts";
+import { splitCuratedOnboardingPosts } from "../../onboarding/shared/postSampling";
 import type { CreatorProfileHints } from "./groundingPacket.ts";
 
 interface BuildUserContextStringArgs {
@@ -74,22 +75,37 @@ export function buildUserContextString(args: BuildUserContextStringArgs): string
     "Audience growth";
   const factualContext = dedupeLines(args.factualContext || []).slice(0, 4);
   const voiceContextHints = dedupeLines(args.voiceContextHints || []).slice(0, 4);
-  const recentPosts =
-    Array.isArray(onboarding?.recentPosts)
-      ? onboarding.recentPosts
-          .map((post) =>
-            post &&
-            typeof post === "object" &&
-            !Array.isArray(post) &&
-            typeof post.text === "string"
-              ? post.text
-              : "",
-          )
-          .filter(Boolean)
-      : [];
+  const { recentPosts, topHistoricalPosts } = splitCuratedOnboardingPosts(
+    Array.isArray(onboarding?.recentPosts) ? onboarding.recentPosts : [],
+  );
+  const recentPostTexts = recentPosts
+    .map((post) =>
+      post &&
+      typeof post === "object" &&
+      !Array.isArray(post) &&
+      typeof post.text === "string"
+        ? post.text
+        : "",
+    )
+    .filter(Boolean);
+  const topHistoricalPostTexts = topHistoricalPosts
+    .map((post) =>
+      post &&
+      typeof post === "object" &&
+      !Array.isArray(post) &&
+      typeof post.text === "string"
+        ? post.text
+        : "",
+    )
+    .filter(Boolean);
   const recentPostSnippets = formatQuotedSnippets(
-    recentPosts,
+    recentPostTexts,
     160,
+    Math.max(1, Math.min(3, args.recentPostLimit ?? 3)),
+  );
+  const topHistoricalHookSnippets = formatQuotedSnippets(
+    topHistoricalPostTexts,
+    400,
     Math.max(1, Math.min(3, args.recentPostLimit ?? 3)),
   );
   const hasProfileSignal = Boolean(
@@ -107,6 +123,7 @@ export function buildUserContextString(args: BuildUserContextStringArgs): string
     Boolean(args.creatorProfileHints?.targetAudience?.trim()) ||
     Boolean(args.creatorProfileHints?.contentPillars?.length) ||
     recentPostSnippets.length > 0 ||
+    topHistoricalHookSnippets.length > 0 ||
     factualContext.length > 0 ||
     voiceContextHints.length > 0 ||
     (stage !== "Unknown" && stage.trim().length > 0) ||
@@ -186,7 +203,15 @@ export function buildUserContextString(args: BuildUserContextStringArgs): string
   }
 
   if (recentPostSnippets.length > 0) {
-    lines.push(`- Recent Posts: ${recentPostSnippets.join(" | ")}`);
+    lines.push("<recent_posts>");
+    lines.push(...recentPostSnippets.map((snippet) => `- ${snippet}`));
+    lines.push("</recent_posts>");
+  }
+
+  if (topHistoricalHookSnippets.length > 0) {
+    lines.push("<top_historical_hooks>");
+    lines.push(...topHistoricalHookSnippets.map((snippet) => `- ${snippet}`));
+    lines.push("</top_historical_hooks>");
   }
 
   if (factualContext.length > 0) {

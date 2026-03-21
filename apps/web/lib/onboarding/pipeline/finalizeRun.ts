@@ -24,6 +24,7 @@ export async function finalizeOnboardingRunForUser(params: {
   input: OnboardingInput;
   runId?: string;
   result: OnboardingResult;
+  suppressLegacyBackfill?: boolean;
   userAgent: string | null;
   userId: string;
 }): Promise<FinalizedOnboardingRunResult> {
@@ -47,11 +48,17 @@ export async function finalizeOnboardingRunForUser(params: {
   ).catch((error) =>
     console.error("Failed to refresh style profile after onboarding sync:", error),
   );
-  const backfill = await maybeEnqueueOnboardingBackfillJob({
-    runId: persisted.runId,
-    input: params.input,
-    result: params.result,
-  });
+  const backfill = params.suppressLegacyBackfill
+    ? {
+        queued: false,
+        jobId: null,
+        deduped: false,
+      }
+    : await maybeEnqueueOnboardingBackfillJob({
+        runId: persisted.runId,
+        input: params.input,
+        result: params.result,
+      });
 
   await prisma.user.update({
     where: { id: params.userId },

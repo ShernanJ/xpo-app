@@ -92,4 +92,35 @@ describe("syncPostsToDb", () => {
 
     consoleErrorSpy.mockRestore();
   });
+
+  test("chunks large syncs into sequential upsert transactions and stays rerunnable", async () => {
+    const posts = Array.from({ length: 205 }, (_, index) =>
+      createPost(`post_${index}`, `post ${index}`),
+    );
+
+    mocks.postUpsert.mockImplementation((args) => Promise.resolve(args));
+    mocks.transaction.mockResolvedValue([]);
+    mocks.checkNewTweetsAgainstDrafts.mockResolvedValue([]);
+
+    await syncPostsToDb({
+      userId: "user_1",
+      xHandle: "@StanDev",
+      posts,
+    });
+
+    await syncPostsToDb({
+      userId: "user_1",
+      xHandle: "@StanDev",
+      posts: posts.slice(100),
+    });
+
+    expect(mocks.postUpsert).toHaveBeenCalled();
+    expect(mocks.transaction).toHaveBeenCalledTimes(5);
+    expect(mocks.transaction.mock.calls[0]?.[0]).toHaveLength(100);
+    expect(mocks.transaction.mock.calls[1]?.[0]).toHaveLength(100);
+    expect(mocks.transaction.mock.calls[2]?.[0]).toHaveLength(5);
+    expect(mocks.transaction.mock.calls[3]?.[0]).toHaveLength(100);
+    expect(mocks.transaction.mock.calls[4]?.[0]).toHaveLength(5);
+    expect(mocks.checkNewTweetsAgainstDrafts).toHaveBeenCalledTimes(2);
+  });
 });

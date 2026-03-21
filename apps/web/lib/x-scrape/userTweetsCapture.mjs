@@ -1151,6 +1151,7 @@ function extractBottomCursor(payload) {
   }
 
   const instructions = Array.isArray(timeline.instructions) ? timeline.instructions : [];
+  let bottomCursor = null;
   for (const instructionValue of instructions) {
     const instruction = asRecord(instructionValue);
     if (!instruction) {
@@ -1165,12 +1166,12 @@ function extractBottomCursor(payload) {
         content?.entryType === "TimelineTimelineCursor" &&
         content?.cursorType === "Bottom"
       ) {
-        return asString(content.value);
+        bottomCursor = asString(content.value);
       }
     }
   }
 
-  return null;
+  return bottomCursor;
 }
 
 function appendTimelineInstructions(targetPayload, nextPayload) {
@@ -1203,6 +1204,7 @@ async function fetchPaginatedUserTweetsPayload(params) {
   const mergedPayload = await fetchUserTweetsPayload({
     userId: params.userId,
     count: params.count,
+    cursor: params.cursor,
     queryId: params.queryId,
     headers: params.headers,
   });
@@ -1212,7 +1214,10 @@ async function fetchPaginatedUserTweetsPayload(params) {
     console.log(
       `[http] Reached target depth after page 1 (${uniqueOriginalPostCount}/${params.targetOriginals} original posts).`,
     );
-    return mergedPayload;
+    return {
+      payload: mergedPayload,
+      nextCursor: extractBottomCursor(mergedPayload),
+    };
   }
 
   let cursor = extractBottomCursor(mergedPayload);
@@ -1272,7 +1277,10 @@ async function fetchPaginatedUserTweetsPayload(params) {
     cursor = nextCursor;
   }
 
-  return mergedPayload;
+  return {
+    payload: mergedPayload,
+    nextCursor: extractBottomCursor(mergedPayload),
+  };
 }
 
 async function maybeImportCapture(params) {
@@ -1341,6 +1349,7 @@ async function runScrapeAttempt(params) {
     null;
   const cookie = ensureCookieContainsCt0(cookieRaw, csrfToken);
   const userAgent =
+    options.userAgent ??
     sessionUserAgent ??
     process.env.X_WEB_USER_AGENT ??
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -1413,6 +1422,7 @@ async function runScrapeAttempt(params) {
   const payload = await fetchPaginatedUserTweetsPayload({
     userId,
     count: options.count,
+    cursor: options.cursor,
     pages,
     requestDelayMs,
     requestJitterMs,
@@ -1422,13 +1432,13 @@ async function runScrapeAttempt(params) {
     maxDurationMs: options.maxDurationMs,
   });
 
-  if (!looksLikeUserTweetsPayload(payload)) {
+  if (!looksLikeUserTweetsPayload(payload.payload)) {
     throw new Error(
       "Response does not match UserTweets payload shape. This can happen when headers/queryId/features drift.",
     );
   }
 
-  const payloadAccount = extractPayloadUsername(payload);
+  const payloadAccount = extractPayloadUsername(payload.payload);
   if (
     payloadAccount &&
     payloadAccount.toLowerCase() !== account.toLowerCase()
@@ -1439,7 +1449,8 @@ async function runScrapeAttempt(params) {
   }
 
   return {
-    payload,
+    payload: payload.payload,
+    nextCursor: payload.nextCursor,
   };
 }
 
@@ -1503,6 +1514,7 @@ export async function runUserTweetsCapture(rawOptions) {
     const maxSessionAttempts = forcedSessionId ? 1 : 4;
     let attemptError = null;
     let finalPayload = null;
+    let finalNextCursor = null;
     let finalSessionId = null;
 
     for (let attempt = 1; attempt <= maxSessionAttempts; attempt += 1) {
@@ -1523,6 +1535,7 @@ export async function runUserTweetsCapture(rawOptions) {
         });
         await broker.markSuccess(sessionHandle);
         finalPayload = attemptResult.payload;
+        finalNextCursor = attemptResult.nextCursor ?? null;
         finalSessionId = sessionHandle.sessionId ?? finalSessionId;
         break;
       } catch (error) {
@@ -1563,6 +1576,7 @@ export async function runUserTweetsCapture(rawOptions) {
       didRotateSession: rotatedSessionIds.length > 0,
       totalRawPostCount: getUniqueTimelinePostCount(finalPayload),
       uniqueOriginalPostsCollected: getUniqueOriginalPostCount(finalPayload),
+      nextCursor: finalNextCursor ?? extractBottomCursor(finalPayload),
     });
 
     const shouldWriteOutput = options.writeOutput === true || Boolean(options.output);

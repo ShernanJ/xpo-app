@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  bootstrapScrapeCaptureWithOptions: vi.fn(),
   capturePostHogServerEvent: vi.fn(),
   capturePostHogServerException: vi.fn(),
   claimOnboardingScrapeJobById: vi.fn(),
   finalizeOnboardingRunForUser: vi.fn(),
+  getConfiguredOnboardingMode: vi.fn(),
+  hasXApiSourceCredentials: vi.fn(),
   markOnboardingScrapeJobCompleted: vi.fn(),
   markOnboardingScrapeJobFailed: vi.fn(),
   runOnboarding: vi.fn(),
@@ -21,6 +24,18 @@ vi.mock("@/lib/onboarding/pipeline/finalizeRun", () => ({
 
 vi.mock("@/lib/onboarding/pipeline/service", () => ({
   runOnboarding: mocks.runOnboarding,
+}));
+
+vi.mock("@/lib/onboarding/sources/scrapeBootstrap", () => ({
+  bootstrapScrapeCaptureWithOptions: mocks.bootstrapScrapeCaptureWithOptions,
+}));
+
+vi.mock("@/lib/onboarding/sources/resolveOnboardingSource", () => ({
+  getConfiguredOnboardingMode: mocks.getConfiguredOnboardingMode,
+}));
+
+vi.mock("@/lib/onboarding/sources/xApiSource", () => ({
+  hasXApiSourceCredentials: mocks.hasXApiSourceCredentials,
 }));
 
 vi.mock("@/lib/onboarding/store/onboardingScrapeJobStore", () => ({
@@ -102,6 +117,7 @@ function createStepTools() {
   const cache = new Map<string, unknown>();
 
   return {
+    sendEvent: vi.fn(async (_stepId: string, payload: unknown) => payload),
     run: vi.fn(async (stepId: string, fn: () => unknown) => {
       if (cache.has(stepId)) {
         return cache.get(stepId);
@@ -116,9 +132,15 @@ function createStepTools() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.bootstrapScrapeCaptureWithOptions.mockResolvedValue({
+    nextCursor: null,
+    usedExistingCapture: true,
+  });
   mocks.claimOnboardingScrapeJobById.mockResolvedValue(createClaimedJob());
   mocks.runOnboarding.mockResolvedValue(createOnboardingResult());
   mocks.finalizeOnboardingRunForUser.mockResolvedValue(createFinalizedResult());
+  mocks.getConfiguredOnboardingMode.mockReturnValue("scrape");
+  mocks.hasXApiSourceCredentials.mockReturnValue(false);
   mocks.markOnboardingScrapeJobCompleted.mockResolvedValue(undefined);
   mocks.markOnboardingScrapeJobFailed.mockResolvedValue(undefined);
   mocks.capturePostHogServerEvent.mockResolvedValue(undefined);
@@ -148,10 +170,18 @@ describe("processOnboardingRunHandler", () => {
       workerId: "run_1",
     });
     expect(mocks.runOnboarding).toHaveBeenCalledTimes(1);
+    expect(mocks.bootstrapScrapeCaptureWithOptions).toHaveBeenCalledWith("stan", {
+      pages: 2,
+      count: 40,
+      targetOriginalPostCount: 40,
+      userAgent: "onboarding-shallow-sync",
+      mergeWithExisting: true,
+    });
     expect(mocks.finalizeOnboardingRunForUser).toHaveBeenCalledWith({
       input: createEventData().effectiveInput,
       result: createOnboardingResult(),
       runId: buildQueuedOnboardingRunId("job_123"),
+      suppressLegacyBackfill: true,
       userAgent: "vitest",
       userId: "user_1",
     });
@@ -193,6 +223,7 @@ describe("processOnboardingRunHandler", () => {
       input: createEventData().effectiveInput,
       result: createOnboardingResult(),
       runId: "or_job_123",
+      suppressLegacyBackfill: true,
       userAgent: "vitest",
       userId: "user_1",
     });
@@ -200,6 +231,7 @@ describe("processOnboardingRunHandler", () => {
       input: createEventData().effectiveInput,
       result: createOnboardingResult(),
       runId: "or_job_123",
+      suppressLegacyBackfill: true,
       userAgent: "vitest",
       userId: "user_1",
     });
@@ -268,5 +300,70 @@ describe("processOnboardingRunHandler", () => {
     expect(mocks.runOnboarding).not.toHaveBeenCalled();
     expect(mocks.finalizeOnboardingRunForUser).not.toHaveBeenCalled();
     expect(mocks.markOnboardingScrapeJobCompleted).not.toHaveBeenCalled();
+  });
+
+  test("queues deep backfill after a live shallow sync returns a next cursor", async () => {
+    const step = createStepTools();
+    mocks.bootstrapScrapeCaptureWithOptions.mockResolvedValue({
+      nextCursor: "cursor_2",
+      usedExistingCapture: false,
+    });
+
+    await processOnboardingRunHandler({
+      attempt: 0,
+      event: { data: createEventData() },
+      maxAttempts: 3,
+      runId: "run_1",
+      step,
+    } as never);
+
+    expect(step.sendEvent).toHaveBeenCalledWith("queue-deep-backfill", {
+      name: "onboarding/deep.backfill.started",
+      data: {
+        account: "stan",
+        cursor: "cursor_2",
+        userId: "user_1",
+      },
+    });
+  });
+
+  test("does not queue deep backfill when shallow sync reuses an existing capture", async () => {
+    const step = createStepTools();
+    mocks.bootstrapScrapeCaptureWithOptions.mockResolvedValue({
+      nextCursor: null,
+      usedExistingCapture: true,
+    });
+
+    await processOnboardingRunHandler({
+      attempt: 0,
+      event: { data: createEventData() },
+      maxAttempts: 3,
+      runId: "run_1",
+      step,
+    } as never);
+
+    expect(step.sendEvent).not.toHaveBeenCalled();
+  });
+
+  test("continues to onboarding when shallow prep fails in auto mode with x api fallback", async () => {
+    const step = createStepTools();
+    mocks.getConfiguredOnboardingMode.mockReturnValue("auto");
+    mocks.hasXApiSourceCredentials.mockReturnValue(true);
+    mocks.bootstrapScrapeCaptureWithOptions.mockRejectedValue(new Error("proxy timeout"));
+
+    await expect(
+      processOnboardingRunHandler({
+        attempt: 0,
+        event: { data: createEventData() },
+        maxAttempts: 3,
+        runId: "run_1",
+        step,
+      } as never),
+    ).resolves.toMatchObject({
+      success: true,
+    });
+
+    expect(mocks.runOnboarding).toHaveBeenCalledTimes(1);
+    expect(step.sendEvent).not.toHaveBeenCalled();
   });
 });

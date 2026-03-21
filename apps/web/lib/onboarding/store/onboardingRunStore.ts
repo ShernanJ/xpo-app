@@ -5,6 +5,7 @@ import { prisma } from "../../db";
 import { checkNewTweetsAgainstDrafts } from "../../content/autoPublishMatcher";
 
 const LATEST_ONBOARDING_RUN_CACHE_TTL_MS = 15_000;
+const POST_SYNC_BATCH_SIZE = 100;
 
 type LatestOnboardingRunCacheEntry = {
   expiresAt: number;
@@ -125,28 +126,32 @@ export async function syncPostsToDb(params: {
   if (postsToUpsert.length === 0) return;
 
   const normalizedXHandle = params.xHandle.replace(/^@/, "").toLowerCase();
-  const upsertOps = postsToUpsert.map(({ post, lane }) =>
-    prisma.post.upsert({
-      where: { id: post.id },
-      update: {
-        userId: params.userId,
-        xHandle: normalizedXHandle,
-        lane,
-        metrics: post.metrics as unknown as Prisma.InputJsonObject,
-      },
-      create: {
-        id: post.id,
-        userId: params.userId,
-        xHandle: normalizedXHandle,
-        text: post.text,
-        lane,
-        metrics: post.metrics as unknown as Prisma.InputJsonObject,
-        createdAt: new Date(post.createdAt),
-      },
-    }),
-  );
+  for (let index = 0; index < postsToUpsert.length; index += POST_SYNC_BATCH_SIZE) {
+    const batchOps = postsToUpsert
+      .slice(index, index + POST_SYNC_BATCH_SIZE)
+      .map(({ post, lane }) =>
+        prisma.post.upsert({
+          where: { id: post.id },
+          update: {
+            userId: params.userId,
+            xHandle: normalizedXHandle,
+            lane,
+            metrics: post.metrics as unknown as Prisma.InputJsonObject,
+          },
+          create: {
+            id: post.id,
+            userId: params.userId,
+            xHandle: normalizedXHandle,
+            text: post.text,
+            lane,
+            metrics: post.metrics as unknown as Prisma.InputJsonObject,
+            createdAt: new Date(post.createdAt),
+          },
+        }),
+      );
 
-  await prisma.$transaction(upsertOps);
+    await prisma.$transaction(batchOps);
+  }
 
   const newlyObservedOriginalPosts = postsToUpsert
     .filter((entry) => entry.lane === "original")

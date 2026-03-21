@@ -4,6 +4,11 @@ import { capturePostHogServerEvent, capturePostHogServerException } from "@/lib/
 import { parseOnboardingInput } from "@/lib/onboarding/contracts/validation";
 import { finalizeOnboardingRunForUser } from "@/lib/onboarding/pipeline/finalizeRun";
 import { runOnboarding } from "@/lib/onboarding/pipeline/service";
+import { bootstrapScrapeCaptureWithOptions } from "@/lib/onboarding/sources/scrapeBootstrap";
+import {
+  getConfiguredOnboardingMode,
+} from "@/lib/onboarding/sources/resolveOnboardingSource";
+import { hasXApiSourceCredentials } from "@/lib/onboarding/sources/xApiSource";
 import {
   claimOnboardingScrapeJobById,
   markOnboardingScrapeJobCompleted,
@@ -11,14 +16,7 @@ import {
   type StoredOnboardingScrapeJob,
 } from "@/lib/onboarding/store/onboardingScrapeJobStore";
 
-import { inngest } from "../client";
-
-export interface OnboardingRunRequestedEventData {
-  effectiveInput: Record<string, unknown>;
-  jobId: string;
-  userAgent: string | null;
-  userId: string;
-}
+import { inngest, type OnboardingRunRequestedEventData } from "../client";
 
 type ProcessOnboardingRunContext = Omit<GetFunctionInput<typeof inngest>, "event"> & {
   event: {
@@ -27,8 +25,23 @@ type ProcessOnboardingRunContext = Omit<GetFunctionInput<typeof inngest>, "event
   step: GetStepTools<typeof inngest>;
 };
 
+interface ShallowSyncPreparationResult {
+  attempted: boolean;
+  nextCursor: string | null;
+  usedExistingCapture: boolean;
+}
+
 export function buildQueuedOnboardingRunId(jobId: string): string {
   return jobId.startsWith("or_") ? jobId : `or_${jobId}`;
+}
+
+function shouldAttemptShallowSync(input: ReturnType<typeof getClaimedInput>): boolean {
+  if (input.forceMock || input.scrapeFreshness === "cache_only") {
+    return false;
+  }
+
+  const mode = getConfiguredOnboardingMode();
+  return mode !== "mock" && mode !== "x_api";
 }
 
 function getClaimedInput(
@@ -94,12 +107,62 @@ export async function processOnboardingRunHandler({
     }
 
     const input = getClaimedInput(claimedJob, effectiveInput);
+    const mode = getConfiguredOnboardingMode();
+    const xApiFallbackAvailable = mode === "auto" && hasXApiSourceCredentials();
+    const shallowSync = shouldAttemptShallowSync(input)
+      ? await step.run("prepare-shallow-sync", async (): Promise<ShallowSyncPreparationResult> => {
+          const prepared = await bootstrapScrapeCaptureWithOptions(input.account, {
+            pages: 2,
+            count: 40,
+            targetOriginalPostCount: 40,
+            userAgent: "onboarding-shallow-sync",
+            mergeWithExisting: true,
+          });
+
+          return {
+            attempted: true,
+            nextCursor: prepared.nextCursor,
+            usedExistingCapture: prepared.usedExistingCapture,
+          };
+        }).catch((error): ShallowSyncPreparationResult => {
+          if (xApiFallbackAvailable) {
+            return {
+              attempted: false,
+              nextCursor: null,
+              usedExistingCapture: false,
+            };
+          }
+
+          throw error;
+        })
+      : {
+          attempted: false,
+          nextCursor: null,
+          usedExistingCapture: false,
+        };
+
+    if (
+      shallowSync.attempted &&
+      !shallowSync.usedExistingCapture &&
+      shallowSync.nextCursor
+    ) {
+      await step.sendEvent("queue-deep-backfill", {
+        name: "onboarding/deep.backfill.started",
+        data: {
+          account: input.account,
+          cursor: shallowSync.nextCursor,
+          userId: claimedJob.userId,
+        },
+      });
+    }
+
     const result = await step.run("run-onboarding", async () => runOnboarding(input));
     const finalized = await step.run("finalize-onboarding", async () =>
       finalizeOnboardingRunForUser({
         input,
         result,
         runId: buildQueuedOnboardingRunId(claimedJob.jobId),
+        suppressLegacyBackfill: true,
         userAgent,
         userId: claimedJob.userId,
       }),

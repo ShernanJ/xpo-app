@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { mergeScrapeCapturePosts } from "./scrapeCaptureMerge.ts";
+import {
+  MAX_MERGED_CAPTURE_POSTS,
+  mergeScrapeCapturePosts,
+} from "./scrapeCaptureMerge.ts";
 
 test("mergeScrapeCapturePosts keeps unique ids, prefers newer incoming items, and caps the result", () => {
   const merged = mergeScrapeCapturePosts(
@@ -66,4 +69,24 @@ test("mergeScrapeCapturePosts keeps unique ids, prefers newer incoming items, an
       { id: "shared", text: "incoming shared post wins" },
     ],
   );
+});
+
+test("mergeScrapeCapturePosts supports the expanded storage cap for deep history", () => {
+  const existing = Array.from({ length: MAX_MERGED_CAPTURE_POSTS + 20 }, (_, index) => ({
+    id: `post-${index}`,
+    text: `post ${index}`,
+    createdAt: new Date(Date.UTC(2026, 2, 1, 0, MAX_MERGED_CAPTURE_POSTS + 20 - index, 0)).toISOString(),
+    metrics: {
+      likeCount: index,
+      replyCount: 0,
+      repostCount: 0,
+      quoteCount: 0,
+    },
+  }));
+
+  const merged = mergeScrapeCapturePosts([], existing, MAX_MERGED_CAPTURE_POSTS);
+
+  assert.equal(merged.length, MAX_MERGED_CAPTURE_POSTS);
+  assert.equal(merged[0]?.id, "post-0");
+  assert.equal(merged.at(-1)?.id, `post-${MAX_MERGED_CAPTURE_POSTS - 1}`);
 });

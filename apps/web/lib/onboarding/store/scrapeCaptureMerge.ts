@@ -4,7 +4,7 @@ interface StoredScrapeProfilePayload extends XPublicProfile {
   pinnedPost?: XPinnedPost | null;
 }
 
-export const MAX_MERGED_CAPTURE_POSTS = 120;
+export const MAX_MERGED_CAPTURE_POSTS = 3000;
 export const MAX_MERGED_CAPTURE_REPLY_POSTS = 140;
 export const MAX_MERGED_CAPTURE_QUOTE_POSTS = 100;
 

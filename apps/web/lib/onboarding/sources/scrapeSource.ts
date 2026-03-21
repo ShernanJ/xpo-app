@@ -5,10 +5,10 @@ import {
   readLatestScrapeCaptureByAccount,
 } from "../store/scrapeCaptureStore";
 import type { OnboardingInput } from "../types";
+import { selectCuratedOnboardingPosts } from "../shared/postSampling";
 import { bootstrapScrapeCapture } from "./scrapeBootstrap";
 import type { OnboardingDataSource } from "./types";
 
-const MAX_ONBOARDING_ANALYSIS_POSTS = 100;
 const MAX_ONBOARDING_REPLY_ANALYSIS_POSTS = 120;
 const MAX_ONBOARDING_QUOTE_ANALYSIS_POSTS = 80;
 
@@ -108,12 +108,13 @@ export async function resolveScrapeDataSource(
         imageUrls: pinnedPostImageUrls,
       }
     : null;
+  const { analysisPosts } = selectCuratedOnboardingPosts(latestCapture.posts);
 
   return {
     source: "scrape",
     profile,
     pinnedPost,
-    posts: latestCapture.posts.slice(0, MAX_ONBOARDING_ANALYSIS_POSTS),
+    posts: analysisPosts,
     replyPosts: (latestCapture.replyPosts ?? []).slice(
       0,
       MAX_ONBOARDING_REPLY_ANALYSIS_POSTS,

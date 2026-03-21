@@ -4,6 +4,7 @@ export interface RunUserTweetsCaptureOptions {
   pages?: number;
   targetOriginals?: number;
   maxDurationMs?: number;
+  cursor?: string | null;
   queryId?: string | null;
   userId?: string | null;
   sessionId?: string | null;
@@ -18,6 +19,7 @@ export interface RunUserTweetsCaptureOptions {
   cooldownMs?: number;
   requestDelayMs?: number;
   requestJitterMs?: number;
+  userAgent?: string | null;
   output?: string | null;
   writeOutput?: boolean;
   shouldImport?: boolean;
@@ -36,6 +38,7 @@ export interface RunUserTweetsCaptureResult {
         didRotateSession?: boolean;
         totalRawPostCount?: number;
         uniqueOriginalPostsCollected?: number;
+        nextCursor?: string | null;
       }
     | null;
 }
