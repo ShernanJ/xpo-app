@@ -1,4 +1,8 @@
-import type { DraftFormatPreference, V2ChatIntent } from "../contracts/chat.ts";
+import type {
+  DraftFormatPreference,
+  FormatIntent,
+  V2ChatIntent,
+} from "../contracts/chat.ts";
 
 function normalizeDraftIntentMessage(message: string): string {
   let normalized = message
@@ -25,6 +29,68 @@ function normalizeDraftIntentMessage(message: string): string {
   }
 
   return normalized;
+}
+
+const JOKE_INTENT_PATTERNS = [
+  /\b(?:make|turn|write|draft)\s+(?:it|this|that)?\s*(?:into\s+)?(?:a\s+)?(?:joke|shitpost|meme)\b/,
+  /\b(?:joke|shitpost|meme|parody|satire|bit|roast)\b/,
+  /\bfunny\b/,
+  /\bhyperbole\b/,
+];
+
+const STORY_INTENT_PATTERNS = [
+  /\b(?:story|narrative|journey)\b/,
+  /\b(?:my journey|my story)\b/,
+  /\b(?:i|we)\s+(?:built|build|shipped|ship|tried|try|spent|started|launched|launch|learned|learn|quit|joined|worked|work|interviewed|interview|applied|apply)\b/,
+  /\b(?:trying to|get a job|land a role)\b/,
+  /\bbehind the scenes\b/,
+  /\b\d+\s*(?:day|days|week|weeks|month|months|year|years)\b/,
+  /\b(?:client project|founder role|cto role|job interview)\b/,
+];
+
+const OBSERVATION_INTENT_PATTERNS = [
+  /\b(?:observation|shower thought|quick thought|quick observation|casual observation)\b/,
+  /\b(?:rant|mini rant)\b/,
+  /\b(?:hot take|small take|thought)\b/,
+];
+
+const STORY_GROUNDING_PATTERNS = [
+  /\bmy\s+\d+\s*(?:day|week|month|year)s?\s+journey\b/i,
+  /\bmy\s+journey\b/i,
+  /\bmy\s+story\b/i,
+  /\bi\s+(?:built|build|shipped|ship|tried|try|spent|started|launched|launch|learned|learn|quit|joined|worked|work|interviewed|interview|applied|apply)\b/i,
+  /\b\d+\s*(?:day|days|week|weeks|month|months|year|years)\b/i,
+  /\b(?:client project|founder role|cto role|job interview)\b/i,
+];
+
+export function inferFormatIntent(message: string): FormatIntent {
+  const normalized = normalizeDraftIntentMessage(message);
+  if (!normalized) {
+    return "lesson";
+  }
+
+  if (JOKE_INTENT_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return "joke";
+  }
+
+  if (STORY_INTENT_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return "story";
+  }
+
+  if (OBSERVATION_INTENT_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return "observation";
+  }
+
+  return "lesson";
+}
+
+export function looksLikeAutobiographicalTurn(message: string): boolean {
+  const normalized = normalizeDraftIntentMessage(message);
+  if (!normalized) {
+    return false;
+  }
+
+  return STORY_GROUNDING_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
 export function buildPlanFailureResponse(reason: string | null | undefined): string {

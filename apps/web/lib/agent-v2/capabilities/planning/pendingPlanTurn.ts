@@ -1,6 +1,7 @@
 import {
   buildPlanPitch,
 } from "../../core/planPitch.ts";
+import { appendCoachNote } from "../../responses/coachNote.ts";
 import { withPlanPreferences } from "../../grounding/preferences.ts";
 import type { ConversationServices } from "../../runtime/services.ts";
 import type {
@@ -24,6 +25,7 @@ import {
   type CreatorProfileHints,
   type GroundingPacket,
 } from "../../grounding/groundingPacket.ts";
+import type { DraftRequestPolicy } from "../../grounding/requestPolicy.ts";
 import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.ts";
 import type {
   DraftFormatPreference,
@@ -68,6 +70,7 @@ export async function handlePendingPlanTurn(
     turnFormatPreference: DraftFormatPreference;
     baseVoiceTarget: VoiceTarget;
     groundingPacket: GroundingPacket;
+    requestPolicy: DraftRequestPolicy;
     creatorProfileHints?: CreatorProfileHints | null;
     selectedSourceMaterials: SourceMaterialAssetRecord[];
     styleCard: VoiceStyleCard | null;
@@ -133,7 +136,10 @@ export async function handlePendingPlanTurn(
     ]),
   );
   const draftActiveConstraints = pendingPlanHasNoFabrication
-    ? appendNoFabricationConstraint(baseDraftActiveConstraints)
+    ? appendNoFabricationConstraint(
+        baseDraftActiveConstraints,
+        pendingPlan.formatIntent,
+      )
     : baseDraftActiveConstraints;
 
   const decision = await interpretPlannerFeedback(args.userMessage, pendingPlan);
@@ -171,6 +177,8 @@ export async function handlePendingPlanTurn(
         groundingSources: args.groundingSources,
         groundingMode: args.groundingMode,
         groundingExplanation: args.groundingExplanation,
+        creatorProfileHints: args.creatorProfileHints,
+        requestPolicy: args.requestPolicy,
       },
       services: {
         checkDeterministicNovelty: args.checkDeterministicNovelty,
@@ -245,6 +253,7 @@ export async function handlePendingPlanTurn(
         antiPatterns: args.antiPatterns,
         draftPreference: args.turnDraftPreference,
         formatPreference: pendingPlan.formatPreference || args.turnFormatPreference,
+        formatIntent: args.requestPolicy.formatIntent,
         activePlan: pendingPlan,
         latestRefinementInstruction: args.memory.latestRefinementInstruction,
         lastIdeationAngles: args.memory.lastIdeationAngles,
@@ -266,7 +275,10 @@ export async function handlePendingPlanTurn(
     const revisedPlanWithPreference = applySourceMaterialBiasToPlan(
       applyCreatorProfileHintsToPlan(
         withPlanPreferences(
-          revisedPlan,
+          {
+            ...revisedPlan,
+            formatIntent: args.requestPolicy.formatIntent,
+          },
           args.turnDraftPreference,
           pendingPlan.formatPreference || args.turnFormatPreference,
         ),
@@ -295,10 +307,16 @@ export async function handlePendingPlanTurn(
     return {
       mode: "plan",
       outputShape: "planning_outline",
-      response: prependFeedbackMemoryNotice(
-        buildPlanPitch(guardedRevisedPlan),
-        args.feedbackMemoryNotice ?? null,
-      ),
+      response: appendCoachNote({
+        response: prependFeedbackMemoryNotice(
+          buildPlanPitch(guardedRevisedPlan),
+          args.feedbackMemoryNotice ?? null,
+        ),
+        userMessage: args.userMessage,
+        plan: guardedRevisedPlan,
+        creatorProfileHints: args.creatorProfileHints,
+        requestPolicy: args.requestPolicy,
+      }),
       data: {
         plan: guardedRevisedPlan,
         quickReplies: buildPlannerQuickReplies({
@@ -330,10 +348,16 @@ export async function handlePendingPlanTurn(
   return {
     mode: "plan",
     outputShape: "planning_outline",
-    response: prependFeedbackMemoryNotice(
-      "say the word and i'll draft it, or tell me what to tweak.",
-      args.feedbackMemoryNotice ?? null,
-    ),
+    response: appendCoachNote({
+      response: prependFeedbackMemoryNotice(
+        "say the word and i'll draft it, or tell me what to tweak.",
+        args.feedbackMemoryNotice ?? null,
+      ),
+      userMessage: args.userMessage,
+      plan: pendingPlan,
+      creatorProfileHints: args.creatorProfileHints,
+      requestPolicy: args.requestPolicy,
+    }),
     data: {
       plan: pendingPlan,
       quickReplies: buildPlannerQuickReplies({

@@ -9,12 +9,17 @@ import { withNoFabricationPlanGuardrail } from "../../grounding/draftGrounding.t
 import {
   buildPlannerQuickReplies,
 } from "../../responses/plannerQuickReplies.ts";
+import { appendCoachNote } from "../../responses/coachNote.ts";
 import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import {
   applyCreatorProfileHintsToPlan,
 } from "../../grounding/creatorHintPolicy.ts";
 import { applySourceMaterialBiasToPlan } from "../../grounding/sourceMaterialPlanPolicy.ts";
 import { ensureThreadPlanPosts } from "../../core/plannerNormalization.ts";
+import type {
+  DraftRequestPolicy,
+} from "../../grounding/requestPolicy.ts";
+import { buildDraftRequestPolicy } from "../../grounding/requestPolicy.ts";
 import type {
   DraftFormatPreference,
   DraftPreference,
@@ -55,6 +60,7 @@ export interface PlanningCapabilityContext {
   turnFormatPreference: DraftFormatPreference;
   baseVoiceTarget: VoiceTarget;
   creatorProfileHints?: CreatorProfileHints | null;
+  requestPolicy?: DraftRequestPolicy;
   selectedSourceMaterials: SourceMaterialAssetRecord[];
   shouldForceNoFabricationGuardrailForTurn: boolean;
   styleCard: VoiceStyleCard | null;
@@ -98,6 +104,12 @@ export async function executePlanningCapability(
   },
 ): Promise<CapabilityExecutionResult<PlanningCapabilityOutput>> {
   const { context, services } = args;
+  const requestPolicy =
+    context.requestPolicy ||
+    buildDraftRequestPolicy({
+      userMessage: context.planInputMessage,
+      formatIntent: null,
+    });
   let planFailureReason: string | null = null;
   const plan = await services.generatePlan(
     context.planInputMessage,
@@ -111,6 +123,7 @@ export async function executePlanningCapability(
       antiPatterns: context.antiPatterns,
       draftPreference: context.turnDraftPreference,
       formatPreference: context.turnFormatPreference,
+      formatIntent: requestPolicy.formatIntent,
       activePlan: context.memory.pendingPlan,
       latestRefinementInstruction: context.memory.latestRefinementInstruction,
       lastIdeationAngles: context.memory.lastIdeationAngles,
@@ -168,9 +181,13 @@ export async function executePlanningCapability(
       ),
     },
   );
+  const planWithIntent = {
+    ...planWithPreference,
+    formatIntent: requestPolicy.formatIntent,
+  };
   const guardrailedPlan = context.shouldForceNoFabricationGuardrailForTurn
-    ? withNoFabricationPlanGuardrail(planWithPreference)
-    : planWithPreference;
+    ? withNoFabricationPlanGuardrail(planWithIntent)
+    : planWithIntent;
   const guardedPlan =
     guardrailedPlan.formatPreference === "thread"
       ? ensureThreadPlanPosts(guardrailedPlan)
@@ -187,10 +204,16 @@ export async function executePlanningCapability(
       responseSeed: {
         mode: "plan",
         outputShape: "planning_outline",
-        response: prependFeedbackMemoryNotice(
-          buildPlanPitch(guardedPlan),
-          context.feedbackMemoryNotice ?? null,
-        ),
+        response: appendCoachNote({
+          response: prependFeedbackMemoryNotice(
+            buildPlanPitch(guardedPlan),
+            context.feedbackMemoryNotice ?? null,
+          ),
+          userMessage: context.planInputMessage,
+          plan: guardedPlan,
+          creatorProfileHints: context.creatorProfileHints,
+          requestPolicy,
+        }),
         data: {
           plan: guardedPlan,
           quickReplies: buildPlannerQuickReplies({

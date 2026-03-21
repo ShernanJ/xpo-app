@@ -4,6 +4,7 @@ import type {
   ConversationState,
   DraftFormatPreference,
   DraftPreference,
+  FormatIntent,
   StrategyPlan,
 } from "../contracts/chat";
 import type { VoiceTarget } from "../core/voiceTarget";
@@ -111,6 +112,7 @@ export async function generatePlan(
     antiPatterns?: string[];
     draftPreference?: DraftPreference;
     formatPreference?: DraftFormatPreference;
+    formatIntent?: FormatIntent;
     activePlan?: StrategyPlan | null;
     latestRefinementInstruction?: string | null;
     lastIdeationAngles?: string[];

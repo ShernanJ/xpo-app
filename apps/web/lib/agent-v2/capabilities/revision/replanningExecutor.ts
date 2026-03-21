@@ -30,6 +30,7 @@ import type {
   GroundingPacket,
   GroundingPacketSourceMaterial,
 } from "../../grounding/groundingPacket.ts";
+import type { DraftRequestPolicy } from "../../grounding/requestPolicy.ts";
 import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.ts";
 import type {
   DraftGroundingMode,
@@ -64,6 +65,7 @@ export interface ReplanningCapabilityContext {
   nextAssistantTurnCount: number;
   refreshRollingSummary: boolean;
   feedbackMemoryNotice?: string | null;
+  requestPolicy: DraftRequestPolicy;
   turnThreadFramingStyle: ThreadFramingStyle | null;
   groundingPacket: GroundingPacket;
   groundingSources: GroundingPacketSourceMaterial[];
@@ -145,6 +147,7 @@ export async function executeReplanningCapability(
       styleCard: context.styleCard,
       nextAssistantTurnCount: context.nextAssistantTurnCount,
       feedbackMemoryNotice: context.feedbackMemoryNotice,
+      requestPolicy: context.requestPolicy,
     },
     services: {
       generatePlan: services.generatePlan,
@@ -163,7 +166,10 @@ export async function executeReplanningCapability(
 
   const guardedPlan = planningExecution.output.plan;
   const draftActiveConstraints = hasNoFabricationPlanGuardrail(guardedPlan)
-    ? appendNoFabricationConstraint(context.revisionActiveConstraints)
+    ? appendNoFabricationConstraint(
+        context.revisionActiveConstraints,
+        guardedPlan.formatIntent,
+      )
     : context.revisionActiveConstraints;
   const draftGroundingPacket = services.buildGroundingPacketForContext(
     draftActiveConstraints,
@@ -193,6 +199,8 @@ export async function executeReplanningCapability(
       groundingSources: context.groundingSources,
       groundingMode: context.groundingMode,
       groundingExplanation: context.groundingExplanation,
+      creatorProfileHints: context.creatorProfileHints,
+      requestPolicy: context.requestPolicy,
     },
     services: {
       checkDeterministicNovelty: services.checkDeterministicNovelty,

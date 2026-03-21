@@ -26,6 +26,7 @@ export type DraftPreference =
   | "growth_first";
 
 export type DraftFormatPreference = "shortform" | "longform" | "thread";
+export type FormatIntent = "story" | "lesson" | "joke" | "observation";
 
 export type ResponseMode =
   | "natural_chat"
@@ -62,6 +63,7 @@ export interface StrategyPlan {
   pitchResponse: string;
   deliveryPreference?: DraftPreference;
   formatPreference?: DraftFormatPreference;
+  formatIntent?: FormatIntent;
 }
 
 export type ContinuationCapability = "drafting" | "replying";
@@ -75,11 +77,13 @@ export interface ContinuationState {
   capability: ContinuationCapability;
   pendingAction: ContinuationPendingAction;
   formatPreference?: DraftFormatPreference | null;
+  formatIntent?: FormatIntent | null;
   threadFramingStyle?: ThreadFramingStyle | null;
   sourceUserMessage?: string | null;
   sourcePrompt?: string | null;
   activeConstraints?: string[];
   plan?: StrategyPlan | null;
+  storyClarificationAsked?: boolean;
 }
 
 export type ClarificationBranchKey =

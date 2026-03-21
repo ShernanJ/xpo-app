@@ -2,6 +2,7 @@ import {
   buildRollingSummary,
 } from "../../memory/summaryManager.ts";
 import { buildDraftReply } from "../../responses/draftReply.ts";
+import { appendCoachNote } from "../../responses/coachNote.ts";
 import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import type { WriterOutput } from "../../agents/writer.ts";
 import type { CriticOutput } from "../../agents/critic.ts";
@@ -35,6 +36,11 @@ import type {
   RoutingTracePatch,
 } from "../../runtime/types.ts";
 import type { GroundingPacketSourceMaterial } from "../../grounding/groundingPacket.ts";
+import type { CreatorProfileHints } from "../../grounding/groundingPacket.ts";
+import {
+  buildDraftRequestPolicy,
+  type DraftRequestPolicy,
+} from "../../grounding/requestPolicy.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -82,6 +88,8 @@ export interface DraftingCapabilityContext {
   groundingSources: GroundingPacketSourceMaterial[];
   groundingMode: DraftGroundingMode | null;
   groundingExplanation: string | null;
+  creatorProfileHints?: CreatorProfileHints | null;
+  requestPolicy?: DraftRequestPolicy;
 }
 
 export interface DraftingCapabilityMemoryPatch {
@@ -120,6 +128,12 @@ export async function executeDraftingCapability(
   },
 ): Promise<CapabilityExecutionResult<DraftingCapabilityOutput>> {
   const { context, services } = args;
+  const requestPolicy =
+    context.requestPolicy ||
+    buildDraftRequestPolicy({
+      userMessage: context.userMessage,
+      formatIntent: context.plan.formatIntent,
+    });
   const draftResult = await services.runDraft();
 
   if (draftResult.kind === "response") {
@@ -186,16 +200,22 @@ export async function executeDraftingCapability(
       responseSeed: {
         mode: "draft",
         outputShape,
-        response: prependFeedbackMemoryNotice(
-          buildDraftReply({
-            userMessage: context.userMessage,
-            draftPreference: context.draftPreference,
-            isEdit: false,
-            issuesFixed: draftResult.criticOutput.issues,
-            styleCard: context.styleCard,
-          }),
-          context.feedbackMemoryNotice ?? null,
-        ),
+        response: appendCoachNote({
+          response: prependFeedbackMemoryNotice(
+            buildDraftReply({
+              userMessage: context.userMessage,
+              draftPreference: context.draftPreference,
+              isEdit: false,
+              issuesFixed: draftResult.criticOutput.issues,
+              styleCard: context.styleCard,
+            }),
+            context.feedbackMemoryNotice ?? null,
+          ),
+          userMessage: context.userMessage,
+          plan: context.plan,
+          creatorProfileHints: context.creatorProfileHints,
+          requestPolicy,
+        }),
         data: {
           draft: draftResult.draftToDeliver,
           supportAsset: draftResult.writerOutput.supportAsset,

@@ -2,6 +2,7 @@ import {
   shouldUseRevisionDraftPath,
 } from "../../core/conversationHeuristics.ts";
 import { buildDraftReply } from "../../responses/draftReply.ts";
+import { appendCoachNote } from "../../responses/coachNote.ts";
 import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import { isConstraintDeclaration } from "../../responses/chatResponder.ts";
 import { normalizeDraftRevisionInstruction } from "./draftRevision.ts";
@@ -28,6 +29,7 @@ import type {
   GroundingPacket,
   GroundingPacketSourceMaterial,
 } from "../../grounding/groundingPacket.ts";
+import type { DraftRequestPolicy } from "../../grounding/requestPolicy.ts";
 import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.ts";
 import type {
   DraftGroundingMode,
@@ -79,6 +81,7 @@ export async function handleDraftEditReviewTurn(args: {
   groundingExplanation: string | null;
   baseVoiceTarget: VoiceTarget;
   creatorProfileHints?: CreatorProfileHints | null;
+  requestPolicy: DraftRequestPolicy;
   selectedSourceMaterials: SourceMaterialAssetRecord[];
   shouldForceNoFabricationGuardrailForTurn: boolean;
   writeMemory: (patch: MemoryPatch) => Promise<void>;
@@ -221,6 +224,8 @@ export async function handleDraftEditReviewTurn(args: {
         userMessage: args.userMessage,
         groundingPacket: args.groundingPacket,
         feedbackMemoryNotice: args.feedbackMemoryNotice,
+        creatorProfileHints: args.creatorProfileHints,
+        requestPolicy: args.requestPolicy,
         nextAssistantTurnCount: args.nextAssistantTurnCount,
         refreshRollingSummary: args.refreshRollingSummary,
         latestRefinementInstruction: args.draftInstruction,
@@ -273,6 +278,7 @@ export async function handleDraftEditReviewTurn(args: {
               nextAssistantTurnCount: args.nextAssistantTurnCount,
               refreshRollingSummary: args.refreshRollingSummary,
               feedbackMemoryNotice: args.feedbackMemoryNotice,
+              requestPolicy: args.requestPolicy,
               turnThreadFramingStyle: args.turnThreadFramingStyle,
               groundingPacket: args.groundingPacket,
               groundingSources: args.groundingSources,
@@ -325,15 +331,22 @@ export async function handleDraftEditReviewTurn(args: {
               responseSeed: {
                 ...replanningExecution.output.responseSeed,
                 response: prependFeedbackMemoryNotice(
-                  buildDraftReply({
+                  appendCoachNote({
+                    response: buildDraftReply({
+                      userMessage: args.userMessage,
+                      draftPreference: args.turnDraftPreference,
+                      isEdit: true,
+                      issuesFixed,
+                      styleCard: args.styleCard,
+                      revisionChangeKind: revision.changeKind,
+                      revisionTargetFormat: revision.targetFormat ?? null,
+                      directReturn: true,
+                    }),
                     userMessage: args.userMessage,
-                    draftPreference: args.turnDraftPreference,
-                    isEdit: true,
-                    issuesFixed,
-                    styleCard: args.styleCard,
-                    revisionChangeKind: revision.changeKind,
-                    revisionTargetFormat: revision.targetFormat ?? null,
-                    directReturn: true,
+                    plan:
+                      replanningExecution.output.responseSeed.data?.plan ?? null,
+                    creatorProfileHints: args.creatorProfileHints,
+                    requestPolicy: args.requestPolicy,
                   }),
                   args.feedbackMemoryNotice ?? null,
                 ),
@@ -405,6 +418,7 @@ export async function handleDraftEditReviewTurn(args: {
       nextAssistantTurnCount: args.nextAssistantTurnCount,
       refreshRollingSummary: args.refreshRollingSummary,
       feedbackMemoryNotice: args.feedbackMemoryNotice,
+      requestPolicy: args.requestPolicy,
       turnThreadFramingStyle: args.turnThreadFramingStyle,
       groundingPacket: args.groundingPacket,
       groundingSources: args.groundingSources,

@@ -13,6 +13,7 @@ import type { OrchestratorResponse, RoutingTracePatch } from "./types.ts";
 import {
   isBareDraftRequest,
   isConcreteTopicfulThreadDraftRequest,
+  inferFormatIntent,
   isMultiDraftRequest,
   resolveDraftOutputShape,
 } from "../core/conversationHeuristics";
@@ -68,9 +69,14 @@ import {
   addGroundingUnknowns,
   buildGroundingPacket,
   buildSafeFrameworkConstraint,
+  deriveTurnScopedGrounding,
   hasAutobiographicalGrounding,
   type GroundingPacket,
 } from "../grounding/groundingPacket";
+import {
+  buildDraftRequestPolicy,
+  type DraftRequestPolicy,
+} from "../grounding/requestPolicy.ts";
 import {
   mapPreferredOutputShapeToFormatPreference,
 } from "../grounding/creatorHintPolicy";
@@ -264,6 +270,11 @@ export async function executeDraftPipeline(args: {
     topicSummary: memory.topicSummary,
     limit: 2,
   });
+  const turnFormatIntent = inferFormatIntent(userMessage);
+  const turnRequestPolicy = buildDraftRequestPolicy({
+    userMessage,
+    formatIntent: turnFormatIntent,
+  });
   const buildGroundingPacketForContext = (
     activeConstraints: string[],
     sourceText: string,
@@ -272,6 +283,7 @@ export async function executeDraftPipeline(args: {
       styleCard,
       activeConstraints,
       extractedFacts,
+      turnScopedGrounding: deriveTurnScopedGrounding(sourceText),
     });
     nextPacket = mergeSourceMaterialsIntoGroundingPacket({
       groundingPacket: nextPacket,
@@ -321,6 +333,7 @@ export async function executeDraftPipeline(args: {
     userMessage,
     behaviorKnown: turnDraftContextSlots.behaviorKnown,
     stakesKnown: turnDraftContextSlots.stakesKnown,
+    formatIntent: turnFormatIntent,
   });
   const missingAutobiographicalGroundingForTurn =
     (turnDraftContextSlots.domainHint === "product" ||
@@ -426,6 +439,8 @@ export async function executeDraftPipeline(args: {
     turnFormatPreference,
   );
   const forceSafeFrameworkModeForTurn =
+    turnRequestPolicy.formatIntent !== "story" &&
+    turnRequestPolicy.formatIntent !== "joke" &&
     missingAutobiographicalGroundingForTurn &&
     (runtimeWorkflow === "plan_then_draft" ||
       runtimeWorkflow === "revise_draft" ||
@@ -567,6 +582,73 @@ export async function executeDraftPipeline(args: {
       : `write a post about ${seedTopic}`;
   }
 
+  function resolveRequestPolicy(args: {
+    plan?: StrategyPlan | null;
+    sourceUserMessage?: string | null;
+  }): DraftRequestPolicy {
+    return buildDraftRequestPolicy({
+      userMessage:
+        args.sourceUserMessage?.trim() ||
+        args.plan?.objective ||
+        userMessage,
+      formatIntent: args.plan?.formatIntent || turnFormatIntent,
+    });
+  }
+
+  function hasStoryAnchorDetail(value: string): boolean {
+    const normalized = value.trim();
+    if (!normalized) {
+      return false;
+    }
+
+    return (
+      /\b\d+\s*(?:day|days|week|weeks|month|months|year|years|%|percent)\b/i.test(
+        normalized,
+      ) ||
+      /\b(?:project|client|tool|bug|feature|role|interview|company|startup|product|team)\b/i.test(
+        normalized,
+      ) ||
+      /\b(?:at|with|for)\s+[A-Z][a-z0-9]+/i.test(normalized)
+    );
+  }
+
+  function buildStoryClarificationQuestion(sourceUserMessage: string): string {
+    const normalized = sourceUserMessage.trim();
+
+    if (/\b(?:role|interview|job)\b/i.test(normalized)) {
+      return "love the story angle. what specific role, company, or interview moment should anchor it?";
+    }
+
+    if (/\b(?:build|built|shipped|launch|launched|bug|client|project)\b/i.test(normalized)) {
+      return "love the angle. what's the specific project, bug, or client moment this story should center on?";
+    }
+
+    return "love the angle. what's the specific project, tool, or moment you want this story anchored to?";
+  }
+
+  function shouldAskStoryClarification(args: {
+    plan: StrategyPlan;
+    sourceUserMessage: string;
+    groundingPacket: GroundingPacket;
+    storyClarificationAsked?: boolean;
+  }): boolean {
+    if (args.storyClarificationAsked || args.plan.formatIntent !== "story") {
+      return false;
+    }
+
+    const source = args.sourceUserMessage.trim();
+    if (!source || hasStoryAnchorDetail(source)) {
+      return false;
+    }
+
+    const lowGroundingDensity =
+      args.groundingPacket.factualAuthority?.length
+        ? args.groundingPacket.factualAuthority.length < 2
+        : args.groundingPacket.turnGrounding.length < 2;
+
+    return lowGroundingDensity;
+  }
+
   function buildDraftContinuationState(args: {
     pendingAction: "retry_delivery" | "awaiting_grounding_answer";
     plan: StrategyPlan;
@@ -574,17 +656,21 @@ export async function executeDraftPipeline(args: {
     sourceUserMessage?: string | null;
     sourcePrompt?: string | null;
     formatPreference: DraftFormatPreference;
+    formatIntent?: StrategyPlan["formatIntent"];
     threadFramingStyle?: ThreadFramingStyle | null;
+    storyClarificationAsked?: boolean;
   }): ContinuationState {
     return {
       capability: "drafting",
       pendingAction: args.pendingAction,
       formatPreference: args.formatPreference,
+      formatIntent: args.formatIntent || args.plan.formatIntent || null,
       threadFramingStyle: args.threadFramingStyle ?? null,
       sourceUserMessage: args.sourceUserMessage?.trim() || null,
       sourcePrompt: args.sourcePrompt?.trim() || null,
       activeConstraints: args.activeConstraints,
       plan: args.plan,
+      storyClarificationAsked: args.storyClarificationAsked === true,
     };
   }
 
@@ -751,6 +837,7 @@ export async function executeDraftPipeline(args: {
         sourceUserMessage: args.sourceUserMessage,
         sourcePrompt: args.sourcePrompt,
         formatPreference: args.formatPreference,
+        formatIntent: args.plan.formatIntent || turnFormatIntent,
         threadFramingStyle: args.threadFramingStyle,
       }),
       ...clearClarificationPatch(),
@@ -1017,8 +1104,16 @@ export async function executeDraftPipeline(args: {
     topicSummary?: string | null;
     pendingPlan?: StrategyPlan | null;
     groundingPacket?: GroundingPacket;
+    requestPolicy?: DraftRequestPolicy;
+    storyClarificationAsked?: boolean;
   }): Promise<DraftingCapabilityRunResult> {
     const draftGroundingPacket = args.groundingPacket || groundingPacket;
+    const requestPolicy =
+      args.requestPolicy ||
+      resolveRequestPolicy({
+        plan: args.plan,
+        sourceUserMessage: args.sourceUserMessage,
+      });
     let draftingMs = 0;
     const attemptDraft = async (
       extraConstraints: string[] = [],
@@ -1060,6 +1155,7 @@ export async function executeDraftPipeline(args: {
             goal,
             draftPreference: args.draftPreference,
             formatPreference: args.formatPreference,
+            formatIntent: requestPolicy.formatIntent,
             sourceUserMessage: args.sourceUserMessage || undefined,
             voiceTarget,
             referenceAnchorMode: requestConditionedAnchors.referenceAnchorMode,
@@ -1143,6 +1239,18 @@ export async function executeDraftPipeline(args: {
         ? { pendingPlan: args.pendingPlan }
         : {}),
       draftGroundingPacket,
+      requestPolicy,
+      storyClarificationQuestion: shouldAskStoryClarification({
+        plan: args.plan,
+        sourceUserMessage: args.sourceUserMessage || args.plan.objective,
+        groundingPacket: draftGroundingPacket,
+        storyClarificationAsked: args.storyClarificationAsked,
+      })
+        ? buildStoryClarificationQuestion(
+            args.sourceUserMessage || args.plan.objective,
+          )
+        : null,
+      storyClarificationAsked: args.storyClarificationAsked === true,
       attemptDraft,
       buildConcreteSceneClarificationQuestion,
       buildGroundedProductClarificationQuestion,
@@ -1182,6 +1290,19 @@ export async function executeDraftPipeline(args: {
       draftContinuationState.formatPreference ||
       resumedPlan.formatPreference ||
       turnFormatPreference;
+    const resumedRequestPolicy = resolveRequestPolicy({
+      plan: {
+        ...resumedPlan,
+        formatIntent:
+          draftContinuationState.formatIntent ||
+          resumedPlan.formatIntent ||
+          turnFormatIntent,
+      },
+      sourceUserMessage:
+        draftContinuationState.sourceUserMessage ||
+        draftContinuationState.sourcePrompt ||
+        userMessage,
+    });
     const resumedThreadFramingStyle =
       draftContinuationState.threadFramingStyle ?? turnThreadFramingStyle;
     const resumedSourceUserMessage =
@@ -1213,6 +1334,9 @@ export async function executeDraftPipeline(args: {
       fallbackToWriterWhenCriticRejected: true,
       topicSummary: resumedPlan.objective,
       groundingPacket: resumedGroundingPacket,
+      requestPolicy: resumedRequestPolicy,
+      storyClarificationAsked:
+        draftContinuationState.storyClarificationAsked === true,
     });
 
     mergeCapabilityExecutionMeta({
@@ -1250,6 +1374,8 @@ export async function executeDraftPipeline(args: {
         groundingSources: groundingSourcesForTurn,
         groundingMode: draftGroundingSummary.groundingMode,
         groundingExplanation: draftGroundingSummary.groundingExplanation,
+        creatorProfileHints,
+        requestPolicy: resumedRequestPolicy,
       },
       services: {
         checkDeterministicNovelty: services.checkDeterministicNovelty,
@@ -1369,6 +1495,7 @@ export async function executeDraftPipeline(args: {
       turnFormatPreference,
       baseVoiceTarget,
       groundingPacket,
+      requestPolicy: turnRequestPolicy,
       creatorProfileHints,
       selectedSourceMaterials,
       styleCard,
@@ -1582,6 +1709,7 @@ export async function executeDraftPipeline(args: {
       turnFormatPreference,
       baseVoiceTarget,
       creatorProfileHints,
+      requestPolicy: turnRequestPolicy,
       selectedSourceMaterials,
       shouldForceNoFabricationGuardrailForTurn,
       styleCard,
@@ -1648,6 +1776,7 @@ export async function executeDraftPipeline(args: {
       turnThreadFramingStyle,
       groundingPacket,
       feedbackMemoryNotice,
+      requestPolicy: turnRequestPolicy,
       nextAssistantTurnCount,
       refreshRollingSummary: shouldRefreshRollingSummary(
         nextAssistantTurnCount,

@@ -5,6 +5,7 @@ import type {
   ConversationState,
   DraftFormatPreference,
   DraftPreference,
+  FormatIntent,
   StrategyPlan,
 } from "../contracts/chat";
 import {
@@ -31,8 +32,10 @@ import {
 } from "./jsonPromptContracts";
 import { resolveWriterPromptGuardrails } from "./draftPromptGuards";
 import {
+  buildFormatIntentPromptOverride,
   buildEngagementBaitRule,
   buildMarkdownStylingRule,
+  shouldSuppressGrowthFormatting,
   buildThreadFramingRequirement,
   buildVerificationProfessionalismRule,
 } from "./xPostPromptRules";
@@ -85,12 +88,15 @@ function buildHardGroundingBlock(activeConstraints: string[]): string | null {
   const groundingLines = activeConstraints
     .filter(
       (entry) =>
-        /^Correction lock:/i.test(entry) || /^Topic grounding:/i.test(entry),
+        /^Correction lock:/i.test(entry) ||
+        /^Topic grounding:/i.test(entry) ||
+        /^Grounding follow-up from user:/i.test(entry),
     )
     .map((entry) =>
       entry
         .replace(/^Correction lock:\s*/i, "")
         .replace(/^Topic grounding:\s*/i, "")
+        .replace(/^Grounding follow-up from user:\s*/i, "")
         .trim(),
     )
     .filter(Boolean);
@@ -173,33 +179,55 @@ PLAIN FACTUAL PRODUCT MODE:
 
 function buildGroundingPacketBlock(
   groundingPacket: GroundingPacket | null | undefined,
+  formatIntent: FormatIntent,
 ): string | null {
+  const guidanceLines = [
+    "Use this packet as the authority for autobiographical, numeric, and factual specificity.",
+    "Voice context hints can guide territory, framing, or emphasis, but they are NOT proof on their own.",
+    "Historical posts, creator-profile hints, and voice examples are NOT factual authority unless the same detail appears in this packet.",
+    "If source material details are present, prefer their saved claim/snippet seeds over invented framing.",
+  ];
+
+  if (formatIntent === "joke") {
+    guidanceLines.push(
+      "HUMOR EXCEPTION: The user is writing a joke, meme, or shitpost. You may use hyperbole, absurd scenarios, or invented situations for comedic effect.",
+    );
+  } else if (formatIntent === "story") {
+    guidanceLines.push(
+      "If the request is autobiographical and details are still missing, keep the first-person narrative shape and use [Bracketed Placeholders] like [Project], [Tool], or [X%] instead of flattening it into a framework.",
+    );
+    guidanceLines.push(
+      "If a detail is missing from this packet, the chat history, or hard grounding, do not invent it outside of those explicit [Bracketed Placeholders].",
+    );
+  } else {
+    guidanceLines.push(
+      "If Allowed first-person claims is empty, do NOT choose or draft a lived-experience story. Default to framework, opinion, or principle language instead.",
+    );
+    guidanceLines.push(
+      "If a detail is missing from this packet, the chat history, or hard grounding, do not invent it.",
+    );
+  }
+
   return buildGroundingPromptBlock({
     groundingPacket,
     title: "GROUNDING PACKET",
     sourceMaterialLimit: 2,
     claimLabel: "claim seed",
     snippetLabel: "snippet seed",
-    guidanceLines: [
-      "Use this packet as the authority for autobiographical, numeric, and factual specificity.",
-      "Voice context hints can guide territory, framing, or emphasis, but they are NOT proof on their own.",
-      "Historical posts, creator-profile hints, and voice examples are NOT factual authority unless the same detail appears in this packet.",
-      "If source material details are present, prefer their saved claim/snippet seeds over invented framing.",
-      "If Allowed first-person claims is empty, do NOT choose or draft a lived-experience story. Default to framework, opinion, or principle language instead.",
-      "If a detail is missing from this packet, the chat history, or hard grounding, do not invent it.",
-    ],
+    guidanceLines,
   });
 }
 
 function buildAutobiographicalPerspectiveBlock(args: {
   sourceText: string;
   groundingPacket: GroundingPacket | null | undefined;
+  formatIntent: FormatIntent;
 }): string | null {
   const normalizedSource = args.sourceText.trim().toLowerCase();
   const hasAllowedFirstPersonClaims =
     (args.groundingPacket?.allowedFirstPersonClaims.length || 0) > 0;
   const isAutobiographicalRequest =
-    hasAllowedFirstPersonClaims &&
+    (hasAllowedFirstPersonClaims || args.formatIntent === "story") &&
     [
       /\bmy\s+\d+\s*(?:day|week|month|year)s?\s+journey\b/,
       /\bmy\s+journey\b/,
@@ -216,7 +244,7 @@ function buildAutobiographicalPerspectiveBlock(args: {
 
   return `
 AUTOBIOGRAPHICAL PERSPECTIVE MODE:
-- The request is autobiographical and the grounding packet contains allowed first-person claims.
+- The request is autobiographical.
 - Keep the draft or plan in first person when you use those grounded autobiographical facts.
 - Do NOT recast the creator as "a candidate", "this candidate", "the user", or "they".
 - If you reference the grounded journey, projects, or motivation, write it as the creator's own story, not as an outside case study.
@@ -225,8 +253,13 @@ AUTOBIOGRAPHICAL PERSPECTIVE MODE:
 
 function buildSafeFrameworkFallbackBlock(
   groundingPacket: GroundingPacket | null | undefined,
+  formatIntent: FormatIntent,
 ): string | null {
   if (!groundingPacket) {
+    return null;
+  }
+
+  if (formatIntent === "story" || formatIntent === "joke") {
     return null;
   }
 
@@ -247,12 +280,28 @@ SAFE FRAMEWORK FALLBACK MODE:
   `.trim();
 }
 
+function buildStoryPlaceholderBlock(formatIntent: FormatIntent): string | null {
+  if (formatIntent !== "story") {
+    return null;
+  }
+
+  return `
+PLACEHOLDER STORY MODE:
+- Preserve the user's first-person narrative shape.
+- If a concrete project, metric, tool, company, or outcome is missing, use [Bracketed Placeholders] instead of downgrading the post into a generic framework.
+- Only protect the missing fact inside the brackets. Do NOT use placeholders as an excuse to add extra invented proof elsewhere in the sentence.
+  `.trim();
+}
+
 function buildCreatorProfileHintsBlock(
   creatorProfileHints: CreatorProfileHints | null | undefined,
+  formatIntent: FormatIntent,
 ): string | null {
   if (!creatorProfileHints) {
     return null;
   }
+
+  const shouldSoftenNicheEnforcement = shouldSuppressGrowthFormatting(formatIntent);
 
   return `
 CREATOR PROFILE HINTS:
@@ -274,8 +323,12 @@ CREATOR PROFILE HINTS:
 Use these hints to bias format, hook shape, pacing, and CTA choices before you improvise.
 They should shape the structure of the draft without turning into copied wording.
 If ambiguities are present, choose the narrowest useful interpretation instead of acting certain.
-Every draft or reply must clearly map to at least one current content pillar or learning signal.
-Reject broad motivational filler, generic praise-only replies, and off-brand side quests even if they sound polished.
+${shouldSoftenNicheEnforcement
+    ? "For jokes and casual observations, treat these as soft guardrails, not a hard cage. Personality posts can flex a bit."
+    : "Every draft or reply must clearly map to at least one current content pillar or learning signal."}
+${shouldSoftenNicheEnforcement
+    ? "Still avoid random off-brand detours that have no connection at all to the creator's lane."
+    : "Reject broad motivational filler, generic praise-only replies, and off-brand side quests even if they sound polished."}
   `.trim();
 }
 
@@ -386,6 +439,7 @@ export interface BuildPlanInstructionArgs {
     antiPatterns?: string[];
     draftPreference?: DraftPreference;
     formatPreference?: DraftFormatPreference;
+    formatIntent?: FormatIntent;
     activePlan?: StrategyPlan | null;
     latestRefinementInstruction?: string | null;
     lastIdeationAngles?: string[];
@@ -394,6 +448,7 @@ export interface BuildPlanInstructionArgs {
 
 function buildPlanRequirementsBlock(args: {
   isEditing: boolean;
+  formatIntent: FormatIntent;
 }): string {
   if (args.isEditing) {
     return `REQUIREMENTS:
@@ -403,9 +458,13 @@ function buildPlanRequirementsBlock(args: {
 4. If any active session constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding. Preserve it exactly and do not reintroduce the old assumption.`;
   }
 
+  const shouldUseCasualStructure = shouldSuppressGrowthFormatting(args.formatIntent);
+
   return `REQUIREMENTS:
 1. Pick a compelling, draftable angle for this exact request. If enough context already exists to write from, choose a direction that can be drafted immediately instead of turning the turn into extra discovery.
-2. Choose the right target lane (original / reply / quote) and the strongest hook type for that angle. The hook should come from a real tension, surprise, contradiction, stake, or concrete moment in the request, not a generic "thoughts on" setup.
+2. ${shouldUseCasualStructure
+      ? 'Choose the right target lane (original / reply / quote) and the cleanest opening move for that angle. Keep it native and low-friction instead of forcing a lesson-first "growth hook."'
+      : 'Choose the right target lane (original / reply / quote) and the strongest hook type for that angle. The hook should come from a real tension, surprise, contradiction, stake, or concrete moment in the request, not a generic "thoughts on" setup.'}
 3. Use "mustInclude" for concrete proof, scenes, stakes, outcomes, or facts that make the draft feel earned. Use "mustAvoid" for cliches, stale framing, or user-rejected patterns. Do NOT fill either list with meta writing advice like "be clear", "make it engaging", or "keep it concise."
 4. Do NOT invent fake metrics, backstory, hidden workflow steps, UI pain points, product behavior, or constraints the user never gave.
 5. If the user names a product, extension, tool, or company but does NOT explain what it actually does, keep the plan generic rather than filling in imagined specifics.
@@ -413,11 +472,15 @@ function buildPlanRequirementsBlock(args: {
 7. If FACTUAL GROUNDING or hard grounding is present, use it as the source of truth. Do NOT broaden the product into a nearby category, implied mechanic, market comparison, or first-person usage story that was not explicitly grounded.
 8. If PLAIN FACTUAL PRODUCT MODE is present, prefer a descriptive angle over a contrarian one. Do not force a "most people get this wrong" or "every tool..." setup unless the user explicitly asked for comparison or pushback.
 9. If RECENT CHAT HISTORY includes an earlier assistant guess or rejected draft that the user corrected, treat the correction as the source of truth and ignore the older assistant wording.
-10. If GROUNDING PACKET says Allowed first-person claims is empty, do NOT choose a lived-experience story angle. Pick a framework, opinion, or plain factual angle instead.
+10. ${args.formatIntent === "story"
+      ? "If the user asked for a lived-experience story and exact specifics are missing, keep the story angle and use [Bracketed Placeholders] instead of downgrading it into a framework."
+      : "If GROUNDING PACKET says Allowed first-person claims is empty, do NOT choose a lived-experience story angle. Pick a framework, opinion, or plain factual angle instead."}
 11. If AUTOBIOGRAPHICAL PERSPECTIVE MODE is present, keep grounded story claims in first person and do NOT reframe the creator as a candidate, the user, or they.
 12. If SAFE FRAMEWORK FALLBACK MODE is present, treat that as the preferred fallback instead of squeezing in invented specifics.
 13. Use CREATOR PROFILE HINTS to bias target lane, hook family, and format preference when the user did not explicitly override them.
-14. Keep "pitchResponse" short, lowercase, natural, and action-oriented. It should describe the direction itself, not your process.
+14. ${shouldUseCasualStructure
+      ? 'Keep "pitchResponse" short, lowercase, natural, and directionally specific. Do not promise a lesson, CTA, or framework if the user asked for a joke or observation.'
+      : 'Keep "pitchResponse" short, lowercase, natural, and action-oriented. It should describe the direction itself, not your process.'}
 15. Good \`pitchResponse\`: "lead with the contradiction between the promise and what actually changed"
 16. Bad \`pitchResponse\`: "got it, here's the plan", "let's do...", "i'm thinking we should...", "want me to draft it?"`;
 }
@@ -464,21 +527,33 @@ export function buildPlanInstruction(args: BuildPlanInstructionArgs): string {
   const antiPatterns = args.options?.antiPatterns || [];
   const draftPreference = args.options?.draftPreference || "balanced";
   const formatPreference = args.options?.formatPreference || "shortform";
+  const formatIntent = args.options?.formatIntent || "lesson";
   const concreteSceneBlock = buildConcreteScenePlanBlock(args.userMessage);
   const hardGroundingBlock = buildHardGroundingBlock(args.activeConstraints);
   const plainFactualProductBlock = buildPlainFactualProductBlock({
     sourceText: args.userMessage,
     activeConstraints: args.activeConstraints,
   });
-  const groundingPacketBlock = buildGroundingPacketBlock(args.groundingPacket);
+  const groundingPacketBlock = buildGroundingPacketBlock(
+    args.groundingPacket,
+    formatIntent,
+  );
   const autobiographicalPerspectiveBlock = buildAutobiographicalPerspectiveBlock({
     sourceText: [args.userMessage, args.topicSummary || "", args.recentHistory]
       .filter(Boolean)
       .join("\n"),
     groundingPacket: args.groundingPacket,
+    formatIntent,
   });
-  const safeFrameworkFallbackBlock = buildSafeFrameworkFallbackBlock(args.groundingPacket);
-  const creatorHintsBlock = buildCreatorProfileHintsBlock(args.creatorProfileHints);
+  const safeFrameworkFallbackBlock = buildSafeFrameworkFallbackBlock(
+    args.groundingPacket,
+    formatIntent,
+  );
+  const storyPlaceholderBlock = buildStoryPlaceholderBlock(formatIntent);
+  const creatorHintsBlock = buildCreatorProfileHintsBlock(
+    args.creatorProfileHints,
+    formatIntent,
+  );
   const assetCtaBlock = buildAssetCtaBlock(
     [args.userMessage, args.topicSummary || "", args.recentHistory].filter(Boolean).join("\n"),
   );
@@ -496,6 +571,7 @@ Optimize for low mental load: if there is enough context to move, choose a clean
 ${isEditing
       ? `This turn is about revising an existing draft. Keep the core idea unless the user clearly wants a different angle.`
       : `This turn is about a new ${formatPreference === "longform" ? "longform" : formatPreference === "thread" ? "thread" : "shortform"} post.`}
+${buildFormatIntentPromptOverride({ formatIntent, mode: "plan" }) ? `\n${buildFormatIntentPromptOverride({ formatIntent, mode: "plan" })}` : ""}
 
 ${buildConversationToneBlock("plan")}
 ${buildGoalHydrationBlock(goal, "plan")}
@@ -525,6 +601,7 @@ ${hardGroundingBlock ? `${hardGroundingBlock}\n` : ""}
 ${groundingPacketBlock ? `${groundingPacketBlock}\n` : ""}
 ${autobiographicalPerspectiveBlock ? `${autobiographicalPerspectiveBlock}\n` : ""}
 ${safeFrameworkFallbackBlock ? `${safeFrameworkFallbackBlock}\n` : ""}
+${storyPlaceholderBlock ? `${storyPlaceholderBlock}\n` : ""}
 
 ${creatorHintsBlock ? `${creatorHintsBlock}\n` : ""}
 ${assetCtaBlock ? `${assetCtaBlock}\n` : ""}
@@ -533,7 +610,7 @@ ${plainFactualProductBlock ? `${plainFactualProductBlock}\n` : ""}
 
 ${concreteSceneBlock ? `${concreteSceneBlock}\n` : ""}
 
-${buildPlanRequirementsBlock({ isEditing })}
+${buildPlanRequirementsBlock({ isEditing, formatIntent })}
 
 ${formatPreference === "thread" ? `${buildThreadBeatPlanningBlock()}\n` : ""}
 
@@ -567,6 +644,7 @@ export interface BuildWriterInstructionArgs {
     goal?: string;
     draftPreference?: DraftPreference;
     formatPreference?: DraftFormatPreference;
+    formatIntent?: FormatIntent;
     sourceUserMessage?: string;
     threadFramingStyle?: ThreadFramingStyle | null;
     activePlan?: StrategyPlan | null;
@@ -585,6 +663,8 @@ export function buildWriterInstruction(args: BuildWriterInstructionArgs): string
   const draftPreference = args.options?.draftPreference || "balanced";
   const formatPreference =
     args.options?.formatPreference || args.plan.formatPreference || "shortform";
+  const formatIntent =
+    args.options?.formatIntent || args.plan.formatIntent || "lesson";
   const threadFramingStyle = args.options?.threadFramingStyle ?? null;
   const {
     sceneSource,
@@ -616,15 +696,26 @@ Do NOT turn the product into "another tool", a meetup, a hashtag engine, a growt
     sourceText: args.options?.sourceUserMessage || [args.plan.objective, args.plan.angle].join(" "),
     activeConstraints: args.activeConstraints,
   });
-  const groundingPacketBlock = buildGroundingPacketBlock(args.groundingPacket);
+  const groundingPacketBlock = buildGroundingPacketBlock(
+    args.groundingPacket,
+    formatIntent,
+  );
   const autobiographicalPerspectiveBlock = buildAutobiographicalPerspectiveBlock({
     sourceText:
       args.options?.sourceUserMessage ||
       [args.plan.objective, args.plan.angle, args.recentHistory].join("\n"),
     groundingPacket: args.groundingPacket,
+    formatIntent,
   });
-  const safeFrameworkFallbackBlock = buildSafeFrameworkFallbackBlock(args.groundingPacket);
-  const creatorHintsBlock = buildCreatorProfileHintsBlock(args.creatorProfileHints);
+  const safeFrameworkFallbackBlock = buildSafeFrameworkFallbackBlock(
+    args.groundingPacket,
+    formatIntent,
+  );
+  const storyPlaceholderBlock = buildStoryPlaceholderBlock(formatIntent);
+  const creatorHintsBlock = buildCreatorProfileHintsBlock(
+    args.creatorProfileHints,
+    formatIntent,
+  );
   const assetCtaBlock = buildAssetCtaBlock(
     [
       args.options?.sourceUserMessage || "",
@@ -676,6 +767,7 @@ This means: user-owned facts CAN make drafts more specific and "earned" when gro
     groundingPacketBlock,
     autobiographicalPerspectiveBlock,
     safeFrameworkFallbackBlock,
+    storyPlaceholderBlock,
     plainFactualProductBlock,
   ]
     .filter((value): value is string => Boolean(value))
@@ -745,6 +837,7 @@ ${threadCadenceBlock ? `${threadCadenceBlock}\n` : ""}
 You are an elite ghostwriter for X (Twitter).
 ${isEditing ? `Your task is to take a Strategy Plan and apply it to EDIT an existing draft.`
       : `Your task is to take a strict Strategy Plan and generate EXACTLY 1 focused, high-quality draft.`}
+${buildFormatIntentPromptOverride({ formatIntent, mode: isEditing ? "revision" : "draft" }) ? `\n${buildFormatIntentPromptOverride({ formatIntent, mode: isEditing ? "revision" : "draft" })}` : ""}
 
 ${buildConversationToneBlock("draft")}
 ${buildGoalHydrationBlock(goal, "draft")}
@@ -784,7 +877,9 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 7. ANTI-RECYCLING: If the chat history contains a previous draft, you MUST write a COMPLETELY DIFFERENT structure, hook, and framing for the new draft. Do NOT reuse the same template, phrasing patterns, or CTA. Every draft must feel fresh.
 8. If the user gave negative feedback about a previous draft (e.g. "i don't like the emoji usage", "it's all over the place"), treat that as a HARD constraint for this draft.
 9. HARD LENGTH CAP: The "draft" field must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. This is a maximum, not a target.
-10. If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp. If this is a thread, write 4-6 posts separated by a line containing only ---, keep every post within ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, and let each post carry a full beat instead of forcing everything into legacy 280-character tweet brevity. When the per-post limit is higher, use the room when it improves setup, proof, or transitions.${buildThreadFramingRequirement({ threadFramingStyle, mode: "draft" })}
+10. ${shouldSuppressGrowthFormatting(formatIntent)
+      ? `If this is shortform or longform, keep it brief, native, and low-friction. If this is a thread, write 4-6 posts separated by a line containing only ---, keep every post within ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, and let each post carry a clean narrative beat without turning it into a templated growth thread.${buildThreadFramingRequirement({ threadFramingStyle, mode: "draft" })}`
+      : `If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp. If this is a thread, write 4-6 posts separated by a line containing only ---, keep every post within ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, and let each post carry a full beat instead of forcing everything into legacy 280-character tweet brevity. When the per-post limit is higher, use the room when it improves setup, proof, or transitions.${buildThreadFramingRequirement({ threadFramingStyle, mode: "draft" })}`}
 10a. If this is NOT a thread, return exactly one standalone post. Do NOT use standalone --- separators, multi-post serialization, or thread formatting in the "draft" field.
 10b. If this is NOT a thread, do NOT start with labels like "thread:", "post 1:", "tweet 1:", or any serialized thread opener.
 10c. If this is a thread, make Post 1 read like a real thread opener: sharp, tension-first, and native to X. Do NOT use the opener to summarize the whole lesson, framework, or CTA.
@@ -798,7 +893,9 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 12f. If PLAIN FACTUAL PRODUCT MODE is present, do NOT prepend an invented pain-point or before-state setup unless the user explicitly gave it.
 12g. If PLAIN FACTUAL PRODUCT MODE is present, do NOT duplicate the same benefit with a second paraphrase. One grounded phrasing is enough.
 12h. If the workflow context packet includes an earlier assistant guess or rejected draft that conflicts with factual grounding, treat that earlier text as superseded and do NOT reuse it.
-13. If GROUNDING PACKET says Allowed first-person claims is empty, do NOT write a lived story or personal proof post. Write a framework, opinion, or plain factual post instead.
+13. ${formatIntent === "story"
+      ? "If exact story facts are missing, keep the first-person structure and use [Bracketed Placeholders] for the missing specifics instead of flattening the post into a generic framework."
+      : "If GROUNDING PACKET says Allowed first-person claims is empty, do NOT write a lived story or personal proof post. Write a framework, opinion, or plain factual post instead."}
 13a. If SAFE FRAMEWORK FALLBACK MODE is present, prefer a framework, opinion, principle, or plain factual execution over a fake specific one.
 13b. If AUTOBIOGRAPHICAL PERSPECTIVE MODE is present, keep grounded autobiographical lines in first person. Do NOT turn them into "a candidate", "this candidate", "the user", or "they" framing.
 14. Use CREATOR PROFILE HINTS to bias hook family, CTA style, and shape before you improvise.
@@ -809,6 +906,9 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 16. ${buildEngagementBaitRule("draft")}
 16a. If the draft offers a concrete downloadable asset like a PDF, playbook, guide, checklist, or template, use a specific keyword CTA tied to the asset topic. Prefer \`Comment "HIRING" to get access to my hiring playbook.\` over vague endings like "leave a comment and i'll send it."
 16b. If there is no real concrete asset payoff, do NOT force a keyword CTA.
+16c. ${shouldSuppressGrowthFormatting(formatIntent)
+      ? "If the user asked for a joke or observation, do NOT bolt on a CTA, lesson, or bulletized takeaway at the end."
+      : "If the user did not ask for a joke or observation, any CTA should still feel earned by the draft."}
 17. The "draft" field must contain only the final X post text. Do NOT include speaker labels, chat transcript lines, quoted prompt text, UI chrome, usernames/handles from a mock composer, timestamps, character counters, button labels, or commentary like "I'll drop a draft", "looks good. write this version now.", or "tightened it so it reads fast."
 17a. If the source brief is phrased as a question, treat it as the problem the post should answer, not as text to paste back into the draft. If you use it as a hook, write the full hook cleanly and answer it. Never end on an unfinished fragment of the source question.
 

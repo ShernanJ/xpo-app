@@ -551,6 +551,11 @@ You MUST follow this exact structure for your output:
    - subtopics: A short list of talking points they should include in their response.
 3. Provide a "close" sentence asking which one they want to flesh out.
 
+FORMAT MIX:
+- Do not just pitch 3 standard growth hooks.
+- If you return 3 or more angles, include at least 1 tactical lesson, 1 personal story, and 1 contrarian observation or joke so the user can choose a voice lane.
+- Placeholder-based Mad-Libs angles are allowed when the specifics are not known yet. Hooks like "how i used [Tool] to improve [Metric] by [X]%" are valid as long as the placeholders stay explicit.
+
 ${focusTopicBlock}
 
 ${anchorContext}

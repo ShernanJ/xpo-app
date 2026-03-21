@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  inferFormatIntent,
   isBareIdeationRequest,
   resolveConversationMode,
 } from "../core/conversationHeuristics.ts";
@@ -37,6 +38,16 @@ test("regression: ideation retry command does not hijack active draft edit mode"
   });
 
   assert.equal(mode, "edit");
+});
+
+test("regression: format intent classifier distinguishes jokes, observations, stories, and lessons", () => {
+  assert.equal(inferFormatIntent("make it a coffee joke"), "joke");
+  assert.equal(inferFormatIntent("this is just a quick observation"), "observation");
+  assert.equal(
+    inferFormatIntent("I spent 1 month trying to get a job at Stan"),
+    "story",
+  );
+  assert.equal(inferFormatIntent("teach the hiring lesson here"), "lesson");
 });
 
 for (const fixture of IDEATION_REPLY_FIXTURES) {

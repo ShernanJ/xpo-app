@@ -1,6 +1,34 @@
 import type { ThreadFramingStyle } from "../../onboarding/draftArtifacts";
+import type { FormatIntent } from "../contracts/chat.ts";
 
 type PromptRuleMode = "draft" | "revision" | "critic";
+
+export function shouldSuppressGrowthFormatting(
+  formatIntent: FormatIntent | null | undefined,
+): boolean {
+  return formatIntent === "joke" || formatIntent === "observation";
+}
+
+export function buildFormatIntentPromptOverride(args: {
+  formatIntent: FormatIntent | null | undefined;
+  mode: "plan" | "draft" | "revision";
+}): string {
+  if (args.formatIntent === "joke") {
+    return "FORMAT OVERRIDE: The user wants a casual observation or joke. Do NOT format this like a standard growth post. No forced lessons, no bullet points, and no calls to action. Keep it brief, punchy, and native to casual X/Twitter culture.";
+  }
+
+  if (args.formatIntent === "observation") {
+    return "FORMAT OVERRIDE: The user wants a brief observation. Do NOT force a hook-lesson-CTA structure. Keep it natural, concise, and native to casual X/Twitter culture.";
+  }
+
+  if (args.formatIntent === "story") {
+    return args.mode === "plan"
+      ? "STORY MODE: preserve the first-person narrative shape. If exact facts are missing, keep the story structure and use [Bracketed Placeholders] instead of flattening it into a framework."
+      : "STORY MODE: preserve the first-person narrative shape. If exact facts are missing, keep the story structure and use [Bracketed Placeholders] instead of flattening it into a framework.";
+  }
+
+  return "";
+}
 
 export function buildVerificationProfessionalismRule(
   mode: Exclude<PromptRuleMode, "critic">,

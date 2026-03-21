@@ -1,5 +1,6 @@
 import type { DraftContextSlots } from "../capabilities/planning/draftContextSlots.ts";
 import { looksLikeProfileContextLeak } from "../core/profileContextLeak.ts";
+import { looksLikeAutobiographicalTurn } from "../core/conversationHeuristics.ts";
 
 export interface GroundingPacketSourceMaterial {
   type: "story" | "playbook" | "framework" | "case_study";
@@ -139,12 +140,15 @@ function extractConstraintGrounding(activeConstraints: string[]): string[] {
     activeConstraints
       .filter(
         (entry) =>
-          /^Correction lock:/i.test(entry) || /^Topic grounding:/i.test(entry),
+          /^Correction lock:/i.test(entry) ||
+          /^Topic grounding:/i.test(entry) ||
+          /^Grounding follow-up from user:/i.test(entry),
       )
       .map((entry) =>
         entry
           .replace(/^Correction lock:\s*/i, "")
           .replace(/^Topic grounding:\s*/i, "")
+          .replace(/^Grounding follow-up from user:\s*/i, "")
           .trim(),
       ),
   );
@@ -396,10 +400,30 @@ function looksLikeAutobiographicalClaim(value: string): boolean {
   );
 }
 
+function splitTurnGroundingLines(value: string): string[] {
+  return value
+    .split(/[\n\r]+|(?<=[.!?])\s+/)
+    .map((entry) => normalizeLine(entry))
+    .filter(Boolean);
+}
+
+export function deriveTurnScopedGrounding(sourceText: string): string[] {
+  return dedupeLines(
+    splitTurnGroundingLines(sourceText).filter((entry) => {
+      if (looksLikeAutobiographicalClaim(entry)) {
+        return true;
+      }
+
+      return looksLikeAutobiographicalTurn(entry);
+    }),
+  );
+}
+
 export function buildGroundingPacket(args: {
   styleCard: GroundingStyleCard | null;
   activeConstraints: string[];
   extractedFacts?: string[] | null;
+  turnScopedGrounding?: string[] | null;
 }): GroundingPacket {
   const voiceContextHints = getVoiceContextHintsFromStyleCard(args.styleCard);
   const rawDurableFacts = dedupeLines([
@@ -408,6 +432,7 @@ export function buildGroundingPacket(args: {
   ]);
   const rawTurnGrounding = dedupeLines([
     ...extractConstraintGrounding(args.activeConstraints),
+    ...((args.turnScopedGrounding || []).filter(Boolean)),
     ...((args.extractedFacts || []).filter(Boolean)),
   ]);
   const factLedger = args.styleCard?.factLedger;

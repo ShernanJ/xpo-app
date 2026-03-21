@@ -2,6 +2,7 @@ import {
   collectGroundingFactualAuthority,
   type GroundingPacket,
 } from "./groundingPacket.ts";
+import type { DraftRequestPolicy } from "./requestPolicy.ts";
 
 export interface ClaimCheckResult {
   draft: string;
@@ -70,6 +71,8 @@ const RESOURCE_SEND_CTA_PATTERN =
   /^(?:comment|reply)\s+["'][^"']+["']\s+and\s+i(?:'ll| will)\s+(?:send|share)\b/i;
 const RESOURCE_ASSET_PATTERN =
   /\b(?:playbook|guide|checklist|template|pdf|resource|worksheet|framework)\b/i;
+const PLACEHOLDER_SENTINEL_PREFIX = "__XPO_PLACEHOLDER_";
+const PLACEHOLDER_SENTINEL_PATTERN = /__XPO_PLACEHOLDER_\d+__/g;
 
 function normalizeWhitespace(value: string): string {
   return value.trim().replace(/\s+/g, " ");
@@ -205,6 +208,121 @@ function cleanupDraft(value: string): string {
     .trim();
 }
 
+function maskBracketedPlaceholders(value: string): {
+  masked: string;
+  placeholders: string[];
+} {
+  let masked = "";
+  const placeholders: string[] = [];
+
+  for (let index = 0; index < value.length; index += 1) {
+    const current = value[index];
+    if (current !== "[") {
+      masked += current;
+      continue;
+    }
+
+    let cursor = index + 1;
+    let closingIndex = -1;
+    let nestedBracketFound = false;
+
+    while (cursor < value.length) {
+      const next = value[cursor];
+      if (next === "[") {
+        nestedBracketFound = true;
+        break;
+      }
+      if (next === "]") {
+        closingIndex = cursor;
+        break;
+      }
+      cursor += 1;
+    }
+
+    if (nestedBracketFound || closingIndex <= index + 1) {
+      masked += current;
+      continue;
+    }
+
+    const token = `${PLACEHOLDER_SENTINEL_PREFIX}${placeholders.length}__`;
+    placeholders.push(value.slice(index, closingIndex + 1));
+    masked += token;
+    index = closingIndex;
+  }
+
+  return { masked, placeholders };
+}
+
+function restoreBracketedPlaceholders(value: string, placeholders: string[]): string {
+  return placeholders.reduce(
+    (restored, placeholder, index) =>
+      restored.replaceAll(`${PLACEHOLDER_SENTINEL_PREFIX}${index}__`, placeholder),
+    value,
+  );
+}
+
+function stripUnsupportedPlaceholderFragments(
+  value: string,
+  packet: GroundingPacket,
+): { nextLine: string; changed: boolean } {
+  let nextLine = value;
+  const original = value;
+  const unsupportedNumbers = (value.match(/\b\d[\d,./%a-z]*\b/gi) || []).filter(
+    (token) =>
+      !packet.allowedNumbers.some(
+        (allowed) => allowed.toLowerCase() === token.toLowerCase(),
+      ),
+  );
+
+  if (unsupportedNumbers.length > 0) {
+    nextLine = nextLine
+      .replace(
+        /\s*(?:and|but)?\s*(?:grew|grow|boosted|lifted|doubled|surged|jumped|increased|increase|cut|reduced|saved|added|hit|reached)\s+\d[\d,./%a-z\s-]*/gi,
+        "",
+      )
+      .replace(
+        /\s*(?:by|up|down)\s+\d[\d,./%a-z\s-]*/gi,
+        "",
+      )
+      .replace(/\b\d[\d,./%]*\s*(?:%|percent)\b/gi, "")
+      .replace(
+        /\b(?:in|over|within|across|after)\s+\d+\s+(?:day|days|week|weeks|month|months|year|years)\b/gi,
+        "",
+      )
+      .replace(/\b(?:q[1-4]|\d{4})\b/gi, "");
+  }
+
+  nextLine = nextLine
+    .replace(
+      /\b(?:yesterday|today|tonight|last night|this morning|last week|last month|last year)\b/gi,
+      "",
+    )
+    .replace(
+      /\s*(?:and|but)?\s*(?:moved the needle|move the needle|follower spike|follower spikes|spike in followers|spikes in followers|growth spike|growth spikes|lifted|lift|boosted|went up|surged|jumped|doubled)\b[^,.!?;:]*$/gi,
+      "",
+    )
+    .replace(
+      /\s*(?:because|which is why|that['’]s why|so that|led to|resulted in|caused)\b[^,.!?;:]*$/gi,
+      "",
+    )
+    .replace(
+      /\b(?:in|at|from|with|for|near|around|inside)\s+(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}|[A-Z]{2,})\b/g,
+      "",
+    )
+    .replace(/\s+(?:and|but)\s*$/i, "")
+    .replace(/\s+([,.;:!?])/g, "$1");
+
+  nextLine = normalizeWhitespace(nextLine)
+    .replace(PLACEHOLDER_SENTINEL_PATTERN, (token) => token)
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  return {
+    nextLine,
+    changed: nextLine !== normalizeWhitespace(original),
+  };
+}
+
 function looksLikeResourceAccessCta(line: string): boolean {
   return (
     RESOURCE_ASSET_PATTERN.test(line) &&
@@ -212,7 +330,11 @@ function looksLikeResourceAccessCta(line: string): boolean {
   );
 }
 
-function sanitizeAtomicLine(line: string, packet: GroundingPacket): {
+function sanitizeAtomicLine(
+  line: string,
+  packet: GroundingPacket,
+  requestPolicy?: DraftRequestPolicy,
+): {
   nextLine: string;
   issue: string | null;
 } {
@@ -223,6 +345,40 @@ function sanitizeAtomicLine(line: string, packet: GroundingPacket): {
 
   if (looksLikeResourceAccessCta(trimmed)) {
     return { nextLine: trimmed, issue: null };
+  }
+
+  if (requestPolicy?.preserveStoryPlaceholders) {
+    const masked = maskBracketedPlaceholders(trimmed);
+    if (masked.placeholders.length > 0) {
+      if (conflictsWithForbiddenClaim(masked.masked, packet.forbiddenClaims)) {
+        return {
+          nextLine: "",
+          issue: "Removed a claim that conflicts with grounded facts.",
+        };
+      }
+
+      const stripped = stripUnsupportedPlaceholderFragments(masked.masked, packet);
+      const restored = restoreBracketedPlaceholders(
+        stripped.nextLine,
+        masked.placeholders,
+      );
+      const strippedWithoutPlaceholders = stripped.nextLine.replace(
+        PLACEHOLDER_SENTINEL_PATTERN,
+        "",
+      );
+      if (restored && !/\b\d[\d,./%]*\b/.test(strippedWithoutPlaceholders)) {
+        const endingPunctuation = trimmed.match(/[.!?]$/)?.[0] || "";
+        return {
+          nextLine:
+            endingPunctuation && !/[.!?]$/.test(restored)
+              ? `${restored}${endingPunctuation}`
+              : restored,
+          issue: stripped.changed
+            ? "Removed unsupported unbracketed story details while preserving placeholders."
+            : null,
+        };
+      }
+    }
   }
 
   const allSources = getGroundingSources(packet);
@@ -286,7 +442,11 @@ function splitSentenceLikeSegments(line: string): string[] {
   return segments.length > 0 ? segments : [trimmed];
 }
 
-function sanitizeLine(line: string, packet: GroundingPacket): {
+function sanitizeLine(
+  line: string,
+  packet: GroundingPacket,
+  requestPolicy?: DraftRequestPolicy,
+): {
   nextLine: string;
   issues: string[];
 } {
@@ -297,7 +457,11 @@ function sanitizeLine(line: string, packet: GroundingPacket): {
 
   const segments = splitSentenceLikeSegments(trimmed);
   if (segments.length === 1) {
-    const result = sanitizeAtomicLine(segments[0] || trimmed, packet);
+    const result = sanitizeAtomicLine(
+      segments[0] || trimmed,
+      packet,
+      requestPolicy,
+    );
     return {
       nextLine: result.nextLine,
       issues: result.issue ? [result.issue] : [],
@@ -308,7 +472,7 @@ function sanitizeLine(line: string, packet: GroundingPacket): {
   const issues: string[] = [];
 
   for (const segment of segments) {
-    const result = sanitizeAtomicLine(segment, packet);
+    const result = sanitizeAtomicLine(segment, packet, requestPolicy);
     if (result.nextLine) {
       nextSegments.push(result.nextLine);
     }
@@ -326,14 +490,28 @@ function sanitizeLine(line: string, packet: GroundingPacket): {
 export function checkDraftClaimsAgainstGrounding(args: {
   draft: string;
   groundingPacket: GroundingPacket;
+  requestPolicy?: DraftRequestPolicy;
 }): ClaimCheckResult {
+  if (args.requestPolicy?.allowHumorFabrication) {
+    return {
+      draft: cleanupDraft(args.draft),
+      issues: [],
+      hasUnsupportedClaims: false,
+      needsClarification: false,
+    };
+  }
+
   const lines = args.draft.split("\n");
   const issues: string[] = [];
   let removedOrChanged = 0;
 
   const nextLines = lines
     .map((line) => {
-      const result = sanitizeLine(line, args.groundingPacket);
+      const result = sanitizeLine(
+        line,
+        args.groundingPacket,
+        args.requestPolicy,
+      );
       if (result.issues.length > 0) {
         removedOrChanged += result.issues.length;
         issues.push(...result.issues);

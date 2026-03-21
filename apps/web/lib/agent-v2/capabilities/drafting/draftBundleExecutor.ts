@@ -7,6 +7,7 @@ import {
 } from "./draftBundles.ts";
 import { buildDraftResultQuickReplies } from "../../responses/draftResultQuickReplies.ts";
 import { buildDirectionHandoffCopy } from "../../responses/ideationShellCopy.ts";
+import { appendCoachNote } from "../../responses/coachNote.ts";
 import { runDraftBundleCandidateWorkers } from "../../workers/draftBundleCandidateWorkers.ts";
 import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import { buildRuntimeWorkerExecution } from "../../runtime/workerPlane.ts";
@@ -29,8 +30,16 @@ import type {
   CapabilityExecutionResult,
   RuntimeResponseSeed,
 } from "../../runtime/runtimeContracts.ts";
-import type { GroundingPacket, GroundingPacketSourceMaterial } from "../../grounding/groundingPacket.ts";
+import type {
+  CreatorProfileHints,
+  GroundingPacket,
+  GroundingPacketSourceMaterial,
+} from "../../grounding/groundingPacket.ts";
 import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.ts";
+import {
+  buildDraftRequestPolicy,
+  type DraftRequestPolicy,
+} from "../../grounding/requestPolicy.ts";
 import type { DraftingCapabilityRunResult } from "./draftingCapability.ts";
 
 type RawOrchestratorResponse = Omit<
@@ -57,6 +66,8 @@ export interface DraftBundleCapabilityContext {
   groundingSources: GroundingPacketSourceMaterial[];
   groundingMode: DraftGroundingMode | null;
   groundingExplanation: string | null;
+  creatorProfileHints?: CreatorProfileHints | null;
+  requestPolicy?: DraftRequestPolicy;
 }
 
 export interface DraftBundleCapabilityMemoryPatch {
@@ -106,6 +117,12 @@ export async function executeDraftBundleCapability(
   },
 ): Promise<CapabilityExecutionResult<DraftBundleCapabilityOutput>> {
   const { context, services } = args;
+  const requestPolicy =
+    context.requestPolicy ||
+    buildDraftRequestPolicy({
+      userMessage: context.userMessage,
+      formatIntent: context.plan.formatIntent,
+    });
   const bundleBriefs = buildDraftBundleBriefs({
     userMessage: context.userMessage,
     basePlan: context.plan,
@@ -319,14 +336,20 @@ export async function executeDraftBundleCapability(
       responseSeed: {
         mode: "draft",
         outputShape: "short_form_post",
-        response: prependFeedbackMemoryNotice(
-          buildDirectionHandoffCopy({
-            source: "draft_bundle",
-            artifact: "post",
-            seed: context.plan.objective,
-          }),
-          context.feedbackMemoryNotice ?? null,
-        ),
+        response: appendCoachNote({
+          response: prependFeedbackMemoryNotice(
+            buildDirectionHandoffCopy({
+              source: "draft_bundle",
+              artifact: "post",
+              seed: context.plan.objective,
+            }),
+            context.feedbackMemoryNotice ?? null,
+          ),
+          userMessage: context.userMessage,
+          plan: context.plan,
+          creatorProfileHints: context.creatorProfileHints,
+          requestPolicy,
+        }),
         data: {
           draft: options[0].draft,
           drafts: options.map((option) => option.draft),

@@ -8,12 +8,14 @@ import type {
   ConversationState,
   DraftFormatPreference,
   DraftPreference,
+  FormatIntent,
   StrategyPlan,
 } from "../contracts/chat";
 import type {
   CreatorProfileHints,
   GroundingPacket,
 } from "../grounding/groundingPacket";
+import { buildDraftRequestPolicy } from "../grounding/requestPolicy.ts";
 import { buildWriterInstruction } from "./promptBuilders";
 
 export const WriterOutputSchema = z.object({
@@ -45,6 +47,7 @@ export async function generateDrafts(
     goal?: string;
     draftPreference?: DraftPreference;
     formatPreference?: DraftFormatPreference;
+    formatIntent?: FormatIntent;
     sourceUserMessage?: string;
     voiceTarget?: VoiceTarget | null;
     referenceAnchorMode?: "historical_posts" | "reference_hints";
@@ -56,6 +59,11 @@ export async function generateDrafts(
     creatorProfileHints?: CreatorProfileHints | null;
   },
 ): Promise<WriterOutput | null> {
+  const requestPolicy = buildDraftRequestPolicy({
+    userMessage:
+      options?.sourceUserMessage || [plan.objective, plan.angle].join(" "),
+    formatIntent: options?.formatIntent || plan.formatIntent,
+  });
   const instruction = buildWriterInstruction({
     plan,
     styleCard,
@@ -72,8 +80,10 @@ export async function generateDrafts(
 
   const shouldUseStrictFactualTemperature =
     Boolean(options?.groundingPacket) &&
+    !requestPolicy.allowHumorFabrication &&
     (options?.groundingPacket?.unknowns.length || 0) > 0 &&
-    (options?.groundingPacket?.allowedFirstPersonClaims.length || 0) === 0;
+    (options?.groundingPacket?.allowedFirstPersonClaims.length || 0) === 0 &&
+    !requestPolicy.preserveStoryPlaceholders;
 
   const data = await fetchStructuredJsonFromGroq({
     schema: WriterOutputSchema,

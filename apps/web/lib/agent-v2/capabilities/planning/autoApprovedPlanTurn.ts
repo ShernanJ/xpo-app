@@ -25,10 +25,12 @@ import type {
 import type {
   GroundingPacket,
   GroundingPacketSourceMaterial,
+  CreatorProfileHints,
 } from "../../grounding/groundingPacket.ts";
 import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.ts";
 import type { VoiceStyleCard } from "../../core/styleProfile.ts";
 import type { PlanningCapabilityMemoryPatch } from "./planningCapability.ts";
+import type { DraftRequestPolicy } from "../../grounding/requestPolicy.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -53,6 +55,8 @@ export async function handleAutoApprovedPlanTurn(args: {
   turnFormatPreference: DraftFormatPreference;
   nextAssistantTurnCount: number;
   feedbackMemoryNotice?: string | null;
+  creatorProfileHints?: CreatorProfileHints | null;
+  requestPolicy: DraftRequestPolicy;
   groundingSources: GroundingPacketSourceMaterial[];
   groundingMode: DraftGroundingMode | null;
   groundingExplanation: string | null;
@@ -121,6 +125,8 @@ export async function handleAutoApprovedPlanTurn(args: {
         groundingSources: args.groundingSources,
         groundingMode: args.groundingMode,
         groundingExplanation: args.groundingExplanation,
+        creatorProfileHints: args.creatorProfileHints,
+        requestPolicy: args.requestPolicy,
       },
       services: {
         runSingleDraft: ({
@@ -226,6 +232,8 @@ export async function handleAutoApprovedPlanTurn(args: {
       groundingSources: args.groundingSources,
       groundingMode: args.groundingMode,
       groundingExplanation: args.groundingExplanation,
+      creatorProfileHints: args.creatorProfileHints,
+      requestPolicy: args.requestPolicy,
     },
     services: {
       checkDeterministicNovelty: args.checkDeterministicNovelty,

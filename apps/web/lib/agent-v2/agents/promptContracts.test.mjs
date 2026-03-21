@@ -32,11 +32,8 @@ test("planner concrete-scene block stays anchored to the literal anecdote", () =
 });
 
 test("writer concrete-scene block prevents neat fake growth morals", () => {
-  const source = [
-    "write one about playing league at the stan office against the ceo and losing hard",
-    NO_FABRICATION_CONSTRAINT,
-    NO_FABRICATION_MUST_AVOID,
-  ].join(" ");
+  const source =
+    "write one about playing league at the stan office against the ceo and losing hard";
   const instruction = buildConcreteSceneDraftBlock(source);
 
   assert.equal(instruction.includes("CONCRETE SCENE DRAFT MODE:"), true);
@@ -250,7 +247,29 @@ test("planner and writer prompts surface hard factual grounding for product asks
   assert.equal(promptSource.includes("CREATOR PROFILE HINTS:"), true);
   assert.equal(
     promptSource.includes(
-      "If Allowed first-person claims is empty, do NOT choose or draft a lived-experience story.",
+      "If the request is autobiographical and details are still missing, keep the first-person narrative shape and use [Bracketed Placeholders]",
+    ),
+    true,
+  );
+  assert.equal(
+    promptSource.includes(
+      "FORMAT OVERRIDE: The user wants a casual observation or joke. Do NOT format this like a standard growth post.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptSource.includes(
+      "HUMOR EXCEPTION: The user is writing a joke, meme, or shitpost.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptSource.includes("PLACEHOLDER STORY MODE:"),
+    true,
+  );
+  assert.equal(
+    promptSource.includes(
+      "If the user asked for a lived-experience story and exact specifics are missing, keep the story angle and use [Bracketed Placeholders] instead of downgrading it into a framework.",
     ),
     true,
   );

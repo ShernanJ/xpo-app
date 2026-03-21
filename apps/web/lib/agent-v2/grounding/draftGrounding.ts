@@ -1,10 +1,10 @@
-import type { StrategyPlan } from "../contracts/chat";
+import type { FormatIntent, StrategyPlan } from "../contracts/chat";
 
 export const NO_FABRICATION_CONSTRAINT =
-  "Factual guardrail: do not invent personal anecdotes, offline events, timelines, named places, product behavior, product features, internal tools, metrics, lessons, or causal claims. If facts are missing, stay literal or use opinion/framework language instead.";
+  "Factual guardrail: do not invent personal anecdotes, offline events, timelines, named places, product behavior, product features, internal tools, metrics, lessons, or causal claims. Critical exception: if the user wants a personal story or specific first-person hook, keep the narrative structure and use [Bracketed Placeholders] like [Project], [Tool], or [X%] instead of downgrading the draft into a generic framework.";
 
 export const NO_FABRICATION_MUST_AVOID =
-  "Invented personal anecdotes, offline events, timelines, named places, product behavior, product features, internal tools, metrics, lessons, or causal claims that were not explicitly provided by the user.";
+  "Invented personal anecdotes, offline events, timelines, named places, product behavior, product features, internal tools, metrics, lessons, or causal claims that were not explicitly provided by the user. If story details are missing, use [Bracketed Placeholders] instead of making them up.";
 
 const DRAFT_REQUEST_CUES = [
   "write me a post",
@@ -24,26 +24,36 @@ const DRAFT_REQUEST_CUES = [
   "write a tweet",
 ];
 
-const CONCRETE_SCENE_CUES = [
-  "office",
-  "ceo",
-  "founder",
-  "meeting",
-  "call",
-  "league",
-  "game",
-  "match",
-  "team",
-  "against",
-  "with the",
-  "at the",
-  "playing",
-  "played",
-  "losing",
-  "lost",
-  "won",
-  "yesterday",
-  "last night",
+const CONCRETE_SCENE_PATTERNS = [
+  /\boffice\b/i,
+  /\bceo\b/i,
+  /\bfounder\b/i,
+  /\bcto\b/i,
+  /\bmeeting\b/i,
+  /\bcall\b/i,
+  /\bleague\b/i,
+  /\bgame\b/i,
+  /\bmatch\b/i,
+  /\bteam\b/i,
+  /\bagainst\b/i,
+  /\bwith the\b/i,
+  /\bat the\b/i,
+  /\bplaying\b/i,
+  /\bplayed\b/i,
+  /\blosing\b/i,
+  /\blost\b/i,
+  /\bwon\b/i,
+  /\byesterday\b/i,
+  /\blast night\b/i,
+  /\bmy journey\b/i,
+  /\bi built\b/i,
+  /\bi shipped\b/i,
+  /\bi tried\b/i,
+  /\b\d+\s*(?:day|days|week|weeks|month|months|year|years)\b/i,
+  /\bclient project\b/i,
+  /\bbug\b/i,
+  /\brole\b/i,
+  /\binterview\b/i,
 ];
 
 const EXPLICIT_GROWTH_CUES = [
@@ -140,12 +150,15 @@ function extractGroundingLines(activeConstraints: string[]): string[] {
   return activeConstraints
     .filter(
       (entry) =>
-        /^Correction lock:/i.test(entry) || /^Topic grounding:/i.test(entry),
+        /^Correction lock:/i.test(entry) ||
+        /^Topic grounding:/i.test(entry) ||
+        /^Grounding follow-up from user:/i.test(entry),
     )
     .map((entry) =>
       entry
         .replace(/^Correction lock:\s*/i, "")
         .replace(/^Topic grounding:\s*/i, "")
+        .replace(/^Grounding follow-up from user:\s*/i, "")
         .trim(),
     )
     .filter(Boolean);
@@ -268,8 +281,8 @@ function collectAbsentTerms(
 }
 
 function hasConcreteSceneCues(normalized: string): boolean {
-  const cueCount = CONCRETE_SCENE_CUES.reduce(
-    (count, cue) => (normalized.includes(cue) ? count + 1 : count),
+  const cueCount = CONCRETE_SCENE_PATTERNS.reduce(
+    (count, pattern) => (pattern.test(normalized) ? count + 1 : count),
     0,
   );
 
@@ -495,7 +508,7 @@ export function buildGroundedProductRetryConstraint(): string {
 }
 
 export function buildUnsupportedClaimRetryConstraint(): string {
-  return "Unsupported claim retry: remove invented proof points, metrics, follower spikes, customer names, product mechanics, autobiographical usage claims, timelines, and outcome language unless they are explicitly grounded. If the real grounding is thin, downgrade the draft into a framework, opinion, or plain factual version instead of making it sound more proven.";
+  return "Unsupported claim retry: remove invented proof points, metrics, follower spikes, customer names, product mechanics, autobiographical usage claims, timelines, and outcome language unless they are explicitly grounded. If this is a story and specifics are missing, keep the first-person narrative but swap missing facts for [Bracketed Placeholders]. Otherwise downgrade the draft into a framework, opinion, or plain factual version instead of making it sound more proven.";
 }
 
 export function buildConcreteSceneRetryConstraint(message: string): string | null {
@@ -523,6 +536,10 @@ export function hasNoFabricationPlanGuardrail(
 }
 
 export function withNoFabricationPlanGuardrail(plan: StrategyPlan): StrategyPlan {
+  if (plan.formatIntent === "joke") {
+    return plan;
+  }
+
   if (hasNoFabricationPlanGuardrail(plan)) {
     return plan;
   }
@@ -535,7 +552,12 @@ export function withNoFabricationPlanGuardrail(plan: StrategyPlan): StrategyPlan
 
 export function appendNoFabricationConstraint(
   activeConstraints: string[],
+  formatIntent?: FormatIntent | null,
 ): string[] {
+  if (formatIntent === "joke") {
+    return activeConstraints;
+  }
+
   if (
     activeConstraints.some((constraint) => constraint === NO_FABRICATION_CONSTRAINT)
   ) {
@@ -549,7 +571,12 @@ export function shouldForceNoFabricationPlanGuardrail(args: {
   userMessage: string;
   behaviorKnown: boolean;
   stakesKnown: boolean;
+  formatIntent?: FormatIntent | null;
 }): boolean {
+  if (args.formatIntent === "joke") {
+    return false;
+  }
+
   if (isConcreteAnecdoteDraftRequest(args.userMessage)) {
     return true;
   }

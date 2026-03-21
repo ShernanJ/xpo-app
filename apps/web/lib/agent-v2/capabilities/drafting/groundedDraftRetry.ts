@@ -19,6 +19,10 @@ import {
   buildConcreteSceneRetryConstraint,
 } from "../../grounding/draftGrounding.ts";
 import { checkDraftClaimsAgainstGrounding } from "../../grounding/claimChecker.ts";
+import {
+  buildDraftRequestPolicy,
+  type DraftRequestPolicy,
+} from "../../grounding/requestPolicy.ts";
 import { runDraftGuardValidationWorkers } from "../../workers/draftGuardValidationWorkers.ts";
 import {
   buildRuntimeValidationResult,
@@ -81,6 +85,9 @@ export async function runGroundedDraftRetry(
     topicSummary?: string;
     pendingPlan?: StrategyPlan;
     draftGroundingPacket: GroundingPacket;
+    requestPolicy?: DraftRequestPolicy;
+    storyClarificationQuestion?: string | null;
+    storyClarificationAsked?: boolean;
     attemptDraft: (extraConstraints?: string[]) => Promise<DraftingAttemptResult>;
     buildConcreteSceneClarificationQuestion: (sourceUserMessage: string) => string;
     buildGroundedProductClarificationQuestion: (sourceUserMessage: string) => string;
@@ -98,6 +105,12 @@ export async function runGroundedDraftRetry(
     }) => Promise<RawOrchestratorResponse>;
   },
 ): Promise<DraftingCapabilityRunResult> {
+  const requestPolicy =
+    args.requestPolicy ||
+    buildDraftRequestPolicy({
+      userMessage: args.sourceUserMessage || args.plan.objective,
+      formatIntent: args.plan.formatIntent,
+    });
   const localWorkers: RuntimeWorkerExecution[] = [];
   const localValidations: RuntimeValidationResult[] = [];
   let routingTracePatch: RoutingTracePatch | undefined;
@@ -161,6 +174,7 @@ export async function runGroundedDraftRetry(
     const claimCheck = checkDraftClaimsAgainstGrounding({
       draft: attempt.draftToDeliver,
       groundingPacket: args.draftGroundingPacket,
+      requestPolicy,
     });
     const validationStatus = resolveRuntimeValidationStatus({
       needsClarification: claimCheck.needsClarification,
@@ -221,13 +235,56 @@ export async function runGroundedDraftRetry(
         capability: "drafting",
         pendingAction: "awaiting_grounding_answer",
         formatPreference: args.formatPreference,
+        formatIntent: args.plan.formatIntent || requestPolicy.formatIntent,
         threadFramingStyle: args.threadFramingStyle ?? null,
         sourceUserMessage: args.sourceUserMessage || null,
         sourcePrompt: args.sourceUserMessage || args.plan.objective,
         activeConstraints: args.activeConstraints,
         plan: args.plan,
+        storyClarificationAsked: args.storyClarificationAsked === true,
       },
     });
+
+  if (
+    args.storyClarificationQuestion &&
+    !args.storyClarificationAsked
+  ) {
+    routingTracePatch = {
+      ...routingTracePatch,
+      draftGuard: {
+        reason: "claim_needs_clarification",
+        issues: ["Story needs one concrete anchor before drafting."],
+      },
+    };
+    return {
+      kind: "response",
+      response: await args.returnClarificationQuestion({
+        question: args.storyClarificationQuestion,
+        traceReason: "claim_needs_clarification",
+        ...(args.topicSummary !== undefined
+          ? { topicSummary: args.topicSummary }
+          : {}),
+        ...(args.pendingPlan !== undefined
+          ? { pendingPlan: args.pendingPlan }
+          : {}),
+        continuationState: {
+          capability: "drafting",
+          pendingAction: "awaiting_grounding_answer",
+          formatPreference: args.formatPreference,
+          formatIntent: args.plan.formatIntent || requestPolicy.formatIntent,
+          threadFramingStyle: args.threadFramingStyle ?? null,
+          sourceUserMessage: args.sourceUserMessage || null,
+          sourcePrompt: args.sourceUserMessage || args.plan.objective,
+          activeConstraints: args.activeConstraints,
+          plan: args.plan,
+          storyClarificationAsked: true,
+        },
+      }),
+      workers: localWorkers,
+      validations: localValidations,
+      routingTracePatch,
+    };
+  }
 
   const firstAttempt = await args.attemptDraft();
   if (!firstAttempt.writerOutput) {

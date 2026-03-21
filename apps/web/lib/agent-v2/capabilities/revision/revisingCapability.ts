@@ -3,6 +3,7 @@ import {
 } from "../../memory/summaryManager.ts";
 import { resolveVoiceTarget } from "../../core/voiceTarget.ts";
 import { buildDraftReply } from "../../responses/draftReply.ts";
+import { appendCoachNote } from "../../responses/coachNote.ts";
 import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import { buildDraftResultQuickReplies } from "../../responses/draftResultQuickReplies.ts";
 import { runRevisionValidationWorkers } from "../../workers/validation/revisionValidationWorkers.ts";
@@ -38,7 +39,12 @@ import type { OrchestratorResponse } from "../../runtime/types.ts";
 import type {
   GroundingPacket,
   GroundingPacketSourceMaterial,
+  CreatorProfileHints,
 } from "../../grounding/groundingPacket.ts";
+import {
+  buildDraftRequestPolicy,
+  type DraftRequestPolicy,
+} from "../../grounding/requestPolicy.ts";
 import type {
   DraftRevisionDirective,
   DraftRevisionTargetSpan,
@@ -387,6 +393,8 @@ export interface RevisingCapabilityContext {
   groundingSources: GroundingPacketSourceMaterial[];
   groundingMode: DraftGroundingMode | null;
   groundingExplanation: string | null;
+  creatorProfileHints?: CreatorProfileHints | null;
+  requestPolicy?: DraftRequestPolicy;
 }
 
 export interface RevisingCapabilityMemoryPatch {
@@ -422,6 +430,12 @@ export async function executeRevisingCapability(
   },
 ): Promise<CapabilityExecutionResult<RevisingCapabilityOutput>> {
   const { context, services } = args;
+  const requestPolicy =
+    context.requestPolicy ||
+    buildDraftRequestPolicy({
+      userMessage: context.userMessage,
+      formatIntent: null,
+    });
   const resolvedFormatPreference = resolveRevisionFormatPreference({
     activeDraft: context.activeDraft,
     revision: context.revision,
@@ -610,6 +624,7 @@ export async function executeRevisingCapability(
         formatPreference: resolvedFormatPreference,
         sourceUserMessage: context.userMessage,
         groupId: attempt.validationGroupId,
+        requestPolicy,
       }),
     };
   };
@@ -948,19 +963,24 @@ export async function executeRevisingCapability(
       responseSeed: {
         mode: "draft",
         outputShape,
-        response: prependFeedbackMemoryNotice(
-          buildDraftReply({
-            userMessage: context.userMessage,
-            draftPreference: context.turnDraftPreference,
-            isEdit: true,
-            issuesFixed,
-            styleCard: context.styleCard,
-            revisionChangeKind: context.revision.changeKind,
-            revisionTargetFormat: context.revision.targetFormat ?? null,
-            directReturn: true,
-          }),
-          context.feedbackMemoryNotice ?? null,
-        ),
+        response: appendCoachNote({
+          response: prependFeedbackMemoryNotice(
+            buildDraftReply({
+              userMessage: context.userMessage,
+              draftPreference: context.turnDraftPreference,
+              isEdit: true,
+              issuesFixed,
+              styleCard: context.styleCard,
+              revisionChangeKind: context.revision.changeKind,
+              revisionTargetFormat: context.revision.targetFormat ?? null,
+              directReturn: true,
+            }),
+            context.feedbackMemoryNotice ?? null,
+          ),
+          userMessage: context.userMessage,
+          creatorProfileHints: context.creatorProfileHints,
+          requestPolicy,
+        }),
         data: {
           draft: finalizedRevisionDraft,
           supportAsset: finalAttempt.reviserOutput.supportAsset,

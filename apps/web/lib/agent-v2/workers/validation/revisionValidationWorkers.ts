@@ -1,5 +1,6 @@
 import { checkDraftClaimsAgainstGrounding } from "../../grounding/claimChecker.ts";
 import type { GroundingPacket } from "../../grounding/groundingPacket.ts";
+import type { DraftRequestPolicy } from "../../grounding/requestPolicy.ts";
 import {
   buildRuntimeValidationResult,
   buildRuntimeWorkerExecution,
@@ -21,6 +22,7 @@ export interface RevisionValidationWorkerRequest {
   formatPreference: DraftFormatPreference;
   sourceUserMessage?: string | null;
   groupId?: string;
+  requestPolicy?: DraftRequestPolicy;
 }
 
 export interface RevisionValidationWorkerResult {
@@ -42,6 +44,7 @@ export function runRevisionValidationWorkers(
   const claimCheck = checkDraftClaimsAgainstGrounding({
     draft: args.draft,
     groundingPacket: args.groundingPacket,
+    requestPolicy: args.requestPolicy,
   });
   const claimValidationStatus = resolveRuntimeValidationStatus({
     needsClarification: claimCheck.needsClarification,

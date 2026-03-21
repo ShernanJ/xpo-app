@@ -20,6 +20,7 @@ import type {
   GroundingPacket,
   GroundingPacketSourceMaterial,
 } from "../../grounding/groundingPacket.ts";
+import type { DraftRequestPolicy } from "../../grounding/requestPolicy.ts";
 import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.ts";
 import type {
   DraftGroundingMode,
@@ -56,6 +57,7 @@ export async function handlePlanModeTurn(args: {
   turnFormatPreference: DraftFormatPreference;
   baseVoiceTarget: VoiceTarget;
   creatorProfileHints?: CreatorProfileHints | null;
+  requestPolicy: DraftRequestPolicy;
   selectedSourceMaterials: SourceMaterialAssetRecord[];
   shouldForceNoFabricationGuardrailForTurn: boolean;
   styleCard: VoiceStyleCard | null;
@@ -171,6 +173,7 @@ export async function handlePlanModeTurn(args: {
       turnFormatPreference: args.turnFormatPreference,
       baseVoiceTarget: args.baseVoiceTarget,
       creatorProfileHints: args.creatorProfileHints,
+      requestPolicy: args.requestPolicy,
       selectedSourceMaterials: args.selectedSourceMaterials,
       shouldForceNoFabricationGuardrailForTurn:
         args.shouldForceNoFabricationGuardrailForTurn,
@@ -211,6 +214,8 @@ export async function handlePlanModeTurn(args: {
     turnFormatPreference: args.turnFormatPreference,
     nextAssistantTurnCount: args.nextAssistantTurnCount,
     feedbackMemoryNotice: args.feedbackMemoryNotice,
+    creatorProfileHints: args.creatorProfileHints,
+    requestPolicy: args.requestPolicy,
     groundingSources: args.groundingSources,
     groundingMode: args.groundingMode,
     groundingExplanation: args.groundingExplanation,
