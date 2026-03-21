@@ -86,4 +86,51 @@ describe("POST /api/creator/workspace/bootstrap", () => {
       ],
     });
   });
+
+  test("returns the workspace contract plus active background sync metadata", async () => {
+    mocks.loadCreatorWorkspaceSnapshot.mockResolvedValue({
+      ok: true,
+      contextData: {
+        creator: "context",
+      },
+      contractData: {
+        creator: "contract",
+      },
+      backgroundSync: {
+        jobId: "primer_job_1",
+        phase: "primer",
+      },
+    });
+
+    const response = await POST(
+      new Request("http://localhost/api/creator/workspace/bootstrap", {
+        method: "POST",
+        headers: {
+          origin: "http://localhost:3000",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          goal: "followers",
+        }),
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({
+      ok: true,
+      data: {
+        context: {
+          creator: "context",
+        },
+        contract: {
+          creator: "contract",
+        },
+        backgroundSync: {
+          jobId: "primer_job_1",
+          phase: "primer",
+        },
+      },
+    });
+  });
 });

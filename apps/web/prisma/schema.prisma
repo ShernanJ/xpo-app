@@ -119,6 +119,8 @@ enum OnboardingScrapeJobStatus {
 enum OnboardingScrapeJobKind {
   onboarding_run
   profile_refresh
+  context_primer
+  historical_backfill_year
 }
 
 model User {
@@ -177,6 +179,7 @@ model ScrapeCaptureCache {
   posts     Json
   replyPosts Json
   quotePosts Json
+  captureState Json?
   source    String
   userAgent String?
   createdAt DateTime @default(now())
@@ -358,7 +361,9 @@ model OnboardingScrapeJob {
   account          String
   kind             OnboardingScrapeJobKind
   status           OnboardingScrapeJobStatus @default(pending)
+  sourceRunId      String?
   requestInput     Json?
+  progressPayload  Json?
   attempts         Int                      @default(0)
   leaseOwner       String?
   leaseExpiresAt   DateTime?
@@ -376,7 +381,20 @@ model OnboardingScrapeJob {
 
   @@index([userId, status, updatedAt])
   @@index([account, kind, status, updatedAt])
+  @@index([sourceRunId, kind, status, updatedAt])
   @@index([leaseExpiresAt, status])
+}
+
+model ScraperProxyAccount {
+  id          String   @id @default(cuid())
+  sessionId   String   @unique
+  fleet       String
+  enabled     Boolean  @default(true)
+  lockedUntil DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([fleet, enabled, lockedUntil])
 }
 
 model RequestRateLimitBucket {

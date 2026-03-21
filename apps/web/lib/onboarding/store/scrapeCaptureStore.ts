@@ -2,7 +2,12 @@ import { randomUUID } from "crypto";
 
 import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
-import type { XPinnedPost, XPublicPost, XPublicProfile } from "../types";
+import type {
+  OnboardingSyncState,
+  XPinnedPost,
+  XPublicPost,
+  XPublicProfile,
+} from "../types";
 import {
   MAX_MERGED_CAPTURE_POSTS,
   MAX_MERGED_CAPTURE_QUOTE_POSTS,
@@ -21,6 +26,7 @@ export interface StoredScrapeCapture {
   posts: XPublicPost[];
   replyPosts?: XPublicPost[];
   quotePosts?: XPublicPost[];
+  captureState?: OnboardingSyncState | null;
   metadata: {
     source: "manual_import" | "agent";
     userAgent: string | null;
@@ -69,6 +75,7 @@ function mapRowToStoredCapture(row: {
   posts: unknown;
   replyPosts: unknown;
   quotePosts: unknown;
+  captureState: unknown;
   source: string;
   userAgent: string | null;
 }): StoredScrapeCapture {
@@ -85,6 +92,12 @@ function mapRowToStoredCapture(row: {
     posts: asPostArray(row.posts),
     replyPosts: asPostArray(row.replyPosts),
     quotePosts: asPostArray(row.quotePosts),
+    captureState:
+      row.captureState &&
+      typeof row.captureState === "object" &&
+      !Array.isArray(row.captureState)
+        ? (row.captureState as OnboardingSyncState)
+        : null,
     metadata: {
       source: mapSource(row.source),
       userAgent: row.userAgent,
@@ -110,6 +123,7 @@ export async function persistScrapeCapture(params: {
   posts: XPublicPost[];
   replyPosts?: XPublicPost[];
   quotePosts?: XPublicPost[];
+  captureState?: OnboardingSyncState | null;
   source?: "manual_import" | "agent";
   userAgent: string | null;
   mergeWithExisting?: boolean;
@@ -129,6 +143,7 @@ export async function persistScrapeCapture(params: {
           posts: true,
           replyPosts: true,
           quotePosts: true,
+          captureState: true,
         },
       });
   const mergedProfile = mergeProfilePayload(
@@ -164,6 +179,10 @@ export async function persistScrapeCapture(params: {
       posts: toInputJson(mergedPosts),
       replyPosts: toInputJson(mergedReplyPosts),
       quotePosts: toInputJson(mergedQuotePosts),
+      captureState:
+        params.captureState === undefined
+          ? Prisma.JsonNull
+          : (params.captureState as unknown as Prisma.InputJsonValue),
       source,
       userAgent: params.userAgent,
     },
@@ -175,6 +194,10 @@ export async function persistScrapeCapture(params: {
       posts: toInputJson(mergedPosts),
       replyPosts: toInputJson(mergedReplyPosts),
       quotePosts: toInputJson(mergedQuotePosts),
+      captureState:
+        params.captureState === undefined
+          ? existingCapture?.captureState ?? Prisma.JsonNull
+          : (params.captureState as unknown as Prisma.InputJsonValue),
       source,
       userAgent: params.userAgent,
     },
@@ -202,6 +225,7 @@ export async function readLatestScrapeCaptureByAccount(
       posts: true,
       replyPosts: true,
       quotePosts: true,
+      captureState: true,
       source: true,
       userAgent: true,
     },
@@ -235,6 +259,7 @@ export async function readRecentScrapeCaptures(
       posts: true,
       replyPosts: true,
       quotePosts: true,
+      captureState: true,
       source: true,
       userAgent: true,
     },

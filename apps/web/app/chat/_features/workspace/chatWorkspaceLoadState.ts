@@ -24,6 +24,10 @@ export interface WorkspaceBootstrapSuccessLike<TContextData, TContractData> {
   data: {
     context: TContextData;
     contract: TContractData;
+    backgroundSync?: {
+      jobId: string;
+      phase: "primer" | "archive";
+    } | null;
   };
 }
 

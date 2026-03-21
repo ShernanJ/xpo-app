@@ -6,6 +6,9 @@ import { useChatRuntimeState } from "./useChatRuntimeState";
 function createBackfillResponse(args: {
   status: "pending" | "processing" | "completed" | "failed";
   lastError?: string | null;
+  nextJobId?: string | null;
+  phase?: "primer" | "archive" | null;
+  jobId?: string;
 }): Response {
   return {
     ok: true,
@@ -13,9 +16,11 @@ function createBackfillResponse(args: {
     json: async () => ({
       ok: true,
       job: {
-        jobId: "job-1",
+        jobId: args.jobId ?? "job-1",
         status: args.status,
         lastError: args.lastError ?? null,
+        nextJobId: args.nextJobId ?? null,
+        phase: args.phase ?? null,
       },
     }),
   } as Response;
@@ -143,6 +148,58 @@ test("stops backfill polling after a failed job without reloading the workspace"
   });
 
   expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(loadWorkspace).not.toHaveBeenCalled();
+
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+test("hands polling off from primer to archive jobs", async () => {
+  vi.useFakeTimers();
+
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      createBackfillResponse({
+        jobId: "job-1",
+        status: "completed",
+        nextJobId: "job-2",
+        phase: "primer",
+      }),
+    )
+    .mockResolvedValueOnce(
+      createBackfillResponse({
+        jobId: "job-2",
+        status: "processing",
+        phase: "archive",
+      }),
+    );
+  const loadWorkspace = vi.fn().mockResolvedValue(undefined);
+
+  vi.stubGlobal("fetch", fetchMock);
+
+  const { result } = renderHook(() =>
+    useChatRuntimeState({
+      backfillJobId: "job-1",
+      messagesLength: 0,
+      loadWorkspace,
+    }),
+  );
+
+  await flushMicrotasks();
+  await flushMicrotasks();
+
+  expect(fetchMock).toHaveBeenNthCalledWith(
+    1,
+    "/api/onboarding/backfill/jobs?jobId=job-1",
+    { method: "GET" },
+  );
+  expect(fetchMock).toHaveBeenNthCalledWith(
+    2,
+    "/api/onboarding/backfill/jobs?jobId=job-2",
+    { method: "GET" },
+  );
+  expect(result.current.backfillNotice).toBe("Background archive is deepening the model.");
   expect(loadWorkspace).not.toHaveBeenCalled();
 
   vi.unstubAllGlobals();

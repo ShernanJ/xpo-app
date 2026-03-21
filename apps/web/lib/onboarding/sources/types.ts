@@ -11,6 +11,7 @@ export interface OnboardingDataSource {
   capturedReplyPostCount: number;
   capturedQuotePostCount: number;
   warnings: string[];
+  syncState?: OnboardingResult["syncState"];
 }
 
 export type OnboardingMode = "auto" | "x_api" | "scrape" | "mock";

@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   capturePostHogServerEvent: vi.fn(),
   capturePostHogServerException: vi.fn(),
   claimOnboardingScrapeJobById: vi.fn(),
+  enqueueContextPrimerJob: vi.fn(),
   finalizeOnboardingRunForUser: vi.fn(),
   getConfiguredOnboardingMode: vi.fn(),
   hasXApiSourceCredentials: vi.fn(),
@@ -16,6 +17,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/posthog/server", () => ({
   capturePostHogServerEvent: mocks.capturePostHogServerEvent,
   capturePostHogServerException: mocks.capturePostHogServerException,
+}));
+
+vi.mock("@/lib/onboarding/pipeline/scrapeJob", () => ({
+  enqueueContextPrimerJob: mocks.enqueueContextPrimerJob,
 }));
 
 vi.mock("@/lib/onboarding/pipeline/finalizeRun", () => ({
@@ -76,6 +81,8 @@ function createClaimedJob(overrides?: Partial<Record<string, unknown>>) {
     updatedAt: "2026-03-20T00:00:00.000Z",
     status: "processing",
     requestInput: createEventData().effectiveInput,
+    sourceRunId: null,
+    progressPayload: null,
     attempts: 1,
     lastError: null,
     resultPayload: null,
@@ -93,6 +100,14 @@ function createOnboardingResult() {
   return {
     source: "scrape",
     warnings: [],
+    syncState: {
+      routeClass: "lightweight",
+      statusesCount: 120,
+      createdYear: 2020,
+      searchYearFloor: 2020,
+      phase: "seed",
+      repliesExcluded: true,
+    },
   };
 }
 
@@ -137,6 +152,11 @@ beforeEach(() => {
     usedExistingCapture: true,
   });
   mocks.claimOnboardingScrapeJobById.mockResolvedValue(createClaimedJob());
+  mocks.enqueueContextPrimerJob.mockResolvedValue({
+    queued: true,
+    jobId: "primer_job_1",
+    deduped: false,
+  });
   mocks.runOnboarding.mockResolvedValue(createOnboardingResult());
   mocks.finalizeOnboardingRunForUser.mockResolvedValue(createFinalizedResult());
   mocks.getConfiguredOnboardingMode.mockReturnValue("scrape");
@@ -174,12 +194,44 @@ describe("processOnboardingRunHandler", () => {
       pages: 2,
       count: 40,
       targetOriginalPostCount: 40,
+      phase: "seed",
       userAgent: "onboarding-shallow-sync",
       mergeWithExisting: true,
+    });
+    expect(mocks.enqueueContextPrimerJob).toHaveBeenCalledWith({
+      account: "stan",
+      userId: "user_1",
+      sourceRunId: "or_job_123",
+      progressPayload: {
+        currentYear: new Date().getUTCFullYear(),
+        cursor: null,
+        previousCursor: null,
+        consecutiveEmptyPages: 0,
+        yearSeenPostCount: 0,
+        exhaustedYears: [],
+        oldestObservedPostYear: null,
+        searchYearFloor: 2020,
+        routeClass: "lightweight",
+        statusesCount: 120,
+      },
+    });
+    expect(step.sendEvent).toHaveBeenCalledWith("dispatch-context-primer", {
+      name: "onboarding/context.primer.requested",
+      data: {
+        account: "stan",
+        jobId: "primer_job_1",
+        sourceRunId: "or_job_123",
+        userId: "user_1",
+      },
     });
     expect(mocks.finalizeOnboardingRunForUser).toHaveBeenCalledWith({
       input: createEventData().effectiveInput,
       result: createOnboardingResult(),
+      backgroundSync: {
+        queued: true,
+        jobId: "primer_job_1",
+        deduped: false,
+      },
       runId: buildQueuedOnboardingRunId("job_123"),
       suppressLegacyBackfill: true,
       userAgent: "vitest",
@@ -222,6 +274,11 @@ describe("processOnboardingRunHandler", () => {
     expect(mocks.finalizeOnboardingRunForUser).toHaveBeenNthCalledWith(1, {
       input: createEventData().effectiveInput,
       result: createOnboardingResult(),
+      backgroundSync: {
+        queued: true,
+        jobId: "primer_job_1",
+        deduped: false,
+      },
       runId: "or_job_123",
       suppressLegacyBackfill: true,
       userAgent: "vitest",
@@ -230,6 +287,11 @@ describe("processOnboardingRunHandler", () => {
     expect(mocks.finalizeOnboardingRunForUser).toHaveBeenNthCalledWith(2, {
       input: createEventData().effectiveInput,
       result: createOnboardingResult(),
+      backgroundSync: {
+        queued: true,
+        jobId: "primer_job_1",
+        deduped: false,
+      },
       runId: "or_job_123",
       suppressLegacyBackfill: true,
       userAgent: "vitest",
@@ -302,7 +364,7 @@ describe("processOnboardingRunHandler", () => {
     expect(mocks.markOnboardingScrapeJobCompleted).not.toHaveBeenCalled();
   });
 
-  test("queues deep backfill after a live shallow sync returns a next cursor", async () => {
+  test("queues a context primer after onboarding finishes on the scrape source", async () => {
     const step = createStepTools();
     mocks.bootstrapScrapeCaptureWithOptions.mockResolvedValue({
       nextCursor: "cursor_2",
@@ -317,21 +379,22 @@ describe("processOnboardingRunHandler", () => {
       step,
     } as never);
 
-    expect(step.sendEvent).toHaveBeenCalledWith("queue-deep-backfill", {
-      name: "onboarding/deep.backfill.started",
+    expect(step.sendEvent).toHaveBeenCalledWith("dispatch-context-primer", {
+      name: "onboarding/context.primer.requested",
       data: {
         account: "stan",
-        cursor: "cursor_2",
+        jobId: "primer_job_1",
+        sourceRunId: "or_job_123",
         userId: "user_1",
       },
     });
   });
 
-  test("does not queue deep backfill when shallow sync reuses an existing capture", async () => {
+  test("does not queue a context primer when onboarding resolves through a non-scrape source", async () => {
     const step = createStepTools();
-    mocks.bootstrapScrapeCaptureWithOptions.mockResolvedValue({
-      nextCursor: null,
-      usedExistingCapture: true,
+    mocks.runOnboarding.mockResolvedValue({
+      source: "x_api",
+      warnings: [],
     });
 
     await processOnboardingRunHandler({
@@ -342,6 +405,7 @@ describe("processOnboardingRunHandler", () => {
       step,
     } as never);
 
+    expect(mocks.enqueueContextPrimerJob).not.toHaveBeenCalled();
     expect(step.sendEvent).not.toHaveBeenCalled();
   });
 
@@ -364,6 +428,36 @@ describe("processOnboardingRunHandler", () => {
     });
 
     expect(mocks.runOnboarding).toHaveBeenCalledTimes(1);
-    expect(step.sendEvent).not.toHaveBeenCalled();
+    expect(step.sendEvent).toHaveBeenCalledTimes(1);
+  });
+
+  test("continues to onboarding when shallow prep hits the internal scraper budget", async () => {
+    const step = createStepTools();
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mocks.getConfiguredOnboardingMode.mockReturnValue("scrape");
+    mocks.hasXApiSourceCredentials.mockReturnValue(false);
+    mocks.bootstrapScrapeCaptureWithOptions.mockRejectedValue(
+      new Error("Scrape hourly budget exceeded for session default (500/hour). Retry in ~2003s."),
+    );
+
+    await expect(
+      processOnboardingRunHandler({
+        attempt: 0,
+        event: { data: createEventData() },
+        maxAttempts: 3,
+        runId: "run_1",
+        step,
+      } as never),
+    ).resolves.toMatchObject({
+      success: true,
+    });
+
+    expect(mocks.runOnboarding).toHaveBeenCalledTimes(1);
+    expect(mocks.finalizeOnboardingRunForUser).toHaveBeenCalledTimes(1);
+    expect(step.sendEvent).toHaveBeenCalledTimes(1);
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      "Shallow scrape budget exhausted for @stan; continuing onboarding without fresh scrape prep.",
+    );
+    consoleWarnSpy.mockRestore();
   });
 });

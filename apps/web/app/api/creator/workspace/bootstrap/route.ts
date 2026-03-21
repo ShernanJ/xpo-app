@@ -108,6 +108,7 @@ export async function POST(request: Request) {
       data: {
         context: snapshot.contextData,
         contract: snapshot.contractData,
+        backgroundSync: snapshot.backgroundSync,
       },
     },
     { status: 200 },

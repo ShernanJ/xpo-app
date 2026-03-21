@@ -24,6 +24,13 @@ export async function finalizeOnboardingRunForUser(params: {
   input: OnboardingInput;
   runId?: string;
   result: OnboardingResult;
+  backgroundSync?:
+    | {
+        queued: boolean;
+        jobId: string | null;
+        deduped: boolean;
+      }
+    | null;
   suppressLegacyBackfill?: boolean;
   userAgent: string | null;
   userId: string;
@@ -48,7 +55,9 @@ export async function finalizeOnboardingRunForUser(params: {
   ).catch((error) =>
     console.error("Failed to refresh style profile after onboarding sync:", error),
   );
-  const backfill = params.suppressLegacyBackfill
+  const backfill = params.backgroundSync
+    ? params.backgroundSync
+    : params.suppressLegacyBackfill
     ? {
         queued: false,
         jobId: null,

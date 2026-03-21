@@ -15,6 +15,7 @@ import {
   readLatestOnboardingRunByHandle,
   type StoredOnboardingRun,
 } from "../onboarding/store/onboardingRunStore";
+import { readLatestActiveOnboardingSyncJobForUser } from "../onboarding/store/onboardingScrapeJobStore";
 import { buildCreatorAgentContext } from "../onboarding/strategy/agentContext";
 import type { CreatorAgentContext } from "../onboarding/strategy/agentContext";
 import {
@@ -46,6 +47,11 @@ export interface CreatorWorkspaceSnapshotStoredRun {
 export type CreatorWorkspaceSnapshotContextData =
   CreatorAgentContext & GrowthOperatingSystemPayload;
 
+export interface CreatorWorkspaceBackgroundSync {
+  jobId: string;
+  phase: "primer" | "archive";
+}
+
 export interface CreatorWorkspaceSnapshotSuccess {
   ok: true;
   storedRun: CreatorWorkspaceSnapshotStoredRun;
@@ -57,6 +63,7 @@ export interface CreatorWorkspaceSnapshotSuccess {
   growthOsPayload: GrowthOperatingSystemPayload;
   contextData: CreatorWorkspaceSnapshotContextData;
   contractData: CreatorGenerationContract;
+  backgroundSync: CreatorWorkspaceBackgroundSync | null;
 }
 
 export interface CreatorWorkspaceSnapshotFailure {
@@ -204,6 +211,22 @@ async function loadCreatorWorkspaceSnapshotImpl(
     baseTone: (storedRun.input as OnboardingInput).tone,
     overrides: toneOverrides,
   });
+  const backgroundSyncJob = await readLatestActiveOnboardingSyncJobForUser({
+    account: args.xHandle,
+    userId: args.userId,
+  });
+  const backgroundSync =
+    backgroundSyncJob?.kind === "historical_backfill_year"
+      ? {
+          jobId: backgroundSyncJob.jobId,
+          phase: "archive" as const,
+        }
+      : backgroundSyncJob?.kind === "context_primer"
+        ? {
+            jobId: backgroundSyncJob.jobId,
+            phase: "primer" as const,
+          }
+        : null;
 
   return {
     ok: true,
@@ -228,6 +251,7 @@ async function loadCreatorWorkspaceSnapshotImpl(
       contentInsights: growthOsPayload.contentInsights,
       contentAdjustments: growthOsPayload.contentAdjustments,
     }),
+    backgroundSync,
   };
 }
 

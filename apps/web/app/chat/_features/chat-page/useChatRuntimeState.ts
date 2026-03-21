@@ -10,6 +10,8 @@ interface BackfillJobStatusResponse {
     jobId: string;
     status: "pending" | "processing" | "completed" | "failed";
     lastError: string | null;
+    nextJobId?: string | null;
+    phase?: "primer" | "archive" | null;
   } | null;
 }
 
@@ -23,6 +25,7 @@ export function useChatRuntimeState(options: UseChatRuntimeStateOptions) {
   const { backfillJobId, messagesLength, loadWorkspace } = options;
   const [isLeavingHero, setIsLeavingHero] = useState(false);
   const [backfillNotice, setBackfillNotice] = useState<string | null>(null);
+  const [activeBackfillJobId, setActiveBackfillJobId] = useState(backfillJobId);
   const loadWorkspaceRef = useRef(loadWorkspace);
   const [providerPreference] = useState<ChatProviderPreference>(() => {
     if (typeof window === "undefined" || !showDevTools) {
@@ -36,6 +39,10 @@ export function useChatRuntimeState(options: UseChatRuntimeStateOptions) {
   useEffect(() => {
     loadWorkspaceRef.current = loadWorkspace;
   }, [loadWorkspace]);
+
+  useEffect(() => {
+    setActiveBackfillJobId(backfillJobId);
+  }, [backfillJobId]);
 
   useEffect(() => {
     if (!isLeavingHero || messagesLength === 0) {
@@ -52,7 +59,7 @@ export function useChatRuntimeState(options: UseChatRuntimeStateOptions) {
   }, [isLeavingHero, messagesLength]);
 
   useEffect(() => {
-    if (!backfillJobId) {
+    if (!activeBackfillJobId) {
       return;
     }
 
@@ -66,7 +73,7 @@ export function useChatRuntimeState(options: UseChatRuntimeStateOptions) {
 
       try {
         const response = await fetch(
-          `/api/onboarding/backfill/jobs?jobId=${encodeURIComponent(backfillJobId)}`,
+          `/api/onboarding/backfill/jobs?jobId=${encodeURIComponent(activeBackfillJobId)}`,
           { method: "GET" },
         );
 
@@ -81,12 +88,20 @@ export function useChatRuntimeState(options: UseChatRuntimeStateOptions) {
         }
 
         if (job.status === "pending") {
-          setBackfillNotice("Background backfill is queued.");
+          setBackfillNotice(
+            job.phase === "archive"
+              ? "Background archive is queued."
+              : "Background backfill is queued.",
+          );
           return;
         }
 
         if (job.status === "processing") {
-          setBackfillNotice("Background backfill is deepening the model.");
+          setBackfillNotice(
+            job.phase === "archive"
+              ? "Background archive is deepening the model."
+              : "Background backfill is deepening the model.",
+          );
           return;
         }
 
@@ -97,6 +112,12 @@ export function useChatRuntimeState(options: UseChatRuntimeStateOptions) {
               : "Background backfill failed.",
           );
           finished = true;
+          return;
+        }
+
+        if (job.nextJobId) {
+          setBackfillNotice("Background sync is continuing with deeper archive chunks.");
+          setActiveBackfillJobId(job.nextJobId);
           return;
         }
 
@@ -117,7 +138,7 @@ export function useChatRuntimeState(options: UseChatRuntimeStateOptions) {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [backfillJobId]);
+  }, [activeBackfillJobId]);
 
   useEffect(() => {
     if (!showDevTools) {

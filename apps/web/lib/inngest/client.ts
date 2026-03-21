@@ -13,12 +13,33 @@ export interface OnboardingDeepBackfillStartedEventData {
   userId: string;
 }
 
+export interface OnboardingContextPrimerRequestedEventData {
+  account: string;
+  jobId: string;
+  sourceRunId: string;
+  userId: string;
+}
+
+export interface OnboardingHistoricalBackfillYearRequestedEventData {
+  account: string;
+  jobId: string;
+  sourceRunId: string;
+  targetYear: number;
+  userId: string;
+}
+
 export interface AppInngestEventMap {
   "onboarding/run.requested": {
     data: OnboardingRunRequestedEventData;
   };
   "onboarding/deep.backfill.started": {
     data: OnboardingDeepBackfillStartedEventData;
+  };
+  "onboarding/context.primer.requested": {
+    data: OnboardingContextPrimerRequestedEventData;
+  };
+  "onboarding/historical.backfill.year.requested": {
+    data: OnboardingHistoricalBackfillYearRequestedEventData;
   };
 }
 

@@ -1,7 +1,9 @@
 import { randomUUID } from "crypto";
 
+import { inngest } from "@/lib/inngest/client";
 import type { OnboardingInput, OnboardingResult } from "../contracts/types";
 import { generateStyleProfile } from "../../agent-v2/core/styleProfile";
+import { enqueueContextPrimerJob } from "./scrapeJob";
 import {
   claimNextOnboardingBackfillJob,
   enqueueOnboardingBackfillJob,
@@ -64,22 +66,45 @@ export async function maybeEnqueueOnboardingBackfillJob(params: {
     return { queued: false, jobId: null, deduped: false };
   }
 
-  if (!params.result.analysisConfidence.backgroundBackfillRecommended) {
+  if (params.result.syncState?.phase === "complete") {
     return { queued: false, jobId: null, deduped: false };
   }
 
-  const queued = await enqueueOnboardingBackfillJob({
+  const sourceRun = await readOnboardingRunById(params.runId);
+  if (!sourceRun?.userId) {
+    return { queued: false, jobId: null, deduped: false };
+  }
+
+  const queued = await enqueueContextPrimerJob({
     account: params.input.account,
     sourceRunId: params.runId,
-    targetPostCount: Math.max(
-      params.result.analysisConfidence.targetPostCount,
-      getBackfillTargetPostCount(),
-    ),
+    userId: sourceRun.userId,
+    progressPayload: {
+      currentYear: new Date().getUTCFullYear(),
+      cursor: null,
+      previousCursor: null,
+      consecutiveEmptyPages: 0,
+      yearSeenPostCount: 0,
+      exhaustedYears: [],
+      oldestObservedPostYear: null,
+      searchYearFloor: params.result.syncState?.searchYearFloor ?? 2006,
+      routeClass: params.result.syncState?.routeClass ?? "heavyweight",
+      statusesCount: params.result.syncState?.statusesCount ?? null,
+    },
+  });
+  await inngest.send({
+    name: "onboarding/context.primer.requested",
+    data: {
+      account: params.input.account,
+      jobId: queued.jobId,
+      sourceRunId: params.runId,
+      userId: sourceRun.userId,
+    },
   });
 
   return {
-    queued: true,
-    jobId: queued.job.jobId,
+    queued: queued.queued,
+    jobId: queued.jobId,
     deduped: queued.deduped,
   };
 }

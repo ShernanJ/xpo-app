@@ -1127,7 +1127,10 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
         if (!isActivePollToken(pollToken)) {
           return;
         }
-        window.location.href = "/chat";
+        const nextUrl = completedPayload.backfill.jobId
+          ? `/chat?backfillJobId=${encodeURIComponent(completedPayload.backfill.jobId)}`
+          : "/chat";
+        window.location.href = nextUrl;
       } catch (err) {
         if (!isActivePollToken(pollToken)) {
           return;

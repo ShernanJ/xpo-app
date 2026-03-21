@@ -15,6 +15,7 @@ interface XApiUserResponse {
     public_metrics?: {
       followers_count?: number;
       following_count?: number;
+      tweet_count?: number;
     };
   };
   errors?: Array<{ message?: string }>;
@@ -92,6 +93,7 @@ export async function fetchXPublicProfile(
       followersCount: result.data.public_metrics?.followers_count ?? 0,
       followingCount: result.data.public_metrics?.following_count ?? 0,
       createdAt: result.data.created_at ?? new Date(0).toISOString(),
+      statusesCount: result.data.public_metrics?.tweet_count ?? null,
     },
   };
 }

@@ -55,6 +55,55 @@ export async function enqueueProfileRefreshJobIfNeeded(params: {
     kind: "profile_refresh",
     userId: params.userId,
     account: params.account,
+    dedupeScope: "profile_refresh",
+  });
+
+  return {
+    queued: true,
+    jobId: queued.job.jobId,
+    deduped: queued.deduped,
+  };
+}
+
+export async function enqueueContextPrimerJob(params: {
+  account: string;
+  userId: string;
+  sourceRunId: string;
+  progressPayload?: Record<string, unknown> | null;
+}): Promise<{ queued: boolean; jobId: string; deduped: boolean }> {
+  const queued = await enqueueOnboardingScrapeJob({
+    kind: "context_primer",
+    userId: params.userId,
+    account: params.account,
+    sourceRunId: params.sourceRunId,
+    progressPayload: params.progressPayload ?? null,
+    dedupeScope: params.sourceRunId,
+  });
+
+  return {
+    queued: true,
+    jobId: queued.job.jobId,
+    deduped: queued.deduped,
+  };
+}
+
+export async function enqueueHistoricalBackfillYearJob(params: {
+  account: string;
+  userId: string;
+  sourceRunId: string;
+  targetYear: number;
+  progressPayload?: Record<string, unknown> | null;
+}): Promise<{ queued: boolean; jobId: string; deduped: boolean }> {
+  const queued = await enqueueOnboardingScrapeJob({
+    kind: "historical_backfill_year",
+    userId: params.userId,
+    account: params.account,
+    sourceRunId: params.sourceRunId,
+    progressPayload: {
+      ...(params.progressPayload ?? {}),
+      targetYear: params.targetYear,
+    },
+    dedupeScope: `${params.sourceRunId}:${params.targetYear}`,
   });
 
   return {
@@ -75,6 +124,7 @@ async function processProfileRefreshJob(job: {
       pages: getProfileRefreshPages(),
       count: getProfileRefreshCount(),
       userAgent: "profile-analysis",
+      captureMode: "user_tweets",
       forceRefresh: true,
       mergeWithExisting: true,
     });

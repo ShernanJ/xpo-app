@@ -9,6 +9,7 @@ import type {
   AnalysisConfidence,
   OnboardingInput,
   OnboardingResult,
+  OnboardingSyncState,
   PostingCadenceCapacity,
   ReplyBudgetPerDay,
   StrategyState,
@@ -57,8 +58,12 @@ function inferRecommendedPostsPerWeek(
   );
 }
 
-function buildAnalysisConfidence(sampleSize: number): AnalysisConfidence {
+function buildAnalysisConfidence(
+  sampleSize: number,
+  syncState?: OnboardingSyncState | null,
+): AnalysisConfidence {
   const targetPostCount = getRecommendedTargetPostCount();
+  const hasMoreHistory = syncState?.phase !== "complete";
 
   if (sampleSize < 10) {
     return {
@@ -66,11 +71,13 @@ function buildAnalysisConfidence(sampleSize: number): AnalysisConfidence {
       score: 20,
       band: "very_low",
       minimumViableReached: false,
-      recommendedDepthReached: false,
-      backgroundBackfillRecommended: true,
+      recommendedDepthReached: !hasMoreHistory,
+      backgroundBackfillRecommended: hasMoreHistory,
       targetPostCount,
       message:
-        "Very little post history was captured. The current read is mostly directional and should not drive strong strategy bets yet.",
+        hasMoreHistory
+          ? "Very little post history was captured. The current read is mostly directional and should not drive strong strategy bets yet."
+          : "Very little post history exists for this account, so the current read is directional by nature.",
     };
   }
 
@@ -80,11 +87,13 @@ function buildAnalysisConfidence(sampleSize: number): AnalysisConfidence {
       score: 40,
       band: "low",
       minimumViableReached: false,
-      recommendedDepthReached: false,
-      backgroundBackfillRecommended: true,
+      recommendedDepthReached: !hasMoreHistory,
+      backgroundBackfillRecommended: hasMoreHistory,
       targetPostCount,
       message:
-        "The sample is still thin. You can infer basic voice and topic signals, but performance recommendations should stay cautious.",
+        hasMoreHistory
+          ? "The sample is still thin. You can infer basic voice and topic signals, but performance recommendations should stay cautious."
+          : "The sample is thin because this account has limited original-post history available.",
     };
   }
 
@@ -94,15 +103,17 @@ function buildAnalysisConfidence(sampleSize: number): AnalysisConfidence {
       score: 58,
       band: "low",
       minimumViableReached: true,
-      recommendedDepthReached: false,
-      backgroundBackfillRecommended: true,
+      recommendedDepthReached: !hasMoreHistory,
+      backgroundBackfillRecommended: hasMoreHistory,
       targetPostCount,
       message:
-        "This is enough for a minimum viable onboarding read, but deeper history would improve reliability.",
+        hasMoreHistory
+          ? "This is enough for a minimum viable onboarding read, but deeper history would improve reliability."
+          : "This is enough for a minimum viable onboarding read, and the available history has already been exhausted.",
     };
   }
 
-  if (sampleSize < targetPostCount) {
+  if (sampleSize < targetPostCount && hasMoreHistory) {
     return {
       sampleSize,
       score: 74,
@@ -231,6 +242,7 @@ export async function runOnboarding(input: OnboardingInput): Promise<OnboardingR
     capturedPostCount,
     capturedReplyPostCount,
     capturedQuotePostCount,
+    syncState,
     warnings,
   } = dataSource;
 
@@ -241,7 +253,7 @@ export async function runOnboarding(input: OnboardingInput): Promise<OnboardingR
     );
   }
 
-  const analysisConfidence = buildAnalysisConfidence(posts.length);
+  const analysisConfidence = buildAnalysisConfidence(posts.length, syncState);
 
   const baseline = computeEngagementBaseline(posts, profile.followersCount);
   const growthStage = computeGrowthStage(
@@ -305,5 +317,6 @@ export async function runOnboarding(input: OnboardingInput): Promise<OnboardingR
       input.transformationModeSource ?? "default",
     ),
     warnings: nextWarnings,
+    syncState,
   };
 }

@@ -6,6 +6,7 @@ import {
   readOnboardingBackfillJobSummary,
   readRecentOnboardingBackfillJobs,
 } from "@/lib/onboarding/store/backfillJobStore";
+import { readOnboardingScrapeJobById } from "@/lib/onboarding/store/onboardingScrapeJobStore";
 import { requireWorkerAuth } from "@/lib/security/workerAuth";
 
 function parseLimit(value: string | null): number {
@@ -30,6 +31,31 @@ export async function GET(request: Request) {
   const jobId = searchParams.get("jobId")?.trim() ?? "";
 
   if (jobId) {
+    const scrapeJob = await readOnboardingScrapeJobById(jobId);
+    if (
+      scrapeJob &&
+      (scrapeJob.kind === "context_primer" ||
+        scrapeJob.kind === "historical_backfill_year")
+    ) {
+      return NextResponse.json(
+        {
+          ok: true,
+          job: {
+            jobId: scrapeJob.jobId,
+            status: scrapeJob.status,
+            lastError: scrapeJob.lastError,
+            nextJobId:
+              typeof scrapeJob.progressPayload?.nextJobId === "string"
+                ? scrapeJob.progressPayload.nextJobId
+                : null,
+            phase:
+              scrapeJob.kind === "historical_backfill_year" ? "archive" : "primer",
+          },
+        },
+        { status: 200 },
+      );
+    }
+
     const job = await readOnboardingBackfillJobById(jobId);
 
     return NextResponse.json(

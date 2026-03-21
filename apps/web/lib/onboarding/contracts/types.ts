@@ -59,6 +59,7 @@ export interface XPublicProfile {
   followersCount: number;
   followingCount: number;
   createdAt: string;
+  statusesCount?: number | null;
 }
 
 export interface XPostMetrics {
@@ -129,6 +130,19 @@ export type AnalysisConfidenceBand =
   | "usable"
   | "strong";
 
+export type ScrapeRouteClass = "lightweight" | "heavyweight";
+
+export type OnboardingSyncPhase = "seed" | "primer" | "archive" | "complete";
+
+export interface OnboardingSyncState {
+  routeClass: ScrapeRouteClass;
+  statusesCount: number | null;
+  createdYear: number | null;
+  searchYearFloor: number;
+  phase: OnboardingSyncPhase;
+  repliesExcluded: boolean;
+}
+
 export interface AnalysisConfidence {
   sampleSize: number;
   score: number;
@@ -165,6 +179,7 @@ export interface OnboardingResult {
   underperformingFormats: ContentDistributionItem[];
   strategyState: StrategyState;
   warnings: string[];
+  syncState?: OnboardingSyncState;
 }
 
 export type LengthBand = "short" | "medium" | "long";

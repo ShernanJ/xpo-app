@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getServerSession } from "@/lib/auth/serverSession";
-import { inngest } from "@/lib/inngest/client";
+import { maybeEnqueueOnboardingBackfillJob } from "@/lib/onboarding/pipeline/backfill";
 import { bootstrapScrapeCaptureWithOptions } from "@/lib/onboarding/sources/scrapeBootstrap";
+import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store/onboardingRunStore";
 import { readLatestScrapeCaptureByAccount } from "@/lib/onboarding/store/scrapeCaptureStore";
 import {
   enforceSessionMutationRateLimit,
@@ -113,24 +114,15 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const bootstrap = await bootstrapScrapeCaptureWithOptions(xHandle, {
-      pages: 1,
-      count: 40,
-      targetOriginalPostCount: 40,
-      maxDurationMs: 10_000,
-      forceRefresh: true,
-      mergeWithExisting: true,
-      userAgent: "profile-scrape-debug-deep-backfill",
-    });
-
-    if (!bootstrap.nextCursor) {
+    const latestRun = await readLatestOnboardingRunByHandle(session.user.id, xHandle);
+    if (!latestRun) {
       return NextResponse.json(
         {
           ok: false,
           errors: [
             {
-              field: "cursor",
-              message: `No next cursor was available for @${xHandle}, so deep backfill could not be queued.`,
+              field: "run",
+              message: `No onboarding run was available for @${xHandle}, so background sync could not be queued.`,
             },
           ],
         },
@@ -138,21 +130,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await inngest.send({
-      name: "onboarding/deep.backfill.started",
-      data: {
-        account: xHandle,
-        cursor: bootstrap.nextCursor,
-        userId: session.user.id,
-      },
+    const queued = await maybeEnqueueOnboardingBackfillJob({
+      runId: latestRun.runId,
+      input: latestRun.input,
+      result: latestRun.result,
     });
+    if (!queued.queued || !queued.jobId) {
+      return NextResponse.json(
+        {
+          ok: false,
+          errors: [
+            {
+              field: "sync",
+              message: `Background sync was not queued for @${xHandle}.`,
+            },
+          ],
+        },
+        { status: 409 },
+      );
+    }
 
     const capture = await readLatestScrapeCaptureByAccount(xHandle);
     return NextResponse.json({
       ok: true,
       action,
       capture,
-      notice: `Deep backfill queued for @${xHandle}.`,
+      notice: `Background sync queued for @${xHandle}.`,
+      jobId: queued.jobId,
     });
   } catch (error) {
     console.error("Failed to run scrape debug action:", error);

@@ -1,6 +1,7 @@
 import { NonRetriableError, type GetFunctionInput, type GetStepTools } from "inngest";
 
 import { capturePostHogServerEvent, capturePostHogServerException } from "@/lib/posthog/server";
+import { enqueueContextPrimerJob } from "@/lib/onboarding/pipeline/scrapeJob";
 import { parseOnboardingInput } from "@/lib/onboarding/contracts/validation";
 import { finalizeOnboardingRunForUser } from "@/lib/onboarding/pipeline/finalizeRun";
 import { runOnboarding } from "@/lib/onboarding/pipeline/service";
@@ -27,7 +28,6 @@ type ProcessOnboardingRunContext = Omit<GetFunctionInput<typeof inngest>, "event
 
 interface ShallowSyncPreparationResult {
   attempted: boolean;
-  nextCursor: string | null;
   usedExistingCapture: boolean;
 }
 
@@ -56,6 +56,13 @@ function getClaimedInput(
   return parsed.data;
 }
 
+function isInternalScraperBudgetExceededError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes("Scrape hourly budget exceeded")
+  );
+}
+
 export async function processOnboardingRunHandler({
   attempt,
   event,
@@ -65,6 +72,8 @@ export async function processOnboardingRunHandler({
 }: ProcessOnboardingRunContext) {
   const { effectiveInput, jobId, userId, userAgent } = event.data;
   const isFinalAttempt = typeof maxAttempts === "number" ? attempt >= maxAttempts - 1 : false;
+
+  const queuedRunId = buildQueuedOnboardingRunId(jobId);
 
   try {
     const claimedJob = await step.run("claim-job", async () => {
@@ -115,20 +124,30 @@ export async function processOnboardingRunHandler({
             pages: 2,
             count: 40,
             targetOriginalPostCount: 40,
+            phase: "seed",
             userAgent: "onboarding-shallow-sync",
             mergeWithExisting: true,
           });
 
           return {
             attempted: true,
-            nextCursor: prepared.nextCursor,
             usedExistingCapture: prepared.usedExistingCapture,
           };
         }).catch((error): ShallowSyncPreparationResult => {
+          if (isInternalScraperBudgetExceededError(error)) {
+            console.warn(
+              `Shallow scrape budget exhausted for @${input.account}; continuing onboarding without fresh scrape prep.`,
+            );
+
+            return {
+              attempted: false,
+              usedExistingCapture: false,
+            };
+          }
+
           if (xApiFallbackAvailable) {
             return {
               attempted: false,
-              nextCursor: null,
               usedExistingCapture: false,
             };
           }
@@ -137,31 +156,55 @@ export async function processOnboardingRunHandler({
         })
       : {
           attempted: false,
-          nextCursor: null,
           usedExistingCapture: false,
         };
 
-    if (
-      shallowSync.attempted &&
-      !shallowSync.usedExistingCapture &&
-      shallowSync.nextCursor
-    ) {
-      await step.sendEvent("queue-deep-backfill", {
-        name: "onboarding/deep.backfill.started",
-        data: {
-          account: input.account,
-          cursor: shallowSync.nextCursor,
-          userId: claimedJob.userId,
-        },
-      });
-    }
-
     const result = await step.run("run-onboarding", async () => runOnboarding(input));
+    const backgroundSync =
+      result.source === "scrape"
+        ? await step.run("queue-context-primer", async () => {
+            const currentYear = new Date().getUTCFullYear();
+            const queued = await enqueueContextPrimerJob({
+              account: input.account,
+              userId: claimedJob.userId,
+              sourceRunId: queuedRunId,
+              progressPayload: {
+                currentYear,
+                cursor: null,
+                previousCursor: null,
+                consecutiveEmptyPages: 0,
+                yearSeenPostCount: 0,
+                exhaustedYears: [],
+                oldestObservedPostYear: null,
+                searchYearFloor: result.syncState?.searchYearFloor ?? 2006,
+                routeClass: result.syncState?.routeClass ?? "heavyweight",
+                statusesCount: result.syncState?.statusesCount ?? null,
+              },
+            });
+
+            await step.sendEvent("dispatch-context-primer", {
+              name: "onboarding/context.primer.requested",
+              data: {
+                account: input.account,
+                jobId: queued.jobId,
+                sourceRunId: queuedRunId,
+                userId: claimedJob.userId,
+              },
+            });
+
+            return queued;
+          })
+        : {
+            queued: false,
+            jobId: null,
+            deduped: false,
+          };
     const finalized = await step.run("finalize-onboarding", async () =>
       finalizeOnboardingRunForUser({
         input,
         result,
-        runId: buildQueuedOnboardingRunId(claimedJob.jobId),
+        backgroundSync,
+        runId: queuedRunId,
         suppressLegacyBackfill: true,
         userAgent,
         userId: claimedJob.userId,

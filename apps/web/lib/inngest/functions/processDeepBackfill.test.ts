@@ -158,6 +158,35 @@ describe("processDeepBackfillHandler", () => {
     throw new Error("Expected a RetryAfterError to be thrown.");
   });
 
+  test("converts scraper budget exhaustion into a 1 hour retry-after error", async () => {
+    const step = createStepTools();
+    mocks.runUserTweetsCapture.mockRejectedValue(
+      new Error("Scrape hourly budget exceeded for session default (500/hour). Retry in ~2003s."),
+    );
+
+    try {
+      await processDeepBackfillHandler({
+        event: {
+          data: {
+            account: "stan",
+            cursor: "cursor_1",
+            userId: "user_1",
+          },
+        },
+        step,
+      } as never);
+    } catch (error) {
+      expect(error).toBeInstanceOf(RetryAfterError);
+      expect((error as RetryAfterError).message).toBe(
+        "INTERNAL_SCRAPER_BUDGET_EXCEEDED",
+      );
+      expect((error as RetryAfterError).retryAfter).toBe("3600");
+      return;
+    }
+
+    throw new Error("Expected a RetryAfterError to be thrown.");
+  });
+
   test("reuses the memoized scrape page when save-page-2 fails and the handler retries", async () => {
     const step = createStepTools();
     mocks.runUserTweetsCapture

@@ -127,5 +127,6 @@ export async function resolveScrapeDataSource(
     capturedReplyPostCount: (latestCapture.replyPosts ?? []).length,
     capturedQuotePostCount: (latestCapture.quotePosts ?? []).length,
     warnings,
+    syncState: latestCapture.captureState ?? undefined,
   };
 }

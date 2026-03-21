@@ -6,7 +6,9 @@ import { Prisma } from "@/lib/generated/prisma/client";
 
 export type OnboardingScrapeJobKind =
   | "onboarding_run"
-  | "profile_refresh";
+  | "profile_refresh"
+  | "context_primer"
+  | "historical_backfill_year";
 
 export type OnboardingScrapeJobStatus =
   | "pending"
@@ -23,6 +25,8 @@ export interface StoredOnboardingScrapeJob {
   updatedAt: string;
   status: OnboardingScrapeJobStatus;
   requestInput: Record<string, unknown> | null;
+  sourceRunId: string | null;
+  progressPayload: Record<string, unknown> | null;
   attempts: number;
   lastError: string | null;
   resultPayload: FinalizedOnboardingRunPayload | null;
@@ -70,11 +74,18 @@ function mapJob(
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
     status: job.status,
+    sourceRunId: job.sourceRunId ?? null,
     requestInput:
       job.requestInput &&
       typeof job.requestInput === "object" &&
       !Array.isArray(job.requestInput)
         ? (job.requestInput as Record<string, unknown>)
+        : null,
+    progressPayload:
+      job.progressPayload &&
+      typeof job.progressPayload === "object" &&
+      !Array.isArray(job.progressPayload)
+        ? (job.progressPayload as Record<string, unknown>)
         : null,
     attempts: job.attempts,
     lastError: job.lastError ?? null,
@@ -93,8 +104,14 @@ function mapJob(
   };
 }
 
-function buildDedupeKey(kind: OnboardingScrapeJobKind, userId: string, account: string): string {
-  return `${kind}:${userId.trim()}:${account.trim().toLowerCase()}`;
+function buildDedupeKey(
+  kind: OnboardingScrapeJobKind,
+  userId: string,
+  account: string,
+  scope?: string | null,
+): string {
+  const base = `${kind}:${userId.trim()}:${account.trim().toLowerCase()}`;
+  return scope?.trim() ? `${base}:${scope.trim()}` : base;
 }
 
 function buildArchivedDedupeKey(dedupeKey: string): string {
@@ -106,6 +123,18 @@ function buildWorkerId(workerId?: string): string {
 }
 
 function toNullableJsonValue(value: Record<string, unknown> | null | undefined) {
+  if (value === null) {
+    return Prisma.JsonNull;
+  }
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return value as Prisma.InputJsonObject;
+}
+
+function toNullableProgressValue(value: Record<string, unknown> | null | undefined) {
   if (value === null) {
     return Prisma.JsonNull;
   }
@@ -133,10 +162,18 @@ export async function enqueueOnboardingScrapeJob(params: {
   kind: OnboardingScrapeJobKind;
   userId: string;
   account: string;
+  sourceRunId?: string | null;
   requestInput?: Record<string, unknown> | null;
+  progressPayload?: Record<string, unknown> | null;
+  dedupeScope?: string | null;
 }): Promise<{ job: StoredOnboardingScrapeJob; deduped: boolean }> {
   const normalizedAccount = params.account.trim().toLowerCase();
-  const dedupeKey = buildDedupeKey(params.kind, params.userId, normalizedAccount);
+  const dedupeKey = buildDedupeKey(
+    params.kind,
+    params.userId,
+    normalizedAccount,
+    params.dedupeScope ?? null,
+  );
   return prisma.$transaction(async (tx) => {
     const existing = await tx.onboardingScrapeJob.findUnique({
       where: { dedupeKey },
@@ -164,7 +201,9 @@ export async function enqueueOnboardingScrapeJob(params: {
         userId: params.userId,
         account: normalizedAccount,
         kind: params.kind,
+        sourceRunId: params.sourceRunId ?? null,
         requestInput: toNullableJsonValue(params.requestInput ?? null),
+        progressPayload: toNullableProgressValue(params.progressPayload ?? null),
       },
     });
 
@@ -318,6 +357,7 @@ export async function markOnboardingScrapeJobCompleted(args: {
   jobId: string;
   resultPayload?: FinalizedOnboardingRunPayload | null;
   completedRunId?: string | null;
+  progressPayload?: Record<string, unknown> | null;
   workerId?: string | null;
 }): Promise<StoredOnboardingScrapeJob | null> {
   const now = new Date();
@@ -336,6 +376,7 @@ export async function markOnboardingScrapeJobCompleted(args: {
       lastError: null,
       resultPayload: toNullablePayloadValue(args.resultPayload ?? null),
       completedRunId: args.completedRunId ?? null,
+      progressPayload: toNullableProgressValue(args.progressPayload ?? undefined),
     },
   });
 
@@ -353,6 +394,7 @@ export async function markOnboardingScrapeJobCompleted(args: {
 export async function markOnboardingScrapeJobFailed(args: {
   jobId: string;
   error: string;
+  progressPayload?: Record<string, unknown> | null;
   workerId?: string | null;
 }): Promise<StoredOnboardingScrapeJob | null> {
   const now = new Date();
@@ -368,6 +410,7 @@ export async function markOnboardingScrapeJobFailed(args: {
       leaseOwner: null,
       leaseExpiresAt: null,
       lastError: args.error,
+      progressPayload: toNullableProgressValue(args.progressPayload ?? undefined),
     },
   });
 
@@ -402,6 +445,53 @@ export async function readOnboardingScrapeJobByIdForUser(args: {
         id: args.jobId,
         userId: args.userId,
       },
+    }),
+  );
+}
+
+export async function updateOnboardingScrapeJobProgress(args: {
+  jobId: string;
+  progressPayload: Record<string, unknown> | null;
+  workerId?: string | null;
+}): Promise<StoredOnboardingScrapeJob | null> {
+  const updated = await prisma.onboardingScrapeJob.updateMany({
+    where: {
+      id: args.jobId,
+      ...(args.workerId ? { leaseOwner: args.workerId } : {}),
+    },
+    data: {
+      progressPayload: toNullableProgressValue(args.progressPayload),
+    },
+  });
+
+  if (updated.count === 0) {
+    return null;
+  }
+
+  return mapJob(
+    await prisma.onboardingScrapeJob.findUnique({
+      where: { id: args.jobId },
+    }),
+  );
+}
+
+export async function readLatestActiveOnboardingSyncJobForUser(args: {
+  userId: string;
+  account: string;
+}): Promise<StoredOnboardingScrapeJob | null> {
+  return mapJob(
+    await prisma.onboardingScrapeJob.findFirst({
+      where: {
+        userId: args.userId,
+        account: args.account.trim().toLowerCase(),
+        kind: {
+          in: ["context_primer", "historical_backfill_year"],
+        },
+        status: {
+          in: ["pending", "processing"],
+        },
+      },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
     }),
   );
 }

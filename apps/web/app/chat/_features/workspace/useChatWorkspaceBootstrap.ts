@@ -66,6 +66,10 @@ interface WorkspaceLoadResult<TContextData, TContractData> {
   ok: boolean;
   contextData?: TContextData;
   contractData?: TContractData;
+  backgroundSync?: {
+    jobId: string;
+    phase: "primer" | "archive";
+  } | null;
 }
 
 type MissingOnboardingSetupResult = "succeeded" | "already_attempted" | "failed";
@@ -149,6 +153,10 @@ export function useChatWorkspaceBootstrap<
     onPlanRequired,
     normalizeAccountHandle,
   });
+  const [backgroundSync, setBackgroundSync] = useState<{
+    jobId: string;
+    phase: "primer" | "archive";
+  } | null>(null);
 
   useEffect(() => {
     activeStrategyInputsRef.current = activeStrategyInputs;
@@ -178,6 +186,7 @@ export function useChatWorkspaceBootstrap<
     setStartupState({
       status: "shell_loading",
     });
+    setBackgroundSync(null);
   }, [accountName]);
 
   const runMissingOnboardingSetup = useCallback(async (
@@ -360,6 +369,7 @@ export function useChatWorkspaceBootstrap<
           setErrorMessage(null);
           setIsWorkspaceInitializing(false);
           setIsLoading(false);
+          setBackgroundSync(null);
         }
         return { ok: false };
       }
@@ -473,10 +483,15 @@ export function useChatWorkspaceBootstrap<
             status: "workspace_ready",
           });
           setErrorMessage(null);
+          setBackgroundSync(
+            bootstrapData.ok ? bootstrapData.data.backgroundSync ?? null : null,
+          );
           setContext(workspaceLoadState.contextData);
           setContract(workspaceLoadState.contractData);
           return {
             ok: true,
+            backgroundSync:
+              bootstrapData.ok ? bootstrapData.data.backgroundSync ?? null : null,
             contextData: workspaceLoadState.contextData,
             contractData: workspaceLoadState.contractData,
           };
@@ -530,6 +545,7 @@ export function useChatWorkspaceBootstrap<
   }, [loadWorkspace, setErrorMessage]);
 
   return {
+    backgroundSync,
     loadWorkspace,
     clearMissingOnboardingAttempts,
     retryWorkspaceStartup,

@@ -139,6 +139,14 @@ function getTopLevelUserResultNode(payload: unknown): Record<string, unknown> | 
   return asRecord(user?.result);
 }
 
+function getSearchTimelineRoot(payload: unknown): Record<string, unknown> | null {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data);
+  const searchByRawQuery = asRecord(data?.search_by_raw_query);
+  const searchTimeline = asRecord(searchByRawQuery?.search_timeline);
+  return asRecord(searchTimeline?.timeline);
+}
+
 function extractProfileFromUserNode(userNode: Record<string, unknown>): XPublicProfile | null {
   const userCore = asRecord(userNode.core);
   const userLegacy = asRecord(userNode.legacy);
@@ -235,6 +243,11 @@ function getTimelineFromPayload(payload: unknown): Record<string, unknown> | nul
   const timelineV2 = asRecord(asRecord(userResult?.timeline_v2)?.timeline);
   if (timelineV2) {
     return timelineV2;
+  }
+
+  const searchTimeline = getSearchTimelineRoot(payload);
+  if (searchTimeline) {
+    return searchTimeline;
   }
 
   return null;
@@ -757,8 +770,7 @@ export function parseUserTweetsGraphqlPayload(params: {
     posts = sortAndLimitPosts(fallbackPostsById);
   }
 
-  const hasRecognizedUserTimelinePayload =
-    payloadUserNode !== null && getTimelineFromPayload(params.payload) !== null;
+  const hasRecognizedUserTimelinePayload = getTimelineFromPayload(params.payload) !== null;
 
   if (posts.length === 0 && !hasRecognizedUserTimelinePayload) {
     throw new Error(

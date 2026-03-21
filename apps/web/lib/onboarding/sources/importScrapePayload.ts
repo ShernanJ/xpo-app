@@ -19,14 +19,15 @@ function looksLikeUserTweetsPayload(value: unknown): boolean {
   const data = asRecord(root?.data);
   const user = asRecord(data?.user);
   const userResult = asRecord(user?.result);
-  if (!userResult) {
-    return false;
+  const timeline = asRecord(asRecord(userResult?.timeline)?.timeline);
+  const timelineV2 = asRecord(asRecord(userResult?.timeline_v2)?.timeline);
+  if (timeline || timelineV2) {
+    return true;
   }
 
-  const timeline = asRecord(asRecord(userResult.timeline)?.timeline);
-  const timelineV2 = asRecord(asRecord(userResult.timeline_v2)?.timeline);
-
-  return Boolean(timeline || timelineV2);
+  const searchByRawQuery = asRecord(data?.search_by_raw_query);
+  const searchTimeline = asRecord(asRecord(searchByRawQuery?.search_timeline)?.timeline);
+  return Boolean(searchTimeline);
 }
 
 function mapPersistSource(source: ScrapeImportSource): "manual_import" | "agent" {
@@ -40,6 +41,9 @@ function mapPersistSource(source: ScrapeImportSource): "manual_import" | "agent"
 export async function importUserTweetsPayload(params: {
   account?: string | null;
   payload: unknown;
+  captureState?: unknown;
+  profileOverride?: unknown;
+  pinnedPostOverride?: unknown;
   source?: ScrapeImportSource;
   userAgent: string | null;
   mergeWithExisting?: boolean;
@@ -72,8 +76,22 @@ export async function importUserTweetsPayload(params: {
     payload,
     account: account ?? undefined,
   });
+  const profile =
+    params.profileOverride &&
+    typeof params.profileOverride === "object" &&
+    !Array.isArray(params.profileOverride)
+      ? params.profileOverride
+      : parsed.profile;
+  const pinnedPost =
+    params.pinnedPostOverride &&
+    typeof params.pinnedPostOverride === "object" &&
+    !Array.isArray(params.pinnedPostOverride)
+      ? params.pinnedPostOverride
+      : parsed.pinnedPost;
 
-  const normalizedParsedAccount = normalizeScrapeAccount(parsed.profile.username);
+  const normalizedParsedAccount = normalizeScrapeAccount(
+    (profile as { username?: string }).username ?? parsed.profile.username,
+  );
   const resolvedAccount = account ?? normalizedParsedAccount;
   if (!resolvedAccount) {
     throw new Error(
@@ -83,11 +101,17 @@ export async function importUserTweetsPayload(params: {
 
   const persisted = await persistScrapeCapture({
     account: resolvedAccount,
-    profile: parsed.profile,
-    pinnedPost: parsed.pinnedPost,
+    profile: profile as never,
+    pinnedPost: pinnedPost as never,
     posts: parsed.posts,
     replyPosts: parsed.replyPosts,
     quotePosts: parsed.quotePosts,
+    captureState:
+      params.captureState &&
+      typeof params.captureState === "object" &&
+      !Array.isArray(params.captureState)
+        ? (params.captureState as never)
+        : undefined,
     source: mapPersistSource(params.source ?? "manual_import"),
     userAgent: params.userAgent,
     mergeWithExisting: params.mergeWithExisting,
@@ -97,8 +121,8 @@ export async function importUserTweetsPayload(params: {
     captureId: persisted.captureId,
     capturedAt: persisted.capturedAt,
     account: resolvedAccount,
-    profile: parsed.profile,
-    pinnedPost: parsed.pinnedPost,
+    profile,
+    pinnedPost,
     postsImported: parsed.posts.length,
     replyPostsImported: parsed.replyPosts.length,
     quotePostsImported: parsed.quotePosts.length,

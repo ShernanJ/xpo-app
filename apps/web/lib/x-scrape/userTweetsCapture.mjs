@@ -36,7 +36,19 @@ const DEFAULT_FIELD_TOGGLES = {
   withArticlePlainText: false,
 };
 
-const DEFAULT_MAX_REQUESTS_PER_HOUR = 45;
+function resolveConfiguredScraperBudgetPerHour() {
+  const rawBudget =
+    process.env.SCRAPER_BUDGET_PER_HOUR ?? process.env.X_WEB_MAX_REQUESTS_PER_HOUR ?? null;
+  const parsedBudget = Number(rawBudget ?? NaN);
+
+  if (Number.isFinite(parsedBudget) && parsedBudget > 0) {
+    return Math.floor(parsedBudget);
+  }
+
+  return 500;
+}
+
+const DEFAULT_MAX_REQUESTS_PER_HOUR = resolveConfiguredScraperBudgetPerHour();
 const DEFAULT_MIN_INTERVAL_MS = 5000;
 const DEFAULT_COOLDOWN_MS = 30 * 60 * 1000;
 const DEFAULT_INTER_REQUEST_DELAY_MS = 1500;
@@ -74,7 +86,7 @@ export function printUsage() {
       "  --bearer <value>          Web bearer token (or env X_WEB_BEARER_TOKEN).",
       "  --guest                   Force guest token flow instead of auth cookie flow.",
       "  --state-file <path>       State path for rate limits/cache.",
-      "  --max-requests-hour <n>   Max scrape requests per hour (default: 45).",
+      "  --max-requests-hour <n>   Max scrape requests per hour (default: env budget or 500).",
       "  --min-interval-ms <n>     Minimum spacing between runs (default: 5000).",
       "  --cooldown-ms <n>         Cooldown after 429/403 (default: 1800000).",
       "  --request-delay-ms <n>    Base delay between in-run requests (default: 1500).",
@@ -93,12 +105,14 @@ export function printUsage() {
       "  X_WEB_USER_ID=<rest_id>",
       "  X_WEB_USER_AGENT=<ua string>",
       "  X_WEB_SESSION_FILE=<session-pool-json-path>",
+      "  X_WEB_SESSION_POOL_JSON=<session-pool-json>",
       "  X_WEB_SCRAPE_STATE_BACKEND=auto|postgres|file",
       "  X_WEB_SCRAPE_STATE_SCHEMA=<schema-name>",
       "  X_WEB_SCRAPE_STATE_TABLE=<table-name>",
       "  X_WEB_SCRAPE_STATE_ROW_ID=<row-id>",
       "  X_WEB_SCRAPE_STATE_PATH=<state-json-path>",
-      "  X_WEB_MAX_REQUESTS_PER_HOUR=<number>",
+      "  SCRAPER_BUDGET_PER_HOUR=<number> (preferred)",
+      "  X_WEB_MAX_REQUESTS_PER_HOUR=<number> (legacy fallback)",
       "  X_WEB_MIN_INTERVAL_MS=<number>",
       "  X_WEB_COOLDOWN_MS=<number>",
       "  X_WEB_REQUEST_DELAY_MS=<number>",
@@ -1468,7 +1482,9 @@ export async function runUserTweetsCapture(rawOptions) {
     throw new Error("Invalid account. Use @username, username, or x.com/username.");
   }
 
-  const envMaxRequests = Number(process.env.X_WEB_MAX_REQUESTS_PER_HOUR ?? NaN);
+  const envMaxRequests = Number(
+    process.env.SCRAPER_BUDGET_PER_HOUR ?? process.env.X_WEB_MAX_REQUESTS_PER_HOUR ?? NaN,
+  );
   const envMinInterval = Number(process.env.X_WEB_MIN_INTERVAL_MS ?? NaN);
   const envCooldown = Number(process.env.X_WEB_COOLDOWN_MS ?? NaN);
   const envPages = Number(process.env.X_WEB_PAGES ?? NaN);

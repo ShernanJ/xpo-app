@@ -13,6 +13,8 @@ export const DEFAULT_STATE_FILE = path.resolve(
 const DEFAULT_STATE_BACKEND = "auto";
 const DEFAULT_STATE_TABLE = "x_web_scrape_state";
 const DEFAULT_STATE_ROW_ID = "global";
+const DEFAULT_PROXY_TABLE = "ScraperProxyAccount";
+const DEFAULT_SESSION_POOL_FILE = path.resolve(os.tmpdir(), "session-pool.json");
 
 function asRecord(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -173,6 +175,25 @@ async function writeBrokerStateToFile(statePath, state) {
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }
 
+async function materializeSessionPoolFile(sessionFilePath) {
+  const rawSessionPoolJson = asString(process.env.X_WEB_SESSION_POOL_JSON);
+  if (!rawSessionPoolJson) {
+    return sessionFilePath ? path.resolve(sessionFilePath) : null;
+  }
+
+  try {
+    JSON.parse(rawSessionPoolJson);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown error";
+    throw new Error(`X_WEB_SESSION_POOL_JSON must be valid JSON: ${message}`);
+  }
+
+  const resolvedSessionFilePath = path.resolve(sessionFilePath || DEFAULT_SESSION_POOL_FILE);
+  await mkdir(path.dirname(resolvedSessionFilePath), { recursive: true });
+  await writeFile(resolvedSessionFilePath, `${rawSessionPoolJson}\n`, "utf8");
+  return resolvedSessionFilePath;
+}
+
 async function createFileStateStore(statePath) {
   const resolvedStatePath = path.resolve(statePath);
   return {
@@ -297,6 +318,81 @@ async function createBrokerStateStore(params) {
   const stateStore = await createFileStateStore(statePath);
   console.log(`[state] Using ${stateStore.backend} scrape-state backend.`);
   return stateStore;
+}
+
+async function createProxyAccountStore(params) {
+  const {
+    databaseUrl,
+    schemaName,
+    tableName,
+  } = params;
+  if (!databaseUrl) {
+    return null;
+  }
+
+  const schemaIdentifier = sanitizeSqlIdentifier(schemaName, "proxy schema");
+  const tableIdentifier = sanitizeSqlIdentifier(tableName, "proxy table");
+  const qualifiedTable = `${schemaIdentifier}.${tableIdentifier}`;
+  const pool = new Pool({
+    connectionString: databaseUrl,
+    max: 1,
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 10_000,
+    allowExitOnIdle: true,
+  });
+
+  await pool.query(`CREATE SCHEMA IF NOT EXISTS ${schemaIdentifier}`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ${qualifiedTable} (
+      id TEXT PRIMARY KEY,
+      "sessionId" TEXT NOT NULL UNIQUE,
+      fleet TEXT NOT NULL,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      "lockedUntil" TIMESTAMPTZ,
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  return {
+    async getAvailableSessionIds(fleet) {
+      const result = await pool.query(
+        `
+          SELECT "sessionId"
+          FROM ${qualifiedTable}
+          WHERE enabled = TRUE
+            AND fleet = $1
+            AND ("lockedUntil" IS NULL OR "lockedUntil" <= NOW())
+        `,
+        [fleet],
+      );
+      return result.rows
+        .map((row) => asString(row.sessionId))
+        .filter(Boolean);
+    },
+    async hasAnyRows() {
+      const result = await pool.query(`SELECT EXISTS(SELECT 1 FROM ${qualifiedTable}) AS exists`);
+      return result.rows[0]?.exists === true;
+    },
+    async lockSession(sessionId, lockForMs) {
+      if (!sessionId || !(lockForMs > 0)) {
+        return;
+      }
+
+      await pool.query(
+        `
+          UPDATE ${qualifiedTable}
+          SET "lockedUntil" = TO_TIMESTAMP($2 / 1000.0),
+              "updatedAt" = NOW()
+          WHERE "sessionId" = $1
+        `,
+        [sessionId, Date.now() + lockForMs],
+      );
+    },
+    async close() {
+      await pool.end();
+    },
+  };
 }
 
 function pruneOldRequests(bucket, nowMs) {
@@ -538,11 +634,10 @@ export async function createSessionBroker(params) {
     stateSchema = process.env.X_WEB_SCRAPE_STATE_SCHEMA ?? "public",
     stateTable = process.env.X_WEB_SCRAPE_STATE_TABLE ?? DEFAULT_STATE_TABLE,
     stateRowId = process.env.X_WEB_SCRAPE_STATE_ROW_ID ?? DEFAULT_STATE_ROW_ID,
+    proxyTable = process.env.X_WEB_SCRAPER_PROXY_TABLE ?? DEFAULT_PROXY_TABLE,
   } = params;
 
-  const resolvedSessionFilePath = sessionFilePath
-    ? path.resolve(sessionFilePath)
-    : null;
+  const resolvedSessionFilePath = await materializeSessionPoolFile(sessionFilePath);
   const stateStore = await createBrokerStateStore({
     statePath,
     stateBackend,
@@ -553,6 +648,15 @@ export async function createSessionBroker(params) {
   });
   const state = await stateStore.read();
   const sessionPool = await loadSessionPool(resolvedSessionFilePath);
+  const proxyAccountStore = await createProxyAccountStore({
+    databaseUrl,
+    schemaName: stateSchema,
+    tableName: proxyTable,
+  }).catch((error) => {
+    const message = error instanceof Error ? error.message : "unknown error";
+    console.warn(`[session] Proxy-account store unavailable (${message}); using the raw session pool.`);
+    return null;
+  });
 
   async function persistState() {
     await stateStore.write(state);
@@ -576,8 +680,27 @@ export async function createSessionBroker(params) {
     },
 
     async acquire(options = {}) {
+      let effectiveSessionPool = sessionPool;
+      if (proxyAccountStore && options.fleet) {
+        const [hasAnyRows, availableSessionIds] = await Promise.all([
+          proxyAccountStore.hasAnyRows(),
+          proxyAccountStore.getAvailableSessionIds(options.fleet),
+        ]);
+
+        if (hasAnyRows) {
+          effectiveSessionPool = sessionPool.filter((session) =>
+            availableSessionIds.includes(session.id),
+          );
+          if (effectiveSessionPool.length === 0) {
+            throw new Error(
+              `No enabled scraper proxy accounts are currently available for fleet ${options.fleet}.`,
+            );
+          }
+        }
+      }
+
       const selectedSession = selectSessionFromPool({
-        sessionPool,
+        sessionPool: effectiveSessionPool,
         state,
         options: {
           maxRequestsPerHour,
@@ -590,7 +713,7 @@ export async function createSessionBroker(params) {
 
       if (selectedSession) {
         console.log(
-          `[session] Using pooled session ${selectedSession.session.id} (${sessionPool.length} configured).`,
+          `[session] Using pooled session ${selectedSession.session.id} (${effectiveSessionPool.length} available).`,
         );
       }
 
@@ -634,9 +757,15 @@ export async function createSessionBroker(params) {
       }
 
       await persistState();
+      if (proxyAccountStore && handle?.sessionId && options.lockProxyForMs > 0) {
+        await proxyAccountStore.lockSession(handle.sessionId, options.lockProxyForMs);
+      }
     },
 
     async close() {
+      if (proxyAccountStore) {
+        await proxyAccountStore.close();
+      }
       await stateStore.close();
     },
   };

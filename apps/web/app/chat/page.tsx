@@ -493,6 +493,7 @@ function ChatPageContent() {
     setPricingModalOpen(true);
   }, [setPricingModalOpen]);
   const {
+    backgroundSync,
     loadWorkspace,
     clearMissingOnboardingAttempts,
     retryWorkspaceStartup,
@@ -539,7 +540,7 @@ function ChatPageContent() {
     setBackfillNotice,
     setIsLeavingHero,
   } = useChatRuntimeState({
-    backfillJobId,
+    backfillJobId: backfillJobId || backgroundSync?.jobId || "",
     messagesLength: messages.length,
     loadWorkspace,
   });

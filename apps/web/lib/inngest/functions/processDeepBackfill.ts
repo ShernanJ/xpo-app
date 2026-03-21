@@ -21,6 +21,13 @@ function isXRateLimitError(error: unknown): boolean {
   return /\b429\b/.test(message) || /too many requests/i.test(message);
 }
 
+function isInternalScraperBudgetExceededError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes("Scrape hourly budget exceeded")
+  );
+}
+
 export async function processDeepBackfillHandler({
   event,
   step,
@@ -57,6 +64,12 @@ export async function processDeepBackfillHandler({
       } catch (error) {
         if (isXRateLimitError(error)) {
           throw new RetryAfterError("X_RATE_LIMIT_REACHED", "15m", { cause: error });
+        }
+
+        if (isInternalScraperBudgetExceededError(error)) {
+          throw new RetryAfterError("INTERNAL_SCRAPER_BUDGET_EXCEEDED", "1h", {
+            cause: error,
+          });
         }
 
         throw error;

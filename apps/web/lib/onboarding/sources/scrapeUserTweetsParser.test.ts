@@ -125,6 +125,49 @@ function createPayload(nodes: unknown[]) {
   };
 }
 
+function createSearchTimelinePayload(nodes: unknown[]) {
+  return {
+    data: {
+      search_by_raw_query: {
+        search_timeline: {
+          timeline: {
+            instructions: [
+              {
+                type: "TimelineAddEntries",
+                entries: [
+                  {
+                    entryId: "prompt-1",
+                    content: {
+                      entryType: "TimelineTimelineCursor",
+                    },
+                  },
+                  ...nodes.map((node, index) => ({
+                    entryId: `tweet-${index}`,
+                    content: {
+                      itemContent: {
+                        tweet_results: {
+                          result: node,
+                        },
+                      },
+                    },
+                  })),
+                  {
+                    entryId: "cursor-bottom-0",
+                    content: {
+                      cursorType: "Bottom",
+                      value: "cursor-bottom",
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    },
+  };
+}
+
 test("parseUserTweetsGraphqlPayload extracts banner and pinned tweet metadata", () => {
   const payload = createPayload([
     createTweetNode({
@@ -158,6 +201,28 @@ test("parseUserTweetsGraphqlPayload extracts banner and pinned tweet metadata", 
   assert.deepEqual(parsed.pinnedPost?.imageUrls, [
     "https://pbs.twimg.com/media/pinned-photo.jpg",
   ]);
+});
+
+test("parseUserTweetsGraphqlPayload accepts SearchTimeline payloads", () => {
+  const payload = createSearchTimelinePayload([
+    createTweetNode({
+      id: "311",
+      text: "SearchTimeline original post",
+      bannerUrl: "https://pbs.twimg.com/profile_banners/123456",
+    }),
+  ]);
+
+  const parsed = parseUserTweetsGraphqlPayload({
+    payload,
+    account: "stan",
+    includeReplies: false,
+    includeQuotes: true,
+  });
+
+  assert.equal(parsed.profile.username, "stan");
+  assert.equal(parsed.posts[0]?.id, "311");
+  assert.equal(parsed.posts[0]?.text, "SearchTimeline original post");
+  assert.equal(parsed.replyPosts.length, 0);
 });
 
 test("parseUserTweetsGraphqlPayload preserves image metadata on recent posts and distinguishes media from external links", () => {
