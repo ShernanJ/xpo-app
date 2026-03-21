@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 import { getServerSession } from "@/lib/auth/serverSession";
 import { readOnboardingScrapeJobByIdForUser } from "@/lib/onboarding/store/onboardingScrapeJobStore";
-import { requireAllowedOrigin } from "@/lib/security/requestValidation";
 
 interface RouteContext {
   params: Promise<{
@@ -11,11 +10,6 @@ interface RouteContext {
 }
 
 export async function GET(request: Request, context: RouteContext) {
-  const originError = requireAllowedOrigin(request);
-  if (originError) {
-    return originError;
-  }
-
   const session = await getServerSession();
   if (!session?.user?.id) {
     return NextResponse.json(
