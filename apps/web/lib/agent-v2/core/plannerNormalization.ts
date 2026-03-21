@@ -48,6 +48,10 @@ export interface NormalizedThreadPlan extends StrategyPlan {
 interface PlannerOutputLike extends Omit<StrategyPlan, "extractedConstraints"> {
   extractedConstraints?: string[];
   extracted_constraints?: string[];
+  requiresLiveContext?: boolean;
+  requires_live_context?: boolean;
+  searchQueries?: string[];
+  search_queries?: string[];
 }
 
 interface RawThreadPostPlan {
@@ -416,6 +420,10 @@ export function normalizePlannerOutput<T extends PlannerOutputLike | RawThreadPl
   const mustAvoid = normalizePlanList(plan.mustAvoid).filter(
     (entry) => !mustIncludeKeys.has(entry.toLowerCase()),
   );
+  const searchQueries = normalizePlanList(
+    plan.searchQueries || plan.search_queries || [],
+    3,
+  );
 
   const normalizedPlan: NormalizedPlannerOutput = {
     ...plan,
@@ -427,6 +435,12 @@ export function normalizePlannerOutput<T extends PlannerOutputLike | RawThreadPl
     pitchResponse: sanitizePlanPitchResponse(plan.pitchResponse || ""),
     extractedConstraints: normalizePlanList(
       plan.extractedConstraints || plan.extracted_constraints || [],
+    ),
+    searchQueries,
+    requiresLiveContext: Boolean(
+      plan.requiresLiveContext ||
+      plan.requires_live_context ||
+      searchQueries.length > 0,
     ),
   };
 

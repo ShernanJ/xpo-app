@@ -43,6 +43,11 @@ function buildMemory(overrides: Partial<V2ConversationMemory> = {}): V2Conversat
     activeReplyArtifactRef: null,
     activeProfileAnalysisRef: null,
     selectedReplyOptionId: null,
+    liveContextCache: {
+      queryKey: "launch||pricing",
+      queries: ["launch update", "pricing change"],
+      content: "cached launch facts",
+    },
     voiceFidelity: "balanced",
     ...overrides,
   };
@@ -66,6 +71,7 @@ test("scopeMemoryForCurrentTurn preserves draft-scoped memory for local edit fol
     result.inferredSessionConstraints,
     memory.inferredSessionConstraints,
   );
+  assert.equal(result.liveContextCache?.content, "cached launch facts");
 });
 
 test("scopeMemoryForCurrentTurn clears topic-bound residue on a strong topic shift", () => {
@@ -87,6 +93,7 @@ test("scopeMemoryForCurrentTurn clears topic-bound residue on a strong topic shi
   assert.deepEqual(result.activeConstraints, memory.activeConstraints);
   assert.deepEqual(result.inferredSessionConstraints, []);
   assert.equal(result.formatPreference, memory.formatPreference);
+  assert.equal(result.liveContextCache, null);
 });
 
 test("scopeMemoryForCurrentTurn keeps same-topic memory when the user stays in lane", () => {

@@ -53,6 +53,7 @@ export interface PromptHydrationEnvelopeArgs {
   activeTaskSummary?: string | null;
   activePlan?: StrategyPlan | null;
   activeDraft?: string;
+  liveContext?: string;
   latestRefinementInstruction?: string | null;
   lastIdeationAngles?: string[];
 }
@@ -254,6 +255,17 @@ function buildGoldenExamplesXml(
   ].join("\n");
 }
 
+function buildLiveContextXml(
+  liveContext?: string,
+): string | null {
+  const normalized = liveContext?.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  return `<live_context>${wrapXmlCdata(normalized)}</live_context>`;
+}
+
 export function buildPromptHydrationEnvelope(
   args: PromptHydrationEnvelopeArgs,
 ): string {
@@ -288,6 +300,7 @@ export function buildPromptHydrationEnvelope(
   const goldenExamplesXml = buildGoldenExamplesXml({
     goldenExamples: args.goldenExamples,
   });
+  const liveContextXml = buildLiveContextXml(args.liveContext);
   const hasGoldenExamples = Boolean(goldenExamplesXml);
 
   return [
@@ -301,6 +314,7 @@ export function buildPromptHydrationEnvelope(
     buildOptionalXmlTag("profile_context", args.userContextString?.trim() || null)
       ? `  ${buildOptionalXmlTag("profile_context", args.userContextString?.trim() || null)}`
       : null,
+    liveContextXml ? `  ${liveContextXml}` : null,
     `  <mechanical_style_rules>${wrapXmlCdata(stylePayload)}</mechanical_style_rules>`,
     buildSessionConstraintsXml({
       sessionConstraints: args.sessionConstraints,

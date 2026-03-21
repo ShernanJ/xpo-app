@@ -239,5 +239,6 @@ export function scopeMemoryForCurrentTurn(args: {
     activeReplyArtifactRef: null,
     activeProfileAnalysisRef: null,
     selectedReplyOptionId: null,
+    liveContextCache: null,
   };
 }

@@ -471,6 +471,7 @@ export interface BuildPlanInstructionArgs {
   sessionConstraints?: SessionConstraint[];
   recentHistory: string;
   activeDraft?: string;
+  liveContext?: string;
   voiceTarget?: VoiceTarget | null;
   groundingPacket?: GroundingPacket | null;
   creatorProfileHints?: CreatorProfileHints | null;
@@ -520,17 +521,18 @@ function buildPlanRequirementsBlock(args: {
 10. If FACTUAL GROUNDING or hard grounding is present, use it as the source of truth. Do NOT broaden the product into a nearby category, implied mechanic, market comparison, or first-person usage story that was not explicitly grounded.
 11. If PLAIN FACTUAL PRODUCT MODE is present, prefer a descriptive angle over a contrarian one. Do not force a "most people get this wrong" or "every tool..." setup unless the user explicitly asked for comparison or pushback.
 12. If RECENT CHAT HISTORY includes an earlier assistant guess or rejected draft that the user corrected, treat the correction as the source of truth and ignore the older assistant wording.
-13. ${args.formatIntent === "story"
+13. If the user asks for breaking news, a recent event, a company's latest update, or any factual topic that depends on current real-world information, you MUST set "requires_live_context" to true and provide 1-3 highly specific "search_queries" the runtime can execute before drafting.
+14. ${args.formatIntent === "story"
       ? "If the user asked for a lived-experience story and exact specifics are missing, keep the story angle and use [Bracketed Placeholders] instead of downgrading it into a framework."
       : "If GROUNDING PACKET says Allowed first-person claims is empty, do NOT choose a lived-experience story angle. Pick a framework, opinion, or plain factual angle instead."}
-14. If AUTOBIOGRAPHICAL PERSPECTIVE MODE is present, keep grounded story claims in first person and do NOT reframe the creator as a candidate, the user, or they.
-15. If SAFE FRAMEWORK FALLBACK MODE is present, treat that as the preferred fallback instead of squeezing in invented specifics.
-16. Use CREATOR PROFILE HINTS to bias target lane, hook family, and format preference when the user did not explicitly override them.
-17. ${shouldUseCasualStructure
+15. If AUTOBIOGRAPHICAL PERSPECTIVE MODE is present, keep grounded story claims in first person and do NOT reframe the creator as a candidate, the user, or they.
+16. If SAFE FRAMEWORK FALLBACK MODE is present, treat that as the preferred fallback instead of squeezing in invented specifics.
+17. Use CREATOR PROFILE HINTS to bias target lane, hook family, and format preference when the user did not explicitly override them.
+18. ${shouldUseCasualStructure
       ? 'Keep "pitchResponse" short, lowercase, natural, and directionally specific. Do not promise a lesson, CTA, or framework if the user asked for a joke or observation.'
       : 'Keep "pitchResponse" short, lowercase, natural, and action-oriented. It should describe the direction itself, not your process.'}
-18. Good \`pitchResponse\`: "lead with the contradiction between the promise and what actually changed"
-19. Bad \`pitchResponse\`: "got it, here's the plan", "let's do...", "i'm thinking we should...", "want me to draft it?"`;
+19. Good \`pitchResponse\`: "lead with the contradiction between the promise and what actually changed"
+20. Bad \`pitchResponse\`: "got it, here's the plan", "let's do...", "i'm thinking we should...", "want me to draft it?"`;
 }
 
 function buildThreadBeatPlanningBlock(): string {
@@ -619,6 +621,7 @@ export function buildPlanInstruction(args: BuildPlanInstructionArgs): string {
     activeTaskSummary: args.activeTaskSummary,
     activePlan: args.options?.activePlan || null,
     activeDraft: args.activeDraft,
+    liveContext: args.liveContext,
     latestRefinementInstruction: args.options?.latestRefinementInstruction || null,
     lastIdeationAngles: args.options?.lastIdeationAngles || [],
   });
@@ -691,6 +694,7 @@ export interface BuildWriterInstructionArgs {
   sessionConstraints?: SessionConstraint[];
   recentHistory: string;
   activeDraft?: string;
+  liveContext?: string;
   voiceTarget?: VoiceTarget | null;
   groundingPacket?: GroundingPacket | null;
   creatorProfileHints?: CreatorProfileHints | null;
@@ -802,6 +806,7 @@ Do NOT turn the product into "another tool", a meetup, a hashtag engine, a growt
     activeTaskSummary: args.options?.activeTaskSummary || null,
     activePlan: args.options?.activePlan || args.plan,
     activeDraft: args.activeDraft,
+    liveContext: args.liveContext,
     latestRefinementInstruction: args.options?.latestRefinementInstruction || null,
     lastIdeationAngles: args.options?.lastIdeationAngles || [],
   });
@@ -905,6 +910,9 @@ ${args.styleCard.customGuidelines.length > 0 ? `- EXPLICIT USER GUIDELINES (CRIT
 
 ${threadCadenceBlock ? `${threadCadenceBlock}\n` : ""}
   `.trim();
+  const liveContextRule = args.liveContext?.trim()
+    ? `CRITICAL: You have been provided with real-time information in the <live_context> tag. You MUST base your factual claims strictly on this data. Do not hallucinate external facts.`
+    : null;
 
   return `
 You are an elite ghostwriter for X (Twitter).
@@ -971,6 +979,7 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 14a. Precedence order: FACTUAL TRUTH LAYER overrides STRATEGIC DRAFT PLAN, and STRATEGIC DRAFT PLAN overrides VOICE / SHAPE LAYER.
 14b. Never use VOICE / SHAPE LAYER material to invent facts, metrics, product mechanics, anecdotes, or proof claims.
 14c. If the strategic angle conflicts with the factual truth layer, keep the factual truth and adjust the framing instead of widening the claim.
+${liveContextRule ? `14d. ${liveContextRule}` : ""}
 15. ${buildMarkdownStylingRule("draft")}
 16. ${buildEngagementBaitRule("draft")}
 16a. If the draft offers a concrete downloadable asset like a PDF, playbook, guide, checklist, or template, use a specific keyword CTA tied to the asset topic. Prefer \`Comment "HIRING" to get access to my hiring playbook.\` over vague endings like "leave a comment and i'll send it."

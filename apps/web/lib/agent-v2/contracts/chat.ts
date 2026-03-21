@@ -59,6 +59,12 @@ export interface ResponseShapePlan {
   maxFollowUps: 0 | 1;
 }
 
+export interface LiveContextCacheEntry {
+  queryKey: string;
+  queries: string[];
+  content: string;
+}
+
 export interface StrategyPlan {
   objective: string;
   angle: string;
@@ -71,6 +77,8 @@ export interface StrategyPlan {
   deliveryPreference?: DraftPreference;
   formatPreference?: DraftFormatPreference;
   formatIntent?: FormatIntent;
+  requiresLiveContext?: boolean;
+  searchQueries?: string[];
 }
 
 export type ContinuationCapability = "drafting" | "replying";
@@ -202,6 +210,7 @@ export interface V2ConversationMemory {
   activeReplyArtifactRef: ActiveReplyArtifactRef | null;
   activeProfileAnalysisRef: ActiveProfileAnalysisRef | null;
   selectedReplyOptionId: string | null;
+  liveContextCache?: LiveContextCacheEntry | null;
   voiceFidelity: "balanced";
 }
 

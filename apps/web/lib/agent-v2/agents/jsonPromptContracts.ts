@@ -12,6 +12,8 @@ export function buildPlannerJsonContract(args: {
   "hookType": "...",
   "pitchResponse": "Conversational pitch to the user...",
   "extracted_constraints": ["no listicles", "sharpen the tone"],
+  "requires_live_context": false,
+  "search_queries": ["specific search query"],
   "posts": [
     {
       "role": "hook",
@@ -30,7 +32,9 @@ export function buildPlannerJsonContract(args: {
   "mustAvoid": ["generic word 1"],
   "hookType": "...",
   "pitchResponse": "Conversational pitch to the user...",
-  "extracted_constraints": ["no listicles", "sharpen the tone"]
+  "extracted_constraints": ["no listicles", "sharpen the tone"],
+  "requires_live_context": false,
+  "search_queries": ["specific search query"]
 }`;
 }
 

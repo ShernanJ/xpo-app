@@ -61,6 +61,8 @@ export const PlannerOutputSchema = z.object({
   hookType: z.string(),
   pitchResponse: z.string().describe("A short plain-language description of the direction itself. e.g. 'lead with the contradiction between the promise and what actually changed'"),
   extracted_constraints: z.array(z.string()).default([]),
+  requires_live_context: z.boolean().default(false),
+  search_queries: z.array(z.string()).default([]),
 });
 
 /**
@@ -92,6 +94,8 @@ export const ThreadPlanSchema = z.object({
   hookType: z.string(),
   pitchResponse: z.string().describe("A short plain-language description of the thread direction itself."),
   extracted_constraints: z.array(z.string()).default([]),
+  requires_live_context: z.boolean().default(false),
+  search_queries: z.array(z.string()).default([]),
   posts: z.array(ThreadPostPlanSchema).min(3).max(8).describe("Per-post beat plan for the thread"),
 });
 
@@ -122,6 +126,7 @@ export async function generatePlan(
     activePlan?: StrategyPlan | null;
     latestRefinementInstruction?: string | null;
     lastIdeationAngles?: string[];
+    liveContext?: string;
     voiceTarget?: VoiceTarget | null;
     groundingPacket?: GroundingPacket | null;
     creatorProfileHints?: CreatorProfileHints | null;
@@ -138,6 +143,7 @@ export async function generatePlan(
     activeConstraints,
     recentHistory,
     activeDraft,
+    liveContext: options?.liveContext,
     voiceTarget: options?.voiceTarget,
     groundingPacket: options?.groundingPacket,
     creatorProfileHints: options?.creatorProfileHints,

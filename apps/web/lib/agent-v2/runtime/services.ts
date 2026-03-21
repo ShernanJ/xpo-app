@@ -16,6 +16,7 @@ import { generateRevisionDraft } from "../agents/reviser";
 import { extractStyleRules } from "../agents/styleExtractor";
 import { extractCoreFacts } from "../agents/factExtractor";
 import { extractAntiPattern } from "../agents/antiPatternExtractor";
+import { executeWebSearch } from "../core/webSearch.ts";
 import {
   createConversationMemory,
   getConversationMemory,
@@ -64,6 +65,7 @@ export interface ConversationServices {
   extractStyleRules: typeof extractStyleRules;
   extractCoreFacts: typeof extractCoreFacts;
   extractAntiPattern: typeof extractAntiPattern;
+  executeWebSearch: typeof executeWebSearch;
   getConversationMemory: typeof getConversationMemory;
   createConversationMemory: typeof createConversationMemory;
   updateConversationMemory: typeof updateConversationMemory;
@@ -169,6 +171,7 @@ export function createDefaultConversationServices(): ConversationServices {
     extractStyleRules,
     extractCoreFacts,
     extractAntiPattern,
+    executeWebSearch,
     getConversationMemory,
     createConversationMemory,
     updateConversationMemory,

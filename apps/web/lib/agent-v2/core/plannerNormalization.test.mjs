@@ -159,6 +159,33 @@ test("normalizePlannerOutput repairs duplicate thread beats into a clean arc", (
   assert.match(result.posts[4].objective, /close on/i);
 });
 
+test("normalizePlannerOutput preserves live-context metadata from planner snake_case fields", () => {
+  const result = normalizePlannerOutput({
+    objective: "react to the latest product launch",
+    angle: "lead with what actually changed in the launch",
+    targetLane: "original",
+    mustInclude: [],
+    mustAvoid: [],
+    hookType: "direct",
+    pitchResponse: "lead with what actually changed",
+    requires_live_context: false,
+    search_queries: [
+      "latest product launch update",
+      "Latest product launch update",
+      " product launch user reaction ",
+      "",
+      "product launch pricing change",
+    ],
+  });
+
+  assert.equal(result.requiresLiveContext, true);
+  assert.deepEqual(result.searchQueries, [
+    "latest product launch update",
+    "product launch user reaction",
+    "product launch pricing change",
+  ]);
+});
+
 test("ensureThreadPlanPosts synthesizes a thread beat plan when a thread request falls back to a generic plan", () => {
   const result = ensureThreadPlanPosts({
     objective: "the break-if-we-don't filter that cut 80% of ideas",

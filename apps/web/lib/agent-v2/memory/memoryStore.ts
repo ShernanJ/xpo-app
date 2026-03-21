@@ -1,6 +1,6 @@
-import { prisma } from "../../db";
-import { Prisma } from "../../generated/prisma/client";
-import { applyMemorySaliencePolicy } from "./memorySalience";
+import { prisma } from "../../db.ts";
+import { Prisma } from "../../generated/prisma/client.ts";
+import { applyMemorySaliencePolicy } from "./memorySalience.ts";
 import { looksLikeProfileContextLeak } from "../core/profileContextLeak.ts";
 import type {
   ActiveDraftRef,
@@ -11,9 +11,10 @@ import type {
   ContinuationState,
   ConversationState,
   DraftFormatPreference,
+  LiveContextCacheEntry,
   StrategyPlan,
   V2ConversationMemory,
-} from "../contracts/chat";
+} from "../contracts/chat.ts";
 
 export interface CreateMemoryArgs {
   runId?: string;
@@ -47,6 +48,7 @@ export interface UpdateMemoryArgs {
   activeReplyArtifactRef?: ActiveReplyArtifactRef | null;
   activeProfileAnalysisRef?: ActiveProfileAnalysisRef | null;
   selectedReplyOptionId?: string | null;
+  liveContextCache?: LiveContextCacheEntry | null;
 }
 
 interface StoredMemoryEnvelope {
@@ -69,6 +71,7 @@ interface StoredMemoryEnvelope {
   activeReplyArtifactRef: ActiveReplyArtifactRef | null;
   activeProfileAnalysisRef: ActiveProfileAnalysisRef | null;
   selectedReplyOptionId: string | null;
+  liveContextCache: LiveContextCacheEntry | null;
 }
 
 function createInitialStoredMemoryEnvelope(): StoredMemoryEnvelope {
@@ -92,6 +95,7 @@ function createInitialStoredMemoryEnvelope(): StoredMemoryEnvelope {
     activeReplyArtifactRef: null,
     activeProfileAnalysisRef: null,
     selectedReplyOptionId: null,
+    liveContextCache: null,
   };
 }
 
@@ -118,6 +122,101 @@ function normalizeStringArray(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 }
 
+function normalizeUniqueStringArray(value: unknown, maxItems?: number): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const item of normalizeStringArray(value)) {
+    const next = item.trim();
+    const key = next.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    normalized.push(next);
+
+    if (maxItems !== undefined && normalized.length >= maxItems) {
+      break;
+    }
+  }
+
+  return normalized;
+}
+
+type StoredThreadPost = {
+  role: "hook" | "setup" | "proof" | "turn" | "payoff" | "close";
+  objective: string;
+  proofPoints: string[];
+  transitionHint: string | null;
+};
+
+function normalizeThreadPosts(value: unknown): StoredThreadPost[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const posts = value
+    .map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        return null;
+      }
+
+      const record = item as Record<string, unknown>;
+      const role =
+        record.role === "hook" ||
+        record.role === "setup" ||
+        record.role === "proof" ||
+        record.role === "turn" ||
+        record.role === "payoff" ||
+        record.role === "close"
+          ? record.role
+          : null;
+      const objective =
+        typeof record.objective === "string" ? record.objective.trim() : "";
+
+      if (!role || !objective) {
+        return null;
+      }
+
+      return {
+        role,
+        objective,
+        proofPoints: normalizeUniqueStringArray(record.proofPoints),
+        transitionHint:
+          typeof record.transitionHint === "string"
+            ? record.transitionHint.trim() || null
+            : null,
+      } satisfies StoredThreadPost;
+    })
+    .filter((item): item is StoredThreadPost => Boolean(item));
+
+  return posts.length > 0 ? posts : undefined;
+}
+
+function normalizeLiveContextCache(value: unknown): LiveContextCacheEntry | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const queryKey =
+    typeof record.queryKey === "string" ? record.queryKey.trim() : "";
+  const queries = normalizeUniqueStringArray(record.queries, 3);
+  const content =
+    typeof record.content === "string" ? record.content.trim() : "";
+
+  if (!queryKey || !content || queries.length === 0) {
+    return null;
+  }
+
+  return {
+    queryKey,
+    queries,
+    content,
+  };
+}
+
 function normalizePlan(value: unknown): StrategyPlan | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -134,7 +233,12 @@ function normalizePlan(value: unknown): StrategyPlan | null {
     return null;
   }
 
-  return {
+  const searchQueries = normalizeUniqueStringArray(
+    record.searchQueries ?? record.search_queries,
+    3,
+  );
+  const posts = normalizeThreadPosts(record.posts);
+  const normalizedPlan = {
     objective: record.objective,
     angle: record.angle,
     targetLane: record.targetLane,
@@ -153,7 +257,24 @@ function normalizePlan(value: unknown): StrategyPlan | null {
     record.formatPreference === "thread"
       ? { formatPreference: record.formatPreference }
       : {}),
-  };
+    ...(record.formatIntent === "story" ||
+    record.formatIntent === "lesson" ||
+    record.formatIntent === "joke" ||
+    record.formatIntent === "observation"
+      ? { formatIntent: record.formatIntent }
+      : {}),
+    ...(typeof record.requiresLiveContext === "boolean"
+      ? { requiresLiveContext: record.requiresLiveContext }
+      : typeof record.requires_live_context === "boolean"
+        ? { requiresLiveContext: record.requires_live_context }
+        : searchQueries.length > 0
+          ? { requiresLiveContext: true }
+          : {}),
+    ...(searchQueries.length > 0 ? { searchQueries } : {}),
+    ...(posts ? { posts } : {}),
+  } as StrategyPlan;
+
+  return normalizedPlan;
 }
 
 function normalizeActiveDraftRef(value: unknown): ActiveDraftRef | null {
@@ -500,6 +621,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       activeReplyArtifactRef: null,
       activeProfileAnalysisRef: null,
       selectedReplyOptionId: null,
+      liveContextCache: null,
     };
   }
 
@@ -524,6 +646,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
       activeReplyArtifactRef: null,
       activeProfileAnalysisRef: null,
       selectedReplyOptionId: null,
+      liveContextCache: null,
     };
   }
 
@@ -568,6 +691,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
     activeProfileAnalysisRef: normalizeActiveProfileAnalysisRef(record.activeProfileAnalysisRef),
     selectedReplyOptionId:
       typeof record.selectedReplyOptionId === "string" ? record.selectedReplyOptionId.trim() || null : null,
+    liveContextCache: normalizeLiveContextCache(record.liveContextCache),
   };
 }
 
@@ -592,6 +716,7 @@ function serializeMemoryEnvelope(value: StoredMemoryEnvelope): Prisma.InputJsonV
     activeReplyArtifactRef: value.activeReplyArtifactRef,
     activeProfileAnalysisRef: value.activeProfileAnalysisRef,
     selectedReplyOptionId: value.selectedReplyOptionId,
+    liveContextCache: value.liveContextCache,
   } as Prisma.InputJsonValue;
 }
 
@@ -618,6 +743,7 @@ function buildStoredMemoryEnvelopeFromSnapshot(
     activeReplyArtifactRef: snapshot.activeReplyArtifactRef,
     activeProfileAnalysisRef: snapshot.activeProfileAnalysisRef,
     selectedReplyOptionId: snapshot.selectedReplyOptionId,
+    liveContextCache: snapshot.liveContextCache ?? null,
   };
 }
 
@@ -693,6 +819,7 @@ export function createConversationMemorySnapshot(
     activeReplyArtifactRef: envelope.activeReplyArtifactRef,
     activeProfileAnalysisRef: envelope.activeProfileAnalysisRef,
     selectedReplyOptionId: envelope.selectedReplyOptionId,
+    liveContextCache: envelope.liveContextCache,
     voiceFidelity: "balanced",
   };
 }
@@ -869,6 +996,10 @@ export async function updateConversationMemory(args: UpdateMemoryArgs) {
           args.selectedReplyOptionId === undefined
             ? existingSnapshot.selectedReplyOptionId
             : args.selectedReplyOptionId,
+        liveContextCache:
+          args.liveContextCache === undefined
+            ? existingSnapshot.liveContextCache ?? null
+            : args.liveContextCache,
       };
       const salience = applyMemorySaliencePolicy({
         topicSummary:

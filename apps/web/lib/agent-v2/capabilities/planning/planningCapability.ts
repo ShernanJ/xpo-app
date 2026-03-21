@@ -41,6 +41,10 @@ import type {
 import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.ts";
 import { hasAutobiographicalGrounding } from "../../grounding/groundingPacket.ts";
 import { sessionConstraintsToLegacyStrings } from "../../core/sessionConstraints.ts";
+import {
+  buildWebSearchQueryKey,
+  normalizeWebSearchQueries,
+} from "../../core/webSearch.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -81,6 +85,7 @@ export interface PlanningCapabilityMemoryPatch {
   assistantTurnCount: number;
   formatPreference: DraftFormatPreference;
   unresolvedQuestion: null;
+  liveContextCache?: V2ConversationMemory["liveContextCache"];
 }
 
 export interface PlanningCapabilityReadyOutput {
@@ -198,6 +203,16 @@ export async function executePlanningCapability(
     guardrailedPlan.formatPreference === "thread"
       ? ensureThreadPlanPosts(guardrailedPlan)
       : guardrailedPlan;
+  const normalizedSearchQueries = normalizeWebSearchQueries(
+    guardedPlan.searchQueries || [],
+  );
+  const liveContextCache =
+    guardedPlan.requiresLiveContext && normalizedSearchQueries.length > 0
+      ? context.memory.liveContextCache?.queryKey ===
+        buildWebSearchQueryKey(normalizedSearchQueries)
+        ? context.memory.liveContextCache
+        : null
+      : null;
 
   return {
     workflow: args.workflow,
@@ -239,6 +254,7 @@ export async function executePlanningCapability(
         assistantTurnCount: context.nextAssistantTurnCount,
         formatPreference: guardedPlan.formatPreference || context.turnFormatPreference,
         unresolvedQuestion: null,
+        liveContextCache,
       },
     },
     workers: [

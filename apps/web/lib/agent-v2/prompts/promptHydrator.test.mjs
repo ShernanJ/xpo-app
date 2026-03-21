@@ -136,3 +136,18 @@ test("prompt hydration envelope omits golden example tags when examples are unde
   assert.equal(prompt.includes("<golden_examples>"), false);
   assert.equal(prompt.includes("legacy fallback"), false);
 });
+
+test("prompt hydration envelope emits live context in a CDATA-safe block", () => {
+  const prompt = buildPromptHydrationEnvelope({
+    mode: "draft",
+    goal: "audience growth",
+    conversationState: "draft_ready",
+    styleCard: null,
+    antiPatterns: [],
+    liveContext: "breaking snippet ]]> follow-up",
+  });
+
+  assert.equal(prompt.includes("<live_context><![CDATA["), true);
+  assert.equal(prompt.includes("]]]]><![CDATA[>"), true);
+  assert.equal(prompt.includes("</live_context>"), true);
+});

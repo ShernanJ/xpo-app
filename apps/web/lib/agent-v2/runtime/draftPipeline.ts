@@ -127,6 +127,7 @@ import {
 import { executeReplyingCapability } from "../capabilities/reply/replyingCapability.ts";
 import { executeAnalysisCapability } from "../capabilities/analysis/analysisCapability.ts";
 import { isRevisionRetryApproval } from "./turnRelation.ts";
+import { resolveLiveContextForPlan } from "./liveContext.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -215,7 +216,7 @@ export async function executeDraftPipeline(args: {
 
   const { routingTrace } = routing;
   const effectiveSessionConstraintTexts = sessionConstraintsToLegacyStrings(
-    sessionConstraints,
+    sessionConstraints || [],
   );
   let mode = routing.resolvedMode; // resolvedMode;
   const runtimeWorkflow =
@@ -1121,6 +1122,14 @@ export async function executeDraftPipeline(args: {
     storyClarificationAsked?: boolean;
   }): Promise<DraftingCapabilityRunResult> {
     const draftGroundingPacket = args.groundingPacket || groundingPacket;
+    const liveContext = await resolveLiveContextForPlan({
+      plan: args.plan,
+      memory,
+      executeWebSearch: services.executeWebSearch,
+      writeMemory: async (patch) => {
+        await writeMemoryLocal(patch);
+      },
+    });
     const requestPolicy =
       args.requestPolicy ||
       resolveRequestPolicy({
@@ -1199,6 +1208,7 @@ export async function executeDraftPipeline(args: {
             userContextString,
             sessionConstraints: attemptSessionConstraints,
             activeTaskSummary: memory.rollingSummary,
+            liveContext,
           },
         );
 
@@ -1232,6 +1242,7 @@ export async function executeDraftPipeline(args: {
             activeTaskSummary: memory.rollingSummary,
             activePlan: args.pendingPlan || args.plan,
             latestRefinementInstruction: memory.latestRefinementInstruction,
+            liveContext,
           },
         );
 

@@ -332,6 +332,7 @@ export async function generateRevisionDraft(args: {
     userContextString?: string;
     activeTaskSummary?: string | null;
     activePlan?: StrategyPlan | null;
+    liveContext?: string;
     threadRevisionContext?: {
       totalPostCount: number;
       targetSpan: DraftRevisionTargetSpan;
@@ -374,6 +375,7 @@ export async function generateRevisionDraft(args: {
     activeTaskSummary: args.options?.activeTaskSummary,
     activePlan: args.options?.activePlan || null,
     activeDraft: args.activeDraft,
+    liveContext: args.options?.liveContext,
     latestRefinementInstruction: args.revision.instruction,
   });
   const revisionInputBlock = buildRevisionInputBlock({
@@ -425,6 +427,10 @@ ${hydrationEnvelope}
 ${buildDraftPreferenceBlock(draftPreference, "draft")}
 ${buildFormatPreferenceBlock(formatPreference, "draft")}
 ${revisionInputBlock}
+
+${args.options?.liveContext?.trim()
+    ? `CRITICAL: You have been provided with real-time information in the <live_context> tag. Preserve that factual boundary exactly. Do not introduce new external claims beyond it.`
+    : ""}
 
 REVISION REQUEST:
 ${args.revision.instruction}

@@ -37,6 +37,10 @@ export function applyMemoryPatch(
     clarificationQuestionsAsked: patch.clarificationQuestionsAsked === undefined ? current.clarificationQuestionsAsked : patch.clarificationQuestionsAsked,
     preferredSurfaceMode: patch.preferredSurfaceMode === undefined ? current.preferredSurfaceMode : patch.preferredSurfaceMode,
     formatPreference: patch.formatPreference === undefined ? current.formatPreference : patch.formatPreference,
+    liveContextCache:
+      patch.liveContextCache === undefined
+        ? current.liveContextCache
+        : patch.liveContextCache,
     activeProfileAnalysisRef:
       patch.activeProfileAnalysisRef === undefined
         ? current.activeProfileAnalysisRef
@@ -73,6 +77,7 @@ export async function saveConversationTurnMemory(args: {
     clarificationQuestionsAsked: patch.clarificationQuestionsAsked,
     preferredSurfaceMode: patch.preferredSurfaceMode,
     formatPreference: patch.formatPreference,
+    liveContextCache: patch.liveContextCache,
     activeProfileAnalysisRef: patch.activeProfileAnalysisRef,
     lastIdeationAngles: patch.lastIdeationAngles,
     topicSummary: patch.topicSummary ?? memory.topicSummary,
@@ -121,6 +126,7 @@ export async function saveConversationTurnMemory(args: {
     clarificationQuestionsAsked: patch.clarificationQuestionsAsked,
     preferredSurfaceMode: patch.preferredSurfaceMode,
     formatPreference: patch.formatPreference,
+    liveContextCache: patch.liveContextCache,
     activeProfileAnalysisRef: patch.activeProfileAnalysisRef,
     lastIdeationAngles: patch.lastIdeationAngles,
   });

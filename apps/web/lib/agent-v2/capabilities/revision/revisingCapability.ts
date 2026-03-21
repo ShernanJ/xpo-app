@@ -590,6 +590,7 @@ export async function executeRevisingCapability(
         creatorProfileHints: context.creatorProfileHints,
         activeTaskSummary: context.memory.rollingSummary,
         activePlan: context.memory.pendingPlan,
+        liveContext: context.memory.liveContextCache?.content,
         ...(threadSpanPlan
           ? {
               threadRevisionContext: {
@@ -671,6 +672,7 @@ export async function executeRevisingCapability(
         activeTaskSummary: context.memory.rollingSummary,
         activePlan: context.memory.pendingPlan,
         latestRefinementInstruction: context.latestRefinementInstruction,
+        liveContext: context.memory.liveContextCache?.content,
       },
     );
 

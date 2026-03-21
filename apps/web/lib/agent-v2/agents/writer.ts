@@ -111,6 +111,7 @@ export async function generateDrafts(
     userContextString?: string;
     sessionConstraints?: SessionConstraint[];
     activeTaskSummary?: string | null;
+    liveContext?: string;
   },
 ): Promise<WriterOutput | null> {
   const requestPolicy = buildDraftRequestPolicy({
@@ -134,6 +135,7 @@ export async function generateDrafts(
     activeConstraints,
     recentHistory,
     activeDraft,
+    liveContext: options?.liveContext,
     voiceTarget: options?.voiceTarget,
     groundingPacket: options?.groundingPacket,
     creatorProfileHints: options?.creatorProfileHints,

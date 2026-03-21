@@ -351,6 +351,12 @@ test("planner and writer prompts surface hard factual grounding for product asks
   );
   assert.equal(
     promptSource.includes(
+      "You have been provided with real-time information in the <live_context> tag.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptSource.includes(
       "Use this block to continue the current plan/draft/idea set even if the latest user turn is short.",
     ),
     true,
@@ -631,6 +637,14 @@ test("planner writer reviser and critic share JSON output contracts", () => {
 
   assert.equal(
     jsonPromptContractsSource.includes(`"pitchResponse": "Conversational pitch to the user..."`),
+    true,
+  );
+  assert.equal(
+    jsonPromptContractsSource.includes(`"requires_live_context": false`),
+    true,
+  );
+  assert.equal(
+    jsonPromptContractsSource.includes(`"search_queries": ["specific search query"]`),
     true,
   );
   assert.equal(

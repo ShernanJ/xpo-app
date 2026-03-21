@@ -52,6 +52,10 @@ import {
   buildSessionConstraints,
   sessionConstraintsToLegacyStrings,
 } from "../../core/sessionConstraints.ts";
+import {
+  buildWebSearchQueryKey,
+  normalizeWebSearchQueries,
+} from "../../core/webSearch.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -307,6 +311,16 @@ export async function handlePendingPlanTurn(
     const guardedRevisedPlan = pendingPlanHasNoFabrication
       ? withNoFabricationPlanGuardrail(revisedPlanWithPreference)
       : revisedPlanWithPreference;
+    const normalizedSearchQueries = normalizeWebSearchQueries(
+      guardedRevisedPlan.searchQueries || [],
+    );
+    const liveContextCache =
+      guardedRevisedPlan.requiresLiveContext && normalizedSearchQueries.length > 0
+        ? args.memory.liveContextCache?.queryKey ===
+          buildWebSearchQueryKey(normalizedSearchQueries)
+          ? args.memory.liveContextCache
+          : null
+        : null;
 
     await args.writeMemory({
       topicSummary: guardedRevisedPlan.objective,
@@ -317,6 +331,7 @@ export async function handlePendingPlanTurn(
       assistantTurnCount: args.nextAssistantTurnCount,
       formatPreference: guardedRevisedPlan.formatPreference || args.turnFormatPreference,
       latestRefinementInstruction: null,
+      liveContextCache,
       ...args.clearClarificationPatch(),
     });
 

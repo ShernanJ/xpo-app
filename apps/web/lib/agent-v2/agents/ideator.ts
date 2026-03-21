@@ -541,6 +541,7 @@ export async function generateIdeasMenu(
     activeTaskSummary?: string | null;
     activePlan?: StrategyPlan | null;
     activeDraft?: string;
+    liveContext?: string;
     latestRefinementInstruction?: string | null;
     lastIdeationAngles?: string[];
   },
@@ -582,9 +583,13 @@ export async function generateIdeasMenu(
     activeTaskSummary: options?.activeTaskSummary,
     activePlan: options?.activePlan || null,
     activeDraft: options?.activeDraft,
+    liveContext: options?.liveContext,
     latestRefinementInstruction: options?.latestRefinementInstruction || null,
     lastIdeationAngles: options?.lastIdeationAngles || [],
   });
+  const liveContextRule = options?.liveContext?.trim()
+    ? `CRITICAL: You have been provided with real-time information in the <live_context> tag. If you reference current facts, company updates, or recent events, keep those references strictly inside that data and do not invent anything beyond it.`
+    : "";
 
   // Ground the ideas in actual post history — this prevents making up topics
   const hasRealAnchors = topicAnchors.length > 0;
@@ -620,6 +625,7 @@ Your job is to provide highly tailored post ideas based on their history or curr
 
 ${buildConversationToneBlock()}
 ${hydrationEnvelope}
+${liveContextRule ? `\n${liveContextRule}\n` : ""}
 
 THE IDEATION FORMAT (CRITICAL):
 You MUST follow this exact structure for your output:

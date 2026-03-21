@@ -125,6 +125,7 @@ export async function critiqueDrafts(
     activeTaskSummary?: string | null;
     activePlan?: StrategyPlan | null;
     latestRefinementInstruction?: string | null;
+    liveContext?: string;
   },
 ): Promise<CriticOutput | null> {
   const maxCharacterLimit = options?.maxCharacterLimit ?? 280;
@@ -159,6 +160,7 @@ export async function critiqueDrafts(
     activeTaskSummary: options?.activeTaskSummary,
     activePlan: options?.activePlan || null,
     activeDraft: writerOutput.draft,
+    liveContext: options?.liveContext,
     latestRefinementInstruction: options?.latestRefinementInstruction || null,
   });
   const instruction = `
@@ -167,6 +169,9 @@ Your job is to take a draft and ruthlessly enforce constraints. If the draft mis
 
 ${buildConversationToneBlock("critic")}
 ${hydrationEnvelope}
+${options?.liveContext?.trim()
+    ? `CRITICAL: You have been provided with real-time information in the <live_context> tag. Judge factual accuracy against that data and do not allow new external claims beyond it.`
+    : ""}
 
 RULES:
 ${buildDraftPreferenceBlock(draftPreference, "critic")}
