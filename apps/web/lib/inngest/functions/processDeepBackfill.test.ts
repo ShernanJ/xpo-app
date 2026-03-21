@@ -2,10 +2,15 @@ import { RetryAfterError } from "inngest";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  extractSemanticProfileIfNeeded: vi.fn(),
   importUserTweetsPayload: vi.fn(),
   readLatestScrapeCaptureByAccount: vi.fn(),
   runUserTweetsCapture: vi.fn(),
   syncPostsToDb: vi.fn(),
+}));
+
+vi.mock("@/lib/onboarding/analysis/ghostwriterExtractor", () => ({
+  extractSemanticProfileIfNeeded: mocks.extractSemanticProfileIfNeeded,
 }));
 
 vi.mock("@/lib/onboarding/sources/importScrapePayload", () => ({
@@ -54,6 +59,7 @@ beforeEach(() => {
     replyPosts: [],
     quotePosts: [],
   });
+  mocks.extractSemanticProfileIfNeeded.mockResolvedValue(undefined);
   mocks.syncPostsToDb.mockResolvedValue(undefined);
 });
 
@@ -111,6 +117,11 @@ describe("processDeepBackfillHandler", () => {
     expect(step.sleep).toHaveBeenCalledTimes(1);
     expect(step.sleep).toHaveBeenCalledWith("pace-scraping-0", "25s");
     expect(mocks.syncPostsToDb).toHaveBeenCalledTimes(1);
+    expect(mocks.extractSemanticProfileIfNeeded).toHaveBeenCalledWith({
+      userId: "user_1",
+      xHandle: "stan",
+    });
+    expect(step.run).toHaveBeenCalledWith("extract-semantic-profile", expect.any(Function));
     expect(result).toMatchObject({
       sessionsUsed: ["session_alpha", "session_beta"],
     });

@@ -1,5 +1,6 @@
 import { RetryAfterError, type GetFunctionInput, type GetStepTools } from "inngest";
 
+import { extractSemanticProfileIfNeeded } from "@/lib/onboarding/analysis/ghostwriterExtractor";
 import { enqueueHistoricalBackfillYearJob } from "@/lib/onboarding/pipeline/scrapeJob";
 import { importUserTweetsPayload } from "@/lib/onboarding/sources/importScrapePayload";
 import { readLatestScrapeCaptureByAccount } from "@/lib/onboarding/store/scrapeCaptureStore";
@@ -261,6 +262,15 @@ export async function processContextPrimerHandler({
         userAgent: "onboarding-context-primer",
       }),
     );
+
+    if (finalPhase === "complete") {
+      await step.run("extract-semantic-profile", async () =>
+        extractSemanticProfileIfNeeded({
+          userId: event.data.userId,
+          xHandle: event.data.account,
+        }),
+      );
+    }
 
     let nextJobId: string | null = null;
     if (finalPhase === "archive" && progress.currentYear >= progress.searchYearFloor) {

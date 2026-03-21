@@ -1,6 +1,7 @@
 import { RetryAfterError, type GetFunctionInput, type GetStepTools } from "inngest";
 
 import { importUserTweetsPayload } from "@/lib/onboarding/sources/importScrapePayload";
+import { extractSemanticProfileIfNeeded } from "@/lib/onboarding/analysis/ghostwriterExtractor";
 import { readLatestScrapeCaptureByAccount } from "@/lib/onboarding/store/scrapeCaptureStore";
 import { syncPostsToDb } from "@/lib/onboarding/store/onboardingRunStore";
 import { runUserTweetsCapture } from "@/lib/x-scrape/userTweetsCapture.mjs";
@@ -152,6 +153,13 @@ export async function processDeepBackfillHandler({
       postsSynced: latestCapture.posts.length,
     };
   });
+
+  await step.run("extract-semantic-profile", async () =>
+    extractSemanticProfileIfNeeded({
+      userId,
+      xHandle: account,
+    }),
+  );
 
   return {
     account,

@@ -15,6 +15,7 @@
     "test:coach-reply": "node --test --experimental-strip-types lib/onboarding/coachReply.test.mjs",
     "test:draft-validator": "node --test --experimental-strip-types lib/onboarding/draftValidator.test.mjs",
     "test:ui": "vitest run",
+    "test:lib": "vitest run --config vitest.lib.config.ts",
     "test:ui:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:list": "playwright test --list",
@@ -41,9 +42,11 @@
     "verify:output-file-tracing": "node scripts/verify-output-file-tracing.mjs"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.47",
     "@auth/prisma-adapter": "^2.11.1",
     "@prisma/adapter-pg": "^7.4.2",
     "@prisma/client": "^7.4.2",
+    "ai": "^6.0.134",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -55,6 +58,7 @@
     "lucide-react": "^0.576.0",
     "next": "16.1.6",
     "next-auth": "^4.24.13",
+    "openai": "^6.32.0",
     "pg": "^8.19.0",
     "posthog-js": "^1.360.2",
     "posthog-node": "^5.28.2",
