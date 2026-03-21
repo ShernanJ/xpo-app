@@ -74,6 +74,7 @@ test("retrieveGoldenExamples returns content rows from vector search", async () 
   assert.equal(queryCalls.length, 1);
   assert.match(queryCalls[0]?.strings.join(""), /AND "embedding" IS NOT NULL/);
   assert.match(queryCalls[0]?.strings.join(""), /< 0\.45/);
+  assert.doesNotMatch(queryCalls[0]?.strings.join(""), /::uuid/);
 });
 
 test("retrieveGoldenExamples preserves empty results when similarity threshold finds no matches", async () => {
