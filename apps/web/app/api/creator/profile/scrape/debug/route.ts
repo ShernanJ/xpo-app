@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getServerSession } from "@/lib/auth/serverSession";
-import { maybeEnqueueOnboardingBackfillJob } from "@/lib/onboarding/pipeline/backfill";
+import { inngest } from "@/lib/inngest/client";
 import { bootstrapScrapeCaptureWithOptions } from "@/lib/onboarding/sources/scrapeBootstrap";
-import { readLatestOnboardingRunByHandle } from "@/lib/onboarding/store/onboardingRunStore";
 import { readLatestScrapeCaptureByAccount } from "@/lib/onboarding/store/scrapeCaptureStore";
 import {
   enforceSessionMutationRateLimit,
@@ -11,8 +10,9 @@ import {
   requireAllowedOrigin,
 } from "@/lib/security/requestValidation";
 import { resolveWorkspaceHandleForRequest } from "@/lib/workspaceHandle.server";
+import { inspectScraperSessionsHealth } from "@/lib/x-scrape/userTweetsCapture.mjs";
 
-type ScrapeDebugAction = "recent_sync" | "deep_backfill";
+type ScrapeDebugAction = "recent_sync" | "deep_backfill" | "session_health";
 
 interface ScrapeDebugRequestBody {
   action?: unknown;
@@ -24,7 +24,9 @@ function isDebugEnabled() {
 }
 
 function parseAction(value: unknown): ScrapeDebugAction | null {
-  return value === "recent_sync" || value === "deep_backfill" ? value : null;
+  return value === "recent_sync" || value === "deep_backfill" || value === "session_health"
+    ? value
+    : null;
 }
 
 function notFoundResponse() {
@@ -95,7 +97,7 @@ export async function POST(request: NextRequest) {
 
   try {
     if (action === "recent_sync") {
-      await bootstrapScrapeCaptureWithOptions(xHandle, {
+      const prepared = await bootstrapScrapeCaptureWithOptions(xHandle, {
         pages: 2,
         count: 40,
         targetOriginalPostCount: 40,
@@ -110,39 +112,48 @@ export async function POST(request: NextRequest) {
         ok: true,
         action,
         capture,
-        notice: `Recent scrape sync finished for @${xHandle}.`,
+        telemetry: prepared.scrapeTelemetry,
+        notice: prepared.scrapeTelemetry?.sessionId
+          ? `Recent scrape sync finished for @${xHandle} via session ${prepared.scrapeTelemetry.sessionId}.`
+          : `Recent scrape sync finished for @${xHandle}.`,
       });
     }
 
-    const latestRun = await readLatestOnboardingRunByHandle(session.user.id, xHandle);
-    if (!latestRun) {
-      return NextResponse.json(
-        {
-          ok: false,
-          errors: [
-            {
-              field: "run",
-              message: `No onboarding run was available for @${xHandle}, so background sync could not be queued.`,
-            },
-          ],
-        },
-        { status: 409 },
-      );
+    if (action === "session_health") {
+      const sessionHealth = await inspectScraperSessionsHealth({
+        account: xHandle,
+        userAgent: "profile-scrape-debug-health",
+      });
+
+      return NextResponse.json({
+        ok: true,
+        action,
+        capture: await readLatestScrapeCaptureByAccount(xHandle),
+        sessionHealth,
+        notice:
+          sessionHealth.sessions.length > 0
+            ? `Checked ${sessionHealth.sessions.length} scraper session${sessionHealth.sessions.length === 1 ? "" : "s"} against @${xHandle}.`
+            : "No scraper sessions were configured to check.",
+      });
     }
 
-    const queued = await maybeEnqueueOnboardingBackfillJob({
-      runId: latestRun.runId,
-      input: latestRun.input,
-      result: latestRun.result,
+    const prepared = await bootstrapScrapeCaptureWithOptions(xHandle, {
+      pages: 2,
+      count: 40,
+      targetOriginalPostCount: 40,
+      maxDurationMs: 12_000,
+      forceRefresh: true,
+      mergeWithExisting: true,
+      userAgent: "profile-scrape-debug-deep",
     });
-    if (!queued.queued || !queued.jobId) {
+    if (!prepared.nextCursor) {
       return NextResponse.json(
         {
           ok: false,
           errors: [
             {
               field: "sync",
-              message: `Background sync was not queued for @${xHandle}.`,
+              message: `A deeper cursor was not available for @${xHandle}, so deep backfill could not be queued.`,
             },
           ],
         },
@@ -150,13 +161,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    await inngest.send({
+      name: "onboarding/deep.backfill.started",
+      data: {
+        account: xHandle,
+        cursor: prepared.nextCursor,
+        userId: session.user.id,
+      },
+    });
+
     const capture = await readLatestScrapeCaptureByAccount(xHandle);
     return NextResponse.json({
       ok: true,
       action,
       capture,
-      notice: `Background sync queued for @${xHandle}.`,
-      jobId: queued.jobId,
+      telemetry: prepared.scrapeTelemetry,
+      notice: prepared.scrapeTelemetry?.sessionId
+        ? `Deep backfill queued for @${xHandle} after refreshing with session ${prepared.scrapeTelemetry.sessionId}.`
+        : `Deep backfill queued for @${xHandle}.`,
     });
   } catch (error) {
     console.error("Failed to run scrape debug action:", error);

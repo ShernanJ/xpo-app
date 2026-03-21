@@ -59,15 +59,16 @@ beforeEach(() => {
 
 describe("processDeepBackfillHandler", () => {
   test("processes multiple pages, sleeps between advancing cursors, and syncs the latest capture", async () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
     const step = createStepTools();
     mocks.runUserTweetsCapture
       .mockResolvedValueOnce({
         payload: { page: 1 },
-        scrapeMeta: { nextCursor: "cursor_2" },
+        scrapeMeta: { nextCursor: "cursor_2", sessionId: "session_alpha" },
       })
       .mockResolvedValueOnce({
         payload: { page: 2 },
-        scrapeMeta: { nextCursor: null },
+        scrapeMeta: { nextCursor: null, sessionId: "session_beta" },
       });
 
     const result = await processDeepBackfillHandler({
@@ -92,6 +93,9 @@ describe("processDeepBackfillHandler", () => {
       cursor: "cursor_1",
       count: 40,
       pages: 1,
+      minIntervalMs: 30000,
+      requestDelayMs: 4500,
+      requestJitterMs: 6500,
       userAgent: "onboarding-deep-backfill",
     });
     expect(mocks.runUserTweetsCapture).toHaveBeenNthCalledWith(2, {
@@ -99,11 +103,18 @@ describe("processDeepBackfillHandler", () => {
       cursor: "cursor_2",
       count: 40,
       pages: 1,
+      minIntervalMs: 30000,
+      requestDelayMs: 4500,
+      requestJitterMs: 6500,
       userAgent: "onboarding-deep-backfill",
     });
     expect(step.sleep).toHaveBeenCalledTimes(1);
-    expect(step.sleep).toHaveBeenCalledWith("pace-scraping-0", "4s");
+    expect(step.sleep).toHaveBeenCalledWith("pace-scraping-0", "25s");
     expect(mocks.syncPostsToDb).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      sessionsUsed: ["session_alpha", "session_beta"],
+    });
+    randomSpy.mockRestore();
   });
 
   test("breaks when the cursor stops advancing", async () => {

@@ -109,13 +109,58 @@ type ScrapeCaptureDebugResponse =
   | ScrapeCaptureDebugSuccess
   | ScrapeCaptureDebugFailure;
 
-type ScrapeDebugAction = "recent_sync" | "deep_backfill";
+interface ScrapeDebugTelemetry {
+  uniqueOriginalPostsCollected: number;
+  totalRawPostCount: number;
+  sessionId: string | null;
+  rotatedSessionIds: string[];
+  didRotateSession: boolean;
+}
+
+interface ScraperSessionRateLimitSnapshot {
+  recentRequestCount: number;
+  lastRequestAt: string | null;
+  cooldownUntil: string | null;
+}
+
+interface ScraperSessionHealthEntry {
+  id: string;
+  rateLimit: ScraperSessionRateLimitSnapshot;
+  health: {
+    status:
+      | "ok"
+      | "budget_exhausted"
+      | "cooldown_active"
+      | "needs_verification"
+      | "suspended"
+      | "challenge_required"
+      | "auth_blocked"
+      | "error";
+    message: string;
+    checkedAt: string;
+    sessionId: string;
+    nextCursor: string | null;
+    uniqueOriginalPostsCollected: number | null;
+    totalRawPostCount: number | null;
+  };
+}
+
+interface ScrapeSessionHealthSnapshot {
+  account: string;
+  checkedAt: string;
+  defaultRateLimit: ScraperSessionRateLimitSnapshot;
+  sessions: ScraperSessionHealthEntry[];
+}
+
+type ScrapeDebugAction = "recent_sync" | "deep_backfill" | "session_health";
 
 interface ScrapeDebugActionSuccess {
   ok: true;
   action: ScrapeDebugAction;
   capture: unknown | null;
   notice: string;
+  telemetry?: ScrapeDebugTelemetry | null;
+  sessionHealth?: ScrapeSessionHealthSnapshot | null;
 }
 
 interface ScrapeDebugActionFailure {
@@ -193,6 +238,11 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
   const [isScrapeDebugDialogOpen, setIsScrapeDebugDialogOpen] = useState(false);
   const [scrapeDebugHandle, setScrapeDebugHandle] = useState<string | null>(null);
   const [scrapeDebugCapture, setScrapeDebugCapture] = useState<unknown | null>(null);
+  const [scrapeDebugTelemetry, setScrapeDebugTelemetry] = useState<ScrapeDebugTelemetry | null>(
+    null,
+  );
+  const [scrapeDebugSessionHealth, setScrapeDebugSessionHealth] =
+    useState<ScrapeSessionHealthSnapshot | null>(null);
   const [isScrapeDebugLoading, setIsScrapeDebugLoading] = useState(false);
   const [scrapeDebugActionInFlight, setScrapeDebugActionInFlight] =
     useState<ScrapeDebugAction | null>(null);
@@ -552,6 +602,8 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
 
       setScrapeDebugHandle(normalizedHandle);
       setScrapeDebugCapture(null);
+      setScrapeDebugTelemetry(null);
+      setScrapeDebugSessionHealth(null);
       setScrapeDebugError(null);
       setScrapeDebugNotice(null);
       setIsScrapeDebugDialogOpen(true);
@@ -566,6 +618,8 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
     }
 
     setScrapeDebugActionInFlight(null);
+    setScrapeDebugTelemetry(null);
+    setScrapeDebugSessionHealth(null);
     setScrapeDebugError(null);
     setScrapeDebugNotice(null);
   }, []);
@@ -603,6 +657,8 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
         }
 
         setScrapeDebugCapture(payload.capture);
+        setScrapeDebugTelemetry(payload.telemetry ?? null);
+        setScrapeDebugSessionHealth(payload.sessionHealth ?? null);
         setScrapeDebugNotice(payload.notice);
       } catch (error) {
         console.error(error);
@@ -624,6 +680,10 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
 
   const runDeepBackfillDebug = useCallback(async () => {
     await runScrapeDebugAction("deep_backfill");
+  }, [runScrapeDebugAction]);
+
+  const runScrapeSessionHealthCheck = useCallback(async () => {
+    await runScrapeDebugAction("session_health");
   }, [runScrapeDebugAction]);
 
   const handleAddAccountSubmit = useCallback(
@@ -739,6 +799,8 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
     isScrapeDebugDialogOpen,
     scrapeDebugHandle,
     scrapeDebugCapture,
+    scrapeDebugTelemetry,
+    scrapeDebugSessionHealth,
     isScrapeDebugLoading,
     scrapeDebugActionInFlight,
     scrapeDebugError,
@@ -750,6 +812,7 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
     reloadScrapeDebugCapture,
     runRecentScrapeDebugSync,
     runDeepBackfillDebug,
+    runScrapeSessionHealthCheck,
     openAddAccountModal,
     closeAddAccountModal,
     handleAddAccountSubmit,

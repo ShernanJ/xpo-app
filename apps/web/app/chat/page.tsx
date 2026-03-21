@@ -359,6 +359,8 @@ function ChatPageContent() {
     isScrapeDebugDialogOpen,
     scrapeDebugHandle,
     scrapeDebugCapture,
+    scrapeDebugTelemetry,
+    scrapeDebugSessionHealth,
     isScrapeDebugLoading,
     scrapeDebugActionInFlight,
     scrapeDebugError,
@@ -370,6 +372,7 @@ function ChatPageContent() {
     reloadScrapeDebugCapture,
     runRecentScrapeDebugSync,
     runDeepBackfillDebug,
+    runScrapeSessionHealthCheck,
     openAddAccountModal,
     closeAddAccountModal,
     handleAddAccountSubmit,
@@ -2250,6 +2253,8 @@ function ChatPageContent() {
         setScrapeDebugDialogOpen={setScrapeDebugDialogOpen}
         scrapeDebugHandle={scrapeDebugHandle}
         scrapeDebugCapture={scrapeDebugCapture}
+        scrapeDebugTelemetry={scrapeDebugTelemetry}
+        scrapeDebugSessionHealth={scrapeDebugSessionHealth}
         isScrapeDebugLoading={isScrapeDebugLoading}
         scrapeDebugActionInFlight={scrapeDebugActionInFlight}
         scrapeDebugError={scrapeDebugError}
@@ -2257,6 +2262,7 @@ function ChatPageContent() {
         reloadScrapeDebugCapture={reloadScrapeDebugCapture}
         runRecentScrapeDebugSync={runRecentScrapeDebugSync}
         runDeepBackfillDebug={runDeepBackfillDebug}
+        runScrapeSessionHealthCheck={runScrapeSessionHealthCheck}
         pricingModalOpen={pricingModalOpen}
         handlePricingModalOpenChange={handlePricingModalOpenChange}
         pricingModalDismissLabel={pricingModalDismissLabel}

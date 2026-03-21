@@ -482,6 +482,23 @@ function getOrCreateSessionRateBucket(state, sessionId) {
   return state.sessions[sessionId];
 }
 
+function snapshotRateBucket(bucket) {
+  const nowMs = Date.now();
+  pruneOldRequests(bucket, nowMs);
+
+  return {
+    recentRequestCount: bucket.recentRequests.length,
+    lastRequestAt:
+      Number.isFinite(bucket.lastRequestAt) && bucket.lastRequestAt !== null
+        ? new Date(bucket.lastRequestAt).toISOString()
+        : null,
+    cooldownUntil:
+      Number.isFinite(bucket.cooldownUntil) && bucket.cooldownUntil !== null
+        ? new Date(bucket.cooldownUntil).toISOString()
+        : null,
+  };
+}
+
 function normalizeSessionConfig(raw, index) {
   const root = asRecord(raw);
   if (!root) {
@@ -769,4 +786,44 @@ export async function createSessionBroker(params) {
       await stateStore.close();
     },
   };
+}
+
+export async function inspectSessionBrokerState(params = {}) {
+  const {
+    statePath = DEFAULT_STATE_FILE,
+    sessionFilePath = null,
+    stateBackend = process.env.X_WEB_SCRAPE_STATE_BACKEND ?? DEFAULT_STATE_BACKEND,
+    databaseUrl = process.env.DATABASE_URL ?? null,
+    stateSchema = process.env.X_WEB_SCRAPE_STATE_SCHEMA ?? "public",
+    stateTable = process.env.X_WEB_SCRAPE_STATE_TABLE ?? DEFAULT_STATE_TABLE,
+    stateRowId = process.env.X_WEB_SCRAPE_STATE_ROW_ID ?? DEFAULT_STATE_ROW_ID,
+  } = params;
+
+  const resolvedSessionFilePath = await materializeSessionPoolFile(sessionFilePath);
+  const stateStore = await createBrokerStateStore({
+    statePath,
+    stateBackend,
+    databaseUrl,
+    stateSchema,
+    stateTable,
+    stateRowId,
+  });
+
+  try {
+    const [state, sessionPool] = await Promise.all([
+      stateStore.read(),
+      loadSessionPool(resolvedSessionFilePath),
+    ]);
+
+    return {
+      checkedAt: new Date().toISOString(),
+      sessions: sessionPool.map((session) => ({
+        id: session.id,
+        rateLimit: snapshotRateBucket(getOrCreateSessionRateBucket(state, session.id)),
+      })),
+      defaultRateLimit: snapshotRateBucket(state),
+    };
+  } finally {
+    await stateStore.close();
+  }
 }

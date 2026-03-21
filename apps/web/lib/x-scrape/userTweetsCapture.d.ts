@@ -43,6 +43,41 @@ export interface RunUserTweetsCaptureResult {
     | null;
 }
 
+export interface ScraperSessionRateLimitSnapshot {
+  recentRequestCount: number;
+  lastRequestAt: string | null;
+  cooldownUntil: string | null;
+}
+
+export interface ScraperSessionHealthEntry {
+  id: string;
+  rateLimit: ScraperSessionRateLimitSnapshot;
+  health: {
+    status:
+      | "ok"
+      | "budget_exhausted"
+      | "cooldown_active"
+      | "needs_verification"
+      | "suspended"
+      | "challenge_required"
+      | "auth_blocked"
+      | "error";
+    message: string;
+    checkedAt: string;
+    sessionId: string;
+    nextCursor: string | null;
+    uniqueOriginalPostsCollected: number | null;
+    totalRawPostCount: number | null;
+  };
+}
+
+export interface InspectScraperSessionsHealthResult {
+  account: string;
+  checkedAt: string;
+  defaultRateLimit: ScraperSessionRateLimitSnapshot;
+  sessions: ScraperSessionHealthEntry[];
+}
+
 export interface RunUserTweetsCaptureCliOutcome {
   ok: boolean;
   exitCode: number;
@@ -56,6 +91,9 @@ export function normalizeAccount(rawValue: string): string | null;
 export function runUserTweetsCapture(
   rawOptions: RunUserTweetsCaptureOptions,
 ): Promise<RunUserTweetsCaptureResult>;
+export function inspectScraperSessionsHealth(
+  rawOptions: RunUserTweetsCaptureOptions,
+): Promise<InspectScraperSessionsHealthResult>;
 export function runUserTweetsCaptureCli(
   argv?: string[],
 ): Promise<RunUserTweetsCaptureCliOutcome>;

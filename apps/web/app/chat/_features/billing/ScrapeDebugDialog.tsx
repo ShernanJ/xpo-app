@@ -1,26 +1,82 @@
 "use client";
 
 import { useMemo } from "react";
-import { ArrowUpRight, Bug, RefreshCw } from "lucide-react";
+import { ArrowUpRight, Bug, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 
 import { SplitDialog } from "@/components/ui/split-dialog";
+
+interface ScrapeDebugTelemetry {
+  uniqueOriginalPostsCollected: number;
+  totalRawPostCount: number;
+  sessionId: string | null;
+  rotatedSessionIds: string[];
+  didRotateSession: boolean;
+}
+
+interface ScraperSessionHealthEntry {
+  id: string;
+  rateLimit: {
+    recentRequestCount: number;
+    lastRequestAt: string | null;
+    cooldownUntil: string | null;
+  };
+  health: {
+    status: string;
+    message: string;
+    checkedAt: string;
+    sessionId: string;
+    nextCursor: string | null;
+    uniqueOriginalPostsCollected: number | null;
+    totalRawPostCount: number | null;
+  };
+}
+
+interface ScrapeSessionHealthSnapshot {
+  account: string;
+  checkedAt: string;
+  sessions: ScraperSessionHealthEntry[];
+}
 
 interface ScrapeDebugDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   handle: string | null;
   capture: unknown | null;
+  telemetry: ScrapeDebugTelemetry | null;
+  sessionHealth: ScrapeSessionHealthSnapshot | null;
   isLoading: boolean;
-  actionInFlight: "recent_sync" | "deep_backfill" | null;
+  actionInFlight: "recent_sync" | "deep_backfill" | "session_health" | null;
   errorMessage: string | null;
   notice: string | null;
   onReload: () => void | Promise<void>;
   onRunRecentSync: () => void | Promise<void>;
   onRunDeepBackfill: () => void | Promise<void>;
+  onRunSessionHealthCheck: () => void | Promise<void>;
 }
 
 function countPosts(value: unknown): number {
   return Array.isArray(value) ? value.length : 0;
+}
+
+function formatSessionHealthLabel(status: string): string {
+  switch (status) {
+    case "ok":
+      return "healthy";
+    case "budget_exhausted":
+      return "budget exhausted";
+    case "cooldown_active":
+      return "cooldown";
+    case "needs_verification":
+      return "verify email";
+    case "suspended":
+      return "suspended";
+    case "challenge_required":
+      return "challenge";
+    case "auth_blocked":
+      return "auth blocked";
+    default:
+      return "error";
+  }
 }
 
 export function ScrapeDebugDialog(props: ScrapeDebugDialogProps) {
@@ -29,6 +85,8 @@ export function ScrapeDebugDialog(props: ScrapeDebugDialogProps) {
     onOpenChange,
     handle,
     capture,
+    telemetry,
+    sessionHealth,
     isLoading,
     actionInFlight,
     errorMessage,
@@ -36,6 +94,7 @@ export function ScrapeDebugDialog(props: ScrapeDebugDialogProps) {
     onReload,
     onRunRecentSync,
     onRunDeepBackfill,
+    onRunSessionHealthCheck,
   } = props;
 
   const formattedJson = useMemo(() => {
@@ -62,6 +121,8 @@ export function ScrapeDebugDialog(props: ScrapeDebugDialogProps) {
     typeof (captureRecord.metadata as Record<string, unknown>).source === "string"
       ? ((captureRecord.metadata as Record<string, unknown>).source as string)
       : null;
+  const activeSessionId = telemetry?.sessionId ?? null;
+  const rotatedSessionIds = telemetry?.rotatedSessionIds ?? [];
 
   return (
     <SplitDialog
@@ -120,6 +181,21 @@ export function ScrapeDebugDialog(props: ScrapeDebugDialogProps) {
               <button
                 type="button"
                 onClick={() => {
+                  void onRunSessionHealthCheck();
+                }}
+                disabled={isLoading || actionInFlight !== null || !handle}
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-sky-300/25 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-sky-100 transition hover:bg-sky-300/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <ShieldCheck
+                  className={`h-3.5 w-3.5 ${
+                    actionInFlight === "session_health" ? "animate-pulse" : ""
+                  }`}
+                />
+                {actionInFlight === "session_health" ? "Checking Sessions…" : "Check Sessions"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
                   void onRunDeepBackfill();
                 }}
                 disabled={isLoading || actionInFlight !== null || !handle}
@@ -173,7 +249,76 @@ export function ScrapeDebugDialog(props: ScrapeDebugDialogProps) {
                 <p className="text-[10px] uppercase tracking-[0.12em] text-zinc-500">Quotes</p>
                 <p className="mt-1 text-sm text-white">{quotePostsCount.toLocaleString()}</p>
               </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 sm:col-span-2 md:col-span-1">
+                <p className="text-[10px] uppercase tracking-[0.12em] text-zinc-500">
+                  Latest Session
+                </p>
+                <p className="mt-1 text-sm text-white">{activeSessionId ?? "Not captured yet"}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 sm:col-span-2 md:col-span-1">
+                <p className="text-[10px] uppercase tracking-[0.12em] text-zinc-500">
+                  Rotated Sessions
+                </p>
+                <p className="mt-1 text-sm text-white">
+                  {rotatedSessionIds.length > 0 ? rotatedSessionIds.join(", ") : "None"}
+                </p>
+              </div>
             </div>
+
+            {sessionHealth ? (
+              <div className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                      Session Health
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-300">
+                      Checked {new Date(sessionHealth.checkedAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <ShieldAlert className="h-4 w-4 text-zinc-400" />
+                </div>
+
+                <div className="space-y-3">
+                  {sessionHealth.sessions.length > 0 ? (
+                    sessionHealth.sessions.map((session) => (
+                      <div
+                        key={session.id}
+                        className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-white">{session.id}</p>
+                          <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-zinc-300">
+                            {formatSessionHealthLabel(session.health.status)}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs text-zinc-400">{session.health.message}</p>
+                        <div className="mt-3 grid gap-2 text-[11px] text-zinc-400">
+                          <p>Used session: {session.health.sessionId}</p>
+                          <p>Recent requests: {session.rateLimit.recentRequestCount}</p>
+                          <p>
+                            Last request:{" "}
+                            {session.rateLimit.lastRequestAt
+                              ? new Date(session.rateLimit.lastRequestAt).toLocaleString()
+                              : "Never"}
+                          </p>
+                          <p>
+                            Cooldown until:{" "}
+                            {session.rateLimit.cooldownUntil
+                              ? new Date(session.rateLimit.cooldownUntil).toLocaleString()
+                              : "Not cooling down"}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-white/10 px-4 py-4 text-sm text-zinc-500">
+                      No configured scraper sessions were found.
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       }

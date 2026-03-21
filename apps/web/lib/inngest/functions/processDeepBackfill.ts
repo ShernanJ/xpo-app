@@ -8,6 +8,11 @@ import { runUserTweetsCapture } from "@/lib/x-scrape/userTweetsCapture.mjs";
 import { inngest, type OnboardingDeepBackfillStartedEventData } from "../client";
 
 const TARGET_DEEP_BACKFILL_POST_COUNT = 500;
+const DEEP_BACKFILL_MIN_INTERVAL_MS = 30_000;
+const DEEP_BACKFILL_REQUEST_DELAY_MS = 4_500;
+const DEEP_BACKFILL_REQUEST_JITTER_MS = 6_500;
+const DEEP_BACKFILL_SLEEP_BASE_SECONDS = 25;
+const DEEP_BACKFILL_SLEEP_JITTER_SECONDS = 35;
 
 type ProcessDeepBackfillContext = Omit<GetFunctionInput<typeof inngest>, "event"> & {
   event: {
@@ -26,6 +31,13 @@ function isInternalScraperBudgetExceededError(error: unknown): boolean {
     error instanceof Error &&
     error.message.includes("Scrape hourly budget exceeded")
   );
+}
+
+function getRandomizedDeepBackfillSleepDuration(): `${number}s` {
+  const seconds =
+    DEEP_BACKFILL_SLEEP_BASE_SECONDS +
+    Math.floor(Math.random() * (DEEP_BACKFILL_SLEEP_JITTER_SECONDS + 1));
+  return `${seconds}s`;
 }
 
 export async function processDeepBackfillHandler({
@@ -49,6 +61,8 @@ export async function processDeepBackfillHandler({
 
   let collected = 0;
   let page = 0;
+  const sessionsUsed = new Set<string>();
+  const rotatedSessionIds = new Set<string>();
 
   while (collected < TARGET_DEEP_BACKFILL_POST_COUNT) {
     const pageNumber = page;
@@ -59,6 +73,9 @@ export async function processDeepBackfillHandler({
           cursor: currentCursor,
           count: 40,
           pages: 1,
+          minIntervalMs: DEEP_BACKFILL_MIN_INTERVAL_MS,
+          requestDelayMs: DEEP_BACKFILL_REQUEST_DELAY_MS,
+          requestJitterMs: DEEP_BACKFILL_REQUEST_JITTER_MS,
           userAgent: "onboarding-deep-backfill",
         });
       } catch (error) {
@@ -87,6 +104,20 @@ export async function processDeepBackfillHandler({
     );
 
     collected += saveResult.postsImported;
+    const pageSessionId = scrapeResult.scrapeMeta?.sessionId ?? null;
+    if (pageSessionId) {
+      sessionsUsed.add(pageSessionId);
+      console.log(
+        `[deep-backfill] Page ${pageNumber + 1} for @${account} used session ${pageSessionId}.`,
+      );
+    } else {
+      console.log(
+        `[deep-backfill] Page ${pageNumber + 1} for @${account} used the default scraper session.`,
+      );
+    }
+    for (const sessionId of scrapeResult.scrapeMeta?.rotatedSessionIds ?? []) {
+      rotatedSessionIds.add(sessionId);
+    }
 
     const next = scrapeResult.scrapeMeta?.nextCursor ?? null;
     if (
@@ -98,7 +129,7 @@ export async function processDeepBackfillHandler({
     }
 
     currentCursor = next;
-    await step.sleep(`pace-scraping-${pageNumber}`, "4s");
+    await step.sleep(`pace-scraping-${pageNumber}`, getRandomizedDeepBackfillSleepDuration());
     page += 1;
   }
 
@@ -128,6 +159,8 @@ export async function processDeepBackfillHandler({
     pagesProcessed: page + 1,
     postsImported: collected,
     postsSynced: syncResult.postsSynced,
+    sessionsUsed: Array.from(sessionsUsed),
+    rotatedSessionIds: Array.from(rotatedSessionIds),
     skipped: false,
   };
 }

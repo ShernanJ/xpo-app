@@ -177,3 +177,114 @@ test("loads scrape debug data in development", async () => {
   expect(result.current.isScrapeDebugDialogOpen).toBe(true);
   expect(result.current.scrapeDebugHandle).toBe("growthmode");
 });
+
+test("stores session health results from the dev scrape debug action", async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+
+    if (url === "/api/creator/profile/scrape?xHandle=growthmode") {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          capture: {
+            captureId: "sc_123",
+            capturedAt: "2026-03-20T12:00:00.000Z",
+            account: "growthmode",
+            posts: [],
+            replyPosts: [],
+            quotePosts: [],
+            metadata: {
+              source: "agent",
+              userAgent: "test",
+            },
+          },
+        }),
+      } as Response;
+    }
+
+    if (url === "/api/creator/profile/scrape/debug" && init?.method === "POST") {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          action: "session_health",
+          capture: null,
+          notice: "Checked 1 scraper session against @growthmode.",
+          sessionHealth: {
+            account: "growthmode",
+            checkedAt: "2026-03-20T12:15:00.000Z",
+            defaultRateLimit: {
+              recentRequestCount: 0,
+              lastRequestAt: null,
+              cooldownUntil: null,
+            },
+            sessions: [
+              {
+                id: "acct_1",
+                rateLimit: {
+                  recentRequestCount: 2,
+                  lastRequestAt: "2026-03-20T12:14:00.000Z",
+                  cooldownUntil: null,
+                },
+                health: {
+                  status: "ok",
+                  message: "Authenticated scrape probe succeeded.",
+                  checkedAt: "2026-03-20T12:15:00.000Z",
+                  sessionId: "acct_1",
+                  nextCursor: "cursor_2",
+                  uniqueOriginalPostsCollected: 5,
+                  totalRawPostCount: 5,
+                },
+              },
+            ],
+          },
+        }),
+      } as Response;
+    }
+
+    throw new Error(`Unexpected fetch: ${url}`);
+  });
+
+  vi.stubGlobal("fetch", fetchMock);
+  window.fetch = fetchMock as typeof fetch;
+
+  const { result } = renderHook(() =>
+    useWorkspaceAccountState({
+      accountName: "stanley",
+      requiresXAccountGate: false,
+      normalizeAccountHandle: (value) => value.trim().replace(/^@+/, "").toLowerCase(),
+      refreshSession: vi.fn(async () => undefined),
+      closeAccountMenu: vi.fn(),
+      setAvailableHandles: vi.fn(),
+      buildChatWorkspaceUrl: ({ xHandle }) => `/chat?xHandle=${xHandle ?? ""}`,
+      applyBillingSnapshot: vi.fn(),
+      onOpenPricing: vi.fn(),
+      onErrorMessage: vi.fn(),
+      onLoadingChange: vi.fn(),
+    }),
+  );
+
+  act(() => {
+    result.current.openScrapeDebug("growthmode");
+  });
+
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  await act(async () => {
+    await result.current.runScrapeSessionHealthCheck();
+  });
+
+  expect(result.current.scrapeDebugSessionHealth).toMatchObject({
+    account: "growthmode",
+    sessions: [{ id: "acct_1" }],
+  });
+  expect(result.current.scrapeDebugNotice).toBe(
+    "Checked 1 scraper session against @growthmode.",
+  );
+});

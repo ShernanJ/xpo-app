@@ -6,6 +6,7 @@ import {
   DEFAULT_STATE_FILE,
   ensureCookieContainsCt0,
   getCookieValue,
+  inspectSessionBrokerState,
 } from "./sessionBroker.mjs";
 
 const DEFAULT_FEATURES = {
@@ -1475,6 +1476,72 @@ function buildCaptureOptions(rawOptions = {}) {
   };
 }
 
+function classifySessionHealthError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  const lowerMessage = message.toLowerCase();
+
+  if (lowerMessage.includes("scrape hourly budget exceeded")) {
+    return {
+      status: "budget_exhausted",
+      message,
+    };
+  }
+
+  if (lowerMessage.includes("scrape cooldown active")) {
+    return {
+      status: "cooldown_active",
+      message,
+    };
+  }
+
+  if (
+    lowerMessage.includes("verify your email") ||
+    (lowerMessage.includes("verify") && lowerMessage.includes("email"))
+  ) {
+    return {
+      status: "needs_verification",
+      message,
+    };
+  }
+
+  if (lowerMessage.includes("suspend")) {
+    return {
+      status: "suspended",
+      message,
+    };
+  }
+
+  if (
+    lowerMessage.includes("challenge") ||
+    lowerMessage.includes("checkpoint") ||
+    lowerMessage.includes("unusual activity")
+  ) {
+    return {
+      status: "challenge_required",
+      message,
+    };
+  }
+
+  if (
+    lowerMessage.includes("http 401") ||
+    lowerMessage.includes("http 403") ||
+    lowerMessage.includes("auth") ||
+    lowerMessage.includes("login") ||
+    lowerMessage.includes("forbidden") ||
+    lowerMessage.includes("unauthorized")
+  ) {
+    return {
+      status: "auth_blocked",
+      message,
+    };
+  }
+
+  return {
+    status: "error",
+    message,
+  };
+}
+
 export async function runUserTweetsCapture(rawOptions) {
   const options = buildCaptureOptions(rawOptions);
   const account = normalizeAccount(options.account ?? "");
@@ -1624,6 +1691,135 @@ export async function runUserTweetsCapture(rawOptions) {
         payload && typeof payload === "object" && !Array.isArray(payload)
           ? payload.__scrapeMeta ?? null
           : null,
+    };
+  } finally {
+    await broker.close();
+  }
+}
+
+export async function inspectScraperSessionsHealth(rawOptions) {
+  const options = buildCaptureOptions(rawOptions);
+  const account = normalizeAccount(options.account ?? "");
+  if (!account) {
+    throw new Error("Invalid account. Use @username, username, or x.com/username.");
+  }
+
+  const envMaxRequests = Number(
+    process.env.SCRAPER_BUDGET_PER_HOUR ?? process.env.X_WEB_MAX_REQUESTS_PER_HOUR ?? NaN,
+  );
+  const envMinInterval = Number(process.env.X_WEB_MIN_INTERVAL_MS ?? NaN);
+  const envCooldown = Number(process.env.X_WEB_COOLDOWN_MS ?? NaN);
+  const maxRequestsPerHour =
+    Number.isFinite(envMaxRequests) && envMaxRequests > 0
+      ? Math.floor(envMaxRequests)
+      : options.maxRequestsPerHour;
+  const minIntervalMs =
+    Number.isFinite(envMinInterval) && envMinInterval >= 0
+      ? Math.floor(envMinInterval)
+      : options.minIntervalMs;
+  const cooldownMs =
+    Number.isFinite(envCooldown) && envCooldown >= 0
+      ? Math.floor(envCooldown)
+      : options.cooldownMs;
+
+  const sessionFilePath = options.sessionFile ?? process.env.X_WEB_SESSION_FILE ?? null;
+  const sessionState = await inspectSessionBrokerState({
+    statePath: process.env.X_WEB_SCRAPE_STATE_PATH ?? options.stateFile,
+    sessionFilePath,
+  });
+
+  const broker = await createSessionBroker({
+    statePath: process.env.X_WEB_SCRAPE_STATE_PATH ?? options.stateFile,
+    sessionFilePath,
+    maxRequestsPerHour,
+    minIntervalMs,
+  });
+
+  try {
+    const sessions = [];
+
+    for (const session of sessionState.sessions) {
+      const checkedAt = new Date().toISOString();
+
+      try {
+        const sessionHandle = await broker.acquire({
+          forcedSessionId: session.id,
+        });
+
+        try {
+          const attemptResult = await runScrapeAttempt({
+            account,
+            options: {
+              ...options,
+              count: 5,
+              pages: 1,
+              targetOriginals: 1,
+              maxDurationMs: 7_500,
+              userAgent: options.userAgent ?? "scraper-session-health-check",
+            },
+            broker,
+            pages: 1,
+            requestDelayMs: 0,
+            requestJitterMs: 0,
+            sessionHandle,
+          });
+          await broker.markSuccess(sessionHandle);
+
+          sessions.push({
+            id: session.id,
+            rateLimit: session.rateLimit,
+            health: {
+              status: "ok",
+              message: "Authenticated scrape probe succeeded.",
+              checkedAt,
+              sessionId: sessionHandle.sessionId ?? session.id,
+              nextCursor: attemptResult.nextCursor ?? null,
+              uniqueOriginalPostsCollected: getUniqueOriginalPostCount(attemptResult.payload),
+              totalRawPostCount: getUniqueTimelinePostCount(attemptResult.payload),
+            },
+          });
+        } catch (error) {
+          const classified = classifySessionHealthError(error);
+          await broker.markFailure(sessionHandle, {
+            cooldownMs,
+            shouldCooldown: shouldCooldownSession(error),
+          });
+
+          sessions.push({
+            id: session.id,
+            rateLimit: session.rateLimit,
+            health: {
+              ...classified,
+              checkedAt,
+              sessionId: sessionHandle.sessionId ?? session.id,
+              nextCursor: null,
+              uniqueOriginalPostsCollected: null,
+              totalRawPostCount: null,
+            },
+          });
+        }
+      } catch (error) {
+        const classified = classifySessionHealthError(error);
+        sessions.push({
+          id: session.id,
+          rateLimit: session.rateLimit,
+          health: {
+            ...classified,
+            checkedAt,
+            sessionId: session.id,
+            nextCursor: null,
+            uniqueOriginalPostsCollected: null,
+            totalRawPostCount: null,
+          },
+        });
+      }
+    }
+
+    return {
+      account,
+      checkedAt: new Date().toISOString(),
+      defaultRateLimit: sessionState.defaultRateLimit,
+      sessions,
     };
   } finally {
     await broker.close();

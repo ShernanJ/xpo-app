@@ -11,6 +11,7 @@ import type {
 
 import type { CreatorAgentContext } from "@/lib/onboarding/strategy/agentContext";
 
+import type { ScrapeDebugDialog } from "../billing/ScrapeDebugDialog";
 import type { ContentHubDialogProps } from "../content-hub/ContentHubDialog";
 import type { DraftCounterMeta } from "../draft-editor/chatDraftPreviewState";
 import type {
@@ -38,6 +39,7 @@ type ProfileAnalysisDialogProps = NonNullable<
   ChatOverlaysProps["profileAnalysisDialogProps"]
 >;
 type AddAccountDialogProps = ChatOverlaysProps["addAccountDialogProps"];
+type ScrapeDebugDialogProps = ComponentProps<typeof ScrapeDebugDialog>;
 
 export interface UseChatOverlayPropsOptions {
   contentHubDialogProps: ContentHubDialogProps;
@@ -108,13 +110,16 @@ export interface UseChatOverlayPropsOptions {
   setScrapeDebugDialogOpen: (open: boolean) => void;
   scrapeDebugHandle: string | null;
   scrapeDebugCapture: unknown | null;
+  scrapeDebugTelemetry: ScrapeDebugDialogProps["telemetry"];
+  scrapeDebugSessionHealth: ScrapeDebugDialogProps["sessionHealth"];
   isScrapeDebugLoading: boolean;
-  scrapeDebugActionInFlight: "recent_sync" | "deep_backfill" | null;
+  scrapeDebugActionInFlight: "recent_sync" | "deep_backfill" | "session_health" | null;
   scrapeDebugError: string | null;
   scrapeDebugNotice: string | null;
   reloadScrapeDebugCapture: () => Promise<void>;
   runRecentScrapeDebugSync: () => Promise<void>;
   runDeepBackfillDebug: () => Promise<void>;
+  runScrapeSessionHealthCheck: () => Promise<void>;
   pricingModalOpen: boolean;
   handlePricingModalOpenChange: (open: boolean) => void;
   pricingModalDismissLabel: string;
@@ -409,6 +414,8 @@ export function useChatOverlayProps(
           onOpenChange: options.setScrapeDebugDialogOpen,
           handle: options.scrapeDebugHandle,
           capture: options.scrapeDebugCapture,
+          telemetry: options.scrapeDebugTelemetry,
+          sessionHealth: options.scrapeDebugSessionHealth,
           isLoading: options.isScrapeDebugLoading,
           actionInFlight: options.scrapeDebugActionInFlight,
           errorMessage: options.scrapeDebugError,
@@ -421,6 +428,9 @@ export function useChatOverlayProps(
           },
           onRunDeepBackfill: () => {
             void options.runDeepBackfillDebug();
+          },
+          onRunSessionHealthCheck: () => {
+            void options.runScrapeSessionHealthCheck();
           },
         },
         pricingDialogProps: {
