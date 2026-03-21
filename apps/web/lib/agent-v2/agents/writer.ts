@@ -3,6 +3,7 @@ import { fetchStructuredJsonFromGroq } from "./llm.ts";
 import { z } from "zod";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { VoiceTarget } from "../core/voiceTarget";
+import type { ReplyContextCard } from "../core/replyContextExtractor.ts";
 import { retrieveGoldenExamples } from "../core/retrieval";
 import type { PlannerOutput } from "./planner";
 import type { ThreadFramingStyle } from "../../onboarding/draftArtifacts";
@@ -112,6 +113,7 @@ export async function generateDrafts(
     sessionConstraints?: SessionConstraint[];
     activeTaskSummary?: string | null;
     liveContext?: string;
+    replyContext?: ReplyContextCard | null;
   },
 ): Promise<WriterOutput | null> {
   const requestPolicy = buildDraftRequestPolicy({

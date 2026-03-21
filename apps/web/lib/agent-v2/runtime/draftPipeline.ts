@@ -27,6 +27,7 @@ import {
   shouldRefreshRollingSummary,
 } from "../memory/summaryManager";
 import { resolveVoiceTarget } from "../core/voiceTarget";
+import { analyzeSourceTweet } from "../core/replyContextExtractor.ts";
 import {
   getXCharacterLimitForFormat,
   getXCharacterLimitForAccount,
@@ -1136,6 +1137,13 @@ export async function executeDraftPipeline(args: {
         plan: args.plan,
         sourceUserMessage: args.sourceUserMessage,
       });
+    const replyContext =
+      args.plan.targetLane === "reply" || Boolean(memory.activeReplyContext?.sourceText)
+        ? memory.activeReplyContext?.replyContext ||
+          await analyzeSourceTweet(
+            memory.activeReplyContext?.sourceText || args.sourceUserMessage || "",
+          )
+        : null;
     let draftingMs = 0;
     const attemptDraft = async (
       extraConstraints: string[] = [],
@@ -1209,6 +1217,7 @@ export async function executeDraftPipeline(args: {
             sessionConstraints: attemptSessionConstraints,
             activeTaskSummary: memory.rollingSummary,
             liveContext,
+            replyContext,
           },
         );
 

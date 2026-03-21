@@ -1,6 +1,7 @@
 import type {
   ActiveReplyContext,
 } from "../../contracts/chat.ts";
+import { analyzeSourceTweet } from "../../core/replyContextExtractor.ts";
 import type { VoiceStyleCard } from "../../core/styleProfile.ts";
 import type { CreatorProfileHints } from "../../grounding/groundingPacket.ts";
 import type { ProfileReplyContext } from "../../grounding/profileReplyContext.ts";
@@ -36,6 +37,7 @@ export interface ReplyEmbeddedRequestContext {
   authorHandle: string | null;
   sourceContext?: ActiveReplyContext["sourceContext"];
   replySourcePreview?: ActiveReplyContext["replySourcePreview"];
+  replyContext?: ActiveReplyContext["replyContext"];
   quotedUserAsk: string | null;
   confidence: "low" | "medium" | "high";
   parseReason: string;
@@ -120,6 +122,7 @@ function createReplyContext(args: {
     ...(args.sourceContext.replySourcePreview
       ? { replySourcePreview: args.sourceContext.replySourcePreview }
       : {}),
+    replyContext: args.sourceContext.replyContext || null,
     quotedUserAsk: args.sourceContext.quotedUserAsk,
     confidence: args.sourceContext.confidence,
     parseReason: args.sourceContext.parseReason,
@@ -181,6 +184,8 @@ export async function planReplyContinuation(args: {
         defaultReplyTone: args.defaultReplyTone,
         defaultReplyGoal: args.defaultReplyGoal,
       });
+    const replyContext =
+      sourceContext.replyContext || await analyzeSourceTweet(sourceContext.sourceText);
     const strategyPillar =
       selectedReplyIntent?.strategyPillar ||
       args.replyStrategy.contentPillars[0] ||
@@ -201,9 +206,11 @@ export async function planReplyContinuation(args: {
       stage: sourceContext.stage,
       tone: sourceContext.tone,
       goal: sourceContext.goal,
+      replyContext,
     });
     const nextReplyContext: ActiveReplyContext = {
       ...sourceContext,
+      replyContext,
       awaitingConfirmation: false,
       latestReplyOptions: generated.response.options,
       latestReplyDraftOptions: [],
@@ -227,6 +234,9 @@ export async function planReplyContinuation(args: {
       return null;
     }
 
+    const replyContext =
+      activeReplyContext.replyContext || await analyzeSourceTweet(activeReplyContext.sourceText);
+
     const generated = await buildChatReplyDraft({
       source: {
         opportunityId: activeReplyContext.opportunityId,
@@ -247,10 +257,12 @@ export async function planReplyContinuation(args: {
       stage: activeReplyContext.stage,
       tone: activeReplyContext.tone,
       goal: activeReplyContext.goal,
+      replyContext,
       selectedIntent: toExtensionReplyIntentMetadata(selectedOption.intent) || undefined,
     });
     const nextReplyContext: ActiveReplyContext = {
       ...activeReplyContext,
+      replyContext,
       latestReplyDraftOptions: generated.response.options,
       selectedReplyOptionId: selectedOption.id,
     };
@@ -267,6 +279,8 @@ export async function planReplyContinuation(args: {
   }
 
   if (args.replyContinuation?.type === "revise_draft" && activeReplyContext) {
+    const replyContext =
+      activeReplyContext.replyContext || await analyzeSourceTweet(activeReplyContext.sourceText);
     const generated = await buildChatReplyDraft({
       source: {
         opportunityId: activeReplyContext.opportunityId,
@@ -287,11 +301,13 @@ export async function planReplyContinuation(args: {
       stage: activeReplyContext.stage,
       tone: args.replyContinuation.tone,
       goal: activeReplyContext.goal,
+      replyContext,
       selectedIntent: selectedReplyIntent || undefined,
       length: args.replyContinuation.length,
     });
     const nextReplyContext: ActiveReplyContext = {
       ...activeReplyContext,
+      replyContext,
       tone: args.replyContinuation.tone,
       latestReplyDraftOptions: generated.response.options,
     };

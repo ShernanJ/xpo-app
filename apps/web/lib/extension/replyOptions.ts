@@ -1,4 +1,10 @@
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
+import type { ReplyContextCard } from "../agent-v2/core/replyContextExtractor.ts";
+import {
+  analyzeSourceTweet,
+  doesReplyContextBanAngle,
+  isSensitiveReplyRoom,
+} from "../agent-v2/core/replyContextExtractor.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 import type { ReplyDraftPreflightResult } from "./types.ts";
 import { buildReplyGroundingPacket } from "./replyDraft.ts";
@@ -243,6 +249,76 @@ function buildCasualLabels(base: ExtensionSuggestedAngle): ExtensionSuggestedAng
   return next.filter((label, index) => next.indexOf(label) === index).slice(0, 3);
 }
 
+function buildReplyRoomNotes(replyContext?: ReplyContextCard | null): string[] {
+  if (!replyContext) {
+    return [];
+  }
+
+  return [
+    `Room sentiment: ${replyContext.room_sentiment}.`,
+    `Recommended stance: ${replyContext.recommended_stance}.`,
+    replyContext.banned_angles.length > 0
+      ? `Blocked angles: ${replyContext.banned_angles.join(" | ")}.`
+      : null,
+  ].filter((entry): entry is string => Boolean(entry));
+}
+
+function buildSensitiveRoomCloser(replyContext: ReplyContextCard): string {
+  const stance = replyContext.recommended_stance.trim().toLowerCase();
+
+  if (/\b(acknowledge|validate|care|gentle|soft)\b/.test(stance)) {
+    return "no need to overplay it.";
+  }
+
+  if (/\b(support|comfort)\b/.test(stance)) {
+    return "sending some care.";
+  }
+
+  return "that's enough of a point on its own.";
+}
+
+function shouldBlockAngleForRoom(args: {
+  label: ExtensionSuggestedAngle;
+  replyContext?: ReplyContextCard | null;
+}) {
+  const replyContext = args.replyContext || null;
+  if (!replyContext) {
+    return false;
+  }
+
+  const aliasMap: Record<ExtensionSuggestedAngle, string[]> = {
+    nuance: ["nuance"],
+    sharpen: ["sharpen", "provocation", "aggressive"],
+    disagree: ["disagree", "pushback", "contrarian", "dunk", "pile-on"],
+    example: ["example"],
+    translate: ["translate"],
+    known_for: ["known for"],
+  };
+
+  return (
+    (args.label === "disagree" && isSensitiveReplyRoom(replyContext)) ||
+    aliasMap[args.label].some((alias) => doesReplyContextBanAngle(replyContext, alias))
+  );
+}
+
+function buildSensitiveRoomOption(args: {
+  post: ExtensionOpportunityCandidate;
+  replyContext: ReplyContextCard;
+}) {
+  const focus = pickFocusPhrase(args.post.text);
+  const sentiment = args.replyContext.room_sentiment.trim().toLowerCase();
+
+  if (sentiment === "grief") {
+    return `really sorry. the ${focus} part lands hard enough on its own. ${buildSensitiveRoomCloser(args.replyContext)}`;
+  }
+
+  if (sentiment === "vulnerability") {
+    return `thanks for saying this out loud. the ${focus} part is what people will feel right away. ${buildSensitiveRoomCloser(args.replyContext)}`;
+  }
+
+  return `yeah. that's frustrating. the ${focus} part is the part people will feel immediately. ${buildSensitiveRoomCloser(args.replyContext)}`;
+}
+
 export async function prepareExtensionReplyOptionsPolicy(args: {
   post: ExtensionOpportunityCandidate;
   strategy: GrowthStrategySnapshot;
@@ -265,12 +341,14 @@ export async function prepareExtensionReplyOptionsPolicy(args: {
     preflightResult,
     visualContext: visualContext || null,
   });
+  const replyContext = await analyzeSourceTweet(sourceContext.primaryPost.text);
 
   return {
     sourceContext,
     visualContext: visualContext || null,
     preflightResult,
     policy,
+    replyContext,
   };
 }
 
@@ -288,6 +366,7 @@ export function buildExtensionReplyOptions(args: {
   policy?: ReplyConstraintPolicy | null;
   sourceContext?: ReplySourceContext | null;
   visualContext?: ReplyVisualContextSummary | null;
+  replyContext?: ReplyContextCard | null;
 }): ExtensionReplyOptionsResponse {
   const lowercase = inferLowercasePreference(args.styleCard);
   const concise = inferConcisePreference(args.styleCard);
@@ -320,6 +399,7 @@ export function buildExtensionReplyOptions(args: {
       ? [`Image anchor: ${args.visualContext.imageReplyAnchor}.`]
       : []),
     `Known for ${args.strategy.knownFor}.`,
+    ...buildReplyRoomNotes(args.replyContext || null),
     ...args.strategy.truthBoundary.verifiedFacts.slice(0, 1),
     ...buildReplyLearningNotes(args.replyInsights),
   ].map((entry) => applyVoiceCase(entry, lowercase));
@@ -373,14 +453,24 @@ export function buildExtensionReplyOptions(args: {
   const casualSeen = new Set<string>();
   const casualOptions = buildCasualLabels(args.opportunity.suggestedAngle)
     .map((label, index) => {
+      if (shouldBlockAngleForRoom({ label, replyContext: args.replyContext || null })) {
+        return null;
+      }
+
       const sanitized = sanitizeReplyText({
-        candidate: buildCasualTemplate({
-          label,
-          candidate: args.post,
-          concise,
-          visualContext: args.visualContext || null,
-          isRecruitingCall: interpretation.post_frame === "recruiting_call",
-        }),
+        candidate:
+          isSensitiveReplyRoom(args.replyContext || null)
+            ? buildSensitiveRoomOption({
+                post: args.post,
+                replyContext: args.replyContext!,
+              })
+            : buildCasualTemplate({
+                label,
+                candidate: args.post,
+                concise,
+                visualContext: args.visualContext || null,
+                isRecruitingCall: interpretation.post_frame === "recruiting_call",
+              }),
         fallbackText: fallback,
         sourceText: args.post.text,
         strategyPillar: args.strategyPillar,
@@ -392,6 +482,9 @@ export function buildExtensionReplyOptions(args: {
         visualContext: args.visualContext || null,
       });
       const nextText = applyVoiceCase(sanitized, lowercase);
+      if (doesReplyContextBanAngle(args.replyContext || null, nextText)) {
+        return null;
+      }
       const dedupeKey = normalizeComparable(nextText);
       if (!dedupeKey || casualSeen.has(dedupeKey)) {
         return null;
@@ -408,6 +501,15 @@ export function buildExtensionReplyOptions(args: {
   const strategicSeen = new Set<string>();
   const strategicOptions = intents
     .map((intent) => {
+      if (
+        shouldBlockAngleForRoom({
+          label: intent.angleLabel,
+          replyContext: args.replyContext || null,
+        })
+      ) {
+        return null;
+      }
+
       const template = buildTemplate({
         label: intent.angleLabel,
         candidate: args.post,
@@ -428,6 +530,9 @@ export function buildExtensionReplyOptions(args: {
         visualContext: args.visualContext || null,
       });
       const nextText = applyVoiceCase(sanitized, lowercase);
+      if (doesReplyContextBanAngle(args.replyContext || null, nextText)) {
+        return null;
+      }
       const dedupeKey = normalizeComparable(nextText);
       if (!dedupeKey || strategicSeen.has(dedupeKey)) {
         return null;
@@ -451,7 +556,13 @@ export function buildExtensionReplyOptions(args: {
   const options = useLiteralReactionMode ? casualOptions : strategicOptions;
   const fallbackOption = applyVoiceCase(
     sanitizeReplyText({
-      candidate: fallback,
+      candidate:
+        isSensitiveReplyRoom(args.replyContext || null) && args.replyContext
+          ? buildSensitiveRoomOption({
+              post: args.post,
+              replyContext: args.replyContext,
+            })
+          : fallback,
       fallbackText: fallback,
       sourceText: args.post.text,
       strategyPillar: args.strategyPillar,
@@ -469,12 +580,20 @@ export function buildExtensionReplyOptions(args: {
     options: options.length > 0 ? options : [{ id: "nuance-1", label: "nuance", text: fallbackOption }],
     warnings: [
       ...warnings,
+      ...(args.replyContext
+        ? [
+            `Room context: ${args.replyContext.room_sentiment}; ${args.replyContext.recommended_stance}.`,
+          ]
+        : []),
       ...(useLiteralReactionMode
         ? [
             interpretation.post_frame === "recruiting_call"
               ? "Source reads as a recruiting pitch, so options stay in public-reply reaction mode."
               : "Source reads as a casual/off-niche observation, so options stay literal on purpose.",
           ]
+        : []),
+      ...(isSensitiveReplyRoom(args.replyContext || null)
+        ? ["Sensitive room detected, so combative or provocative lanes were removed."]
         : []),
       ...(interpretation.humor_mode === "satire" || interpretation.humor_mode === "parody"
         ? [`Source reads as ${interpretation.humor_mode}; options should react to ${interpretation.target}.`]

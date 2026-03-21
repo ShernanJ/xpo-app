@@ -1,4 +1,5 @@
 import type { Persona } from "../../generated/prisma/client";
+import type { ReplyContextCard } from "../core/replyContextExtractor.ts";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { VoiceTarget } from "../core/voiceTarget";
 import type { ThreadFramingStyle } from "../../onboarding/draftArtifacts";
@@ -714,6 +715,7 @@ export interface BuildWriterInstructionArgs {
     latestRefinementInstruction?: string | null;
     lastIdeationAngles?: string[];
     activeTaskSummary?: string | null;
+    replyContext?: ReplyContextCard | null;
   };
 }
 
@@ -807,6 +809,7 @@ Do NOT turn the product into "another tool", a meetup, a hashtag engine, a growt
     activePlan: args.options?.activePlan || args.plan,
     activeDraft: args.activeDraft,
     liveContext: args.liveContext,
+    replyContext: args.options?.replyContext || null,
     latestRefinementInstruction: args.options?.latestRefinementInstruction || null,
     lastIdeationAngles: args.options?.lastIdeationAngles || [],
   });
@@ -924,6 +927,10 @@ ${buildConversationToneBlock("draft")}
 ${hydrationEnvelope}
 ${buildDraftPreferenceBlock(draftPreference, "draft")}
 ${buildFormatPreferenceBlock(formatPreference, "draft")}
+
+CRITICAL: If a <room_context> tag is present, you must read the room.
+CRITICAL: The emotional safety and social appropriateness dictated in <room_context> takes absolute priority over your global <target_persona> and <mechanical_style_rules>.
+CRITICAL: If the room sentiment involves grief, vulnerability, or frustration, you MUST completely abandon sarcasm, provocation, or aggressive formatting and adhere strictly to the recommended_stance.
 
 ${isEditing ? `EXISTING DRAFT TO EDIT (USE THIS AS YOUR BASELINE):\n${args.activeDraft}\n\n` : ""}
 

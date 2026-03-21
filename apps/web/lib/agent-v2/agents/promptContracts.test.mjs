@@ -244,6 +244,7 @@ test("planner and writer prompts surface hard factual grounding for product asks
     true,
   );
   assert.equal(promptSource.includes('buildXmlTag("active_task"'), true);
+  assert.equal(promptSource.includes("<room_context>"), true);
   assert.equal(promptSource.includes('buildXmlTag("target_persona"'), true);
   assert.equal(promptSource.includes("<mechanical_style_rules>"), true);
   assert.equal(promptSource.includes("<session_constraints>"), true);
@@ -252,6 +253,12 @@ test("planner and writer prompts surface hard factual grounding for product asks
   assert.equal(
     promptSource.includes(
       "If <session_constraints> conflicts with <mechanical_style_rules>, obey <session_constraints> for the current turn.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptSource.includes(
+      "If <room_context> conflicts with <target_persona> or <mechanical_style_rules>, obey <room_context> for the current turn.",
     ),
     true,
   );

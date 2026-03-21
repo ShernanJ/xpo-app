@@ -11,6 +11,7 @@ export type V2ChatIntent =
 import type { ReplySourceContext } from "../../reply-engine/types.ts";
 import type { ReplySourcePreview } from "../../reply-engine/replySourcePreview.ts";
 import type { ThreadFramingStyle } from "../../onboarding/draftArtifacts.ts";
+import type { ReplyContextCard } from "../core/replyContextExtractor.ts";
 
 export type ConversationState =
   | "collecting_context"
@@ -174,6 +175,7 @@ export interface ActiveReplyContext {
   authorHandle: string | null;
   sourceContext?: ReplySourceContext | null;
   replySourcePreview?: ReplySourcePreview | null;
+  replyContext?: ReplyContextCard | null;
   quotedUserAsk: string | null;
   confidence: "low" | "medium" | "high";
   parseReason: string;

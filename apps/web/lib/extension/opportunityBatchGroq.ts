@@ -1,11 +1,13 @@
 import Groq from "groq-sdk";
 import { z } from "zod";
 
+import { analyzeSourceTweet } from "../agent-v2/core/replyContextExtractor.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 import {
   buildReplySourceContextFromOpportunityCandidate,
   deriveHeuristicReplySourceVisualContext,
 } from "../reply-engine/index.ts";
+import type { ReplyContextCard } from "../agent-v2/core/replyContextExtractor.ts";
 import type { ReplyInsights } from "./replyOpportunities.ts";
 import type {
   ExtensionOpportunityBatchRequest,
@@ -13,12 +15,21 @@ import type {
   ExtensionOpportunityCandidate,
 } from "./types.ts";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+let groqClient: Groq | null = null;
+
+function getGroqClient() {
+  if (!groqClient) {
+    groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  }
+
+  return groqClient;
+}
 
 const DEFAULT_OPPORTUNITY_BATCH_MODEL =
   process.env.GROQ_OPPORTUNITY_BATCH_MODEL?.trim() ||
   process.env.GROQ_MODEL?.trim() ||
   "llama-3.3-70b-versatile";
+const ROOM_CONTEXT_BATCH_SIZE = 5;
 
 const GroqOpportunityBatchSchema = z
   .object({
@@ -69,7 +80,10 @@ function formatTopAngleLabels(replyInsights?: ReplyInsights | null) {
     .join("\n");
 }
 
-function summarizeCandidate(candidate: ExtensionOpportunityCandidate) {
+function summarizeCandidate(
+  candidate: ExtensionOpportunityCandidate,
+  replyContext?: ReplyContextCard | null,
+) {
   const author = candidate.author.handle ? `@${candidate.author.handle}` : "unknown author";
   const createdAt = candidate.createdAtIso || "unknown";
   const visualContext = deriveHeuristicReplySourceVisualContext(
@@ -88,6 +102,9 @@ function summarizeCandidate(candidate: ExtensionOpportunityCandidate) {
     visualContext
       ? `imageContext: role=${visualContext.imageRole}; anchor=${visualContext.imageReplyAnchor || "none"}; text=${visualContext.readableText || "none"}; scene=${visualContext.sceneType}`
       : "imageContext: none",
+    replyContext
+      ? `roomContext: sentiment=${replyContext.room_sentiment}; intent=${replyContext.social_intent}; stance=${replyContext.recommended_stance}; banned=${replyContext.banned_angles.join(" | ") || "none"}`
+      : "roomContext: unavailable",
   ].join("\n");
 }
 
@@ -118,6 +135,37 @@ function clampScore(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
+function chunkCandidates<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+
+  return chunks;
+}
+
+export async function analyzeCandidateRoomContexts(
+  candidates: ExtensionOpportunityCandidate[],
+): Promise<Map<string, ReplyContextCard | null>> {
+  const roomContexts = new Map<string, ReplyContextCard | null>();
+
+  for (const chunk of chunkCandidates(candidates, ROOM_CONTEXT_BATCH_SIZE)) {
+    const settled = await Promise.allSettled(
+      chunk.map((candidate) => analyzeSourceTweet(candidate.text)),
+    );
+
+    settled.forEach((result, index) => {
+      roomContexts.set(
+        chunk[index]!.postId,
+        result.status === "fulfilled" ? result.value : null,
+      );
+    });
+  }
+
+  return roomContexts;
+}
+
 export function buildOpportunityBatchSystemPrompt(args: {
   strategy: GrowthStrategySnapshot;
   replyInsights?: ReplyInsights | null;
@@ -134,6 +182,8 @@ export function buildOpportunityBatchSystemPrompt(args: {
     "- reason must be one concise sentence grounded in the creator strategy and reply insights.",
     "- Prefer posts where the creator can add non-generic nuance, proof, translation, or a sharper angle.",
     "- When an image or screenshot carries the joke or proof, use that image context instead of treating the post like sparse generic text.",
+    "- If room context suggests grief, vulnerability, or frustration, only score the tweet highly when a safe, socially appropriate reply still seems plausible.",
+    "- Penalize tweets where room context indicates the safest move is to avoid sarcasm, pile-ons, or combative disagreement and there is no strong safe lane left.",
     "- Penalize generic motivation, off-niche topics, spammy posts, rage bait, and conversations with poor audience fit.",
     "- Do not add markdown, commentary, or extra keys.",
     "",
@@ -158,9 +208,13 @@ export function buildOpportunityBatchSystemPrompt(args: {
 
 export function buildOpportunityBatchUserPrompt(args: {
   request: ExtensionOpportunityBatchRequest;
+  roomContexts?: Map<string, ReplyContextCard | null>;
 }) {
   const candidateBlocks = args.request.candidates.map((candidate, index) => {
-    return [`Candidate ${index + 1}`, summarizeCandidate(candidate)].join("\n");
+    return [
+      `Candidate ${index + 1}`,
+      summarizeCandidate(candidate, args.roomContexts?.get(candidate.postId) || null),
+    ].join("\n");
   });
 
   return [
@@ -184,7 +238,9 @@ export async function scoreOpportunityBatchWithGroq(args: {
     throw new Error("GROQ_API_KEY is not configured.");
   }
 
-  const completion = await groq.chat.completions.create({
+  const roomContexts = await analyzeCandidateRoomContexts(args.request.candidates);
+
+  const completion = await getGroqClient().chat.completions.create({
     model: DEFAULT_OPPORTUNITY_BATCH_MODEL,
     temperature: 0.2,
     max_tokens: 900,
@@ -203,6 +259,7 @@ export async function scoreOpportunityBatchWithGroq(args: {
         role: "user",
         content: buildOpportunityBatchUserPrompt({
           request: args.request,
+          roomContexts,
         }),
       },
     ],

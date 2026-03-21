@@ -197,6 +197,36 @@ test("buildExtensionReplyDraft keeps replies anchored instead of generic agreeme
   }
 });
 
+test("buildExtensionReplyDraft softens fallback copy for sensitive room contexts", () => {
+  const result = buildExtensionReplyDraft({
+    request: {
+      tweetId: "tweet_sensitive_1",
+      tweetText: "i'm honestly exhausted by how hard this has been",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/sensitive-1",
+      stage: "0_to_1k",
+      tone: "bold",
+      goal: "followers",
+    },
+    strategy,
+    replyContext: {
+      room_sentiment: "frustration",
+      social_intent: "looking for validation",
+      recommended_stance: "acknowledge the pain before adding anything else",
+      banned_angles: ["pushback", "hotter take"],
+    },
+  });
+
+  assert.equal(
+    result.response.options.every((option) => !/\b(hotter take|pushback|counterpoint|lmao)\b/i.test(option.text)),
+    true,
+  );
+  assert.equal(
+    result.response.notes?.some((entry) => entry.includes("Recommended stance: acknowledge the pain before adding anything else.")),
+    true,
+  );
+});
+
 test("buildExtensionReplyDraft records the chosen reply intent in notes", () => {
   const result = buildExtensionReplyDraft({
     request: {
@@ -759,6 +789,57 @@ test("prepareExtensionReplyDraftPromptPacket uses voice-first shortform reply ev
   assert.equal(["joke_riff", "agree_and_amplify", "contrarian_pushback", "insightful_add_on", "empathetic_support"].includes(packet.preflightResult.recommended_reply_mode), true);
   assert.equal(Array.isArray(packet.goldenExamples), true);
   assert.equal(String(packet.messages[0]?.content || "").includes("RETRIEVED GOLDEN EXAMPLES:"), true);
+});
+
+test("prepareExtensionReplyDraftPromptPacket carries room context into the system prompt", async () => {
+  const generation = buildReplyDraftGenerationContext({
+    request: {
+      tweetId: "tweet_room_1",
+      tweetText: "today feels heavier than usual",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/room-1",
+      stage: "0_to_1k",
+      tone: "warm",
+      goal: "followers",
+    },
+    strategy,
+    replyContext: {
+      room_sentiment: "vulnerability",
+      social_intent: "looking for care",
+      recommended_stance: "be warm and avoid scoring points",
+      banned_angles: ["sarcasm", "dunking"],
+    },
+  });
+
+  const packet = await prepareExtensionReplyDraftPromptPacket({
+    request: {
+      tweetId: "tweet_room_1",
+      tweetText: "today feels heavier than usual",
+      authorHandle: "creator",
+      tweetUrl: "https://x.com/creator/status/room-1",
+      stage: "0_to_1k",
+      tone: "warm",
+      goal: "followers",
+    },
+    strategy,
+    generation,
+  });
+
+  assert.deepEqual(packet.replyContext, {
+    room_sentiment: "vulnerability",
+    social_intent: "looking for care",
+    recommended_stance: "be warm and avoid scoring points",
+    banned_angles: ["sarcasm", "dunking"],
+  });
+  assert.equal(String(packet.messages[0]?.content || "").includes("ROOM CONTEXT:"), true);
+  assert.equal(
+    String(packet.messages[0]?.content || "").includes("be warm and avoid scoring points"),
+    true,
+  );
+  assert.equal(
+    String(packet.messages[0]?.content || "").includes("CRITICAL: If ROOM CONTEXT is present, you must read the room."),
+    true,
+  );
 });
 
 test("resolveVoiceTarget does not default replies to question CTA or curious hook", () => {

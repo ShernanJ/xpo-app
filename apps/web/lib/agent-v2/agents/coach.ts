@@ -17,6 +17,7 @@ import {
 import { buildCoachFallbackResponse as buildNormalizedCoachFallbackResponse } from "../responses/assistantReplyStyle";
 import { finalizeCoachReplyForSurface } from "./coachReplyNormalizer";
 import type { CreatorProfileHints } from "../grounding/groundingPacket";
+import type { ReplyContextCard } from "../core/replyContextExtractor.ts";
 
 export const CoachReplySchema = z.object({
   response: z.string().describe("The natural conversational reply to the user"),
@@ -269,6 +270,7 @@ async function generateGuidanceReply(
     activeTaskSummary?: string | null;
     activePlan?: StrategyPlan | null;
     activeDraft?: string;
+    replyContext?: ReplyContextCard | null;
     latestRefinementInstruction?: string | null;
     lastIdeationAngles?: string[];
   },
@@ -293,6 +295,7 @@ async function generateGuidanceReply(
     activeTaskSummary: options?.activeTaskSummary,
     activePlan: options?.activePlan || null,
     activeDraft: options?.activeDraft,
+    replyContext: options?.replyContext || null,
     latestRefinementInstruction: options?.latestRefinementInstruction || null,
     lastIdeationAngles: options?.lastIdeationAngles || [],
   });
@@ -437,6 +440,7 @@ export async function generateCoachReply(
     activeTaskSummary?: string | null;
     activePlan?: StrategyPlan | null;
     activeDraft?: string;
+    replyContext?: ReplyContextCard | null;
     latestRefinementInstruction?: string | null;
     lastIdeationAngles?: string[];
   },
@@ -471,6 +475,7 @@ export async function generateReplyGuidance(
     activeTaskSummary?: string | null;
     activePlan?: StrategyPlan | null;
     activeDraft?: string;
+    replyContext?: ReplyContextCard | null;
     latestRefinementInstruction?: string | null;
     lastIdeationAngles?: string[];
   },
@@ -505,6 +510,7 @@ export async function generatePostAnalysis(
     activeTaskSummary?: string | null;
     activePlan?: StrategyPlan | null;
     activeDraft?: string;
+    replyContext?: ReplyContextCard | null;
     latestRefinementInstruction?: string | null;
     lastIdeationAngles?: string[];
   },

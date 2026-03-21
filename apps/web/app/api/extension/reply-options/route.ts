@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
       xHandle: userContext.xHandle,
     });
     const hydratedPost = hydrateCandidateFromSnapshot(parsed.data.post, record.tweetSnapshot);
-    const { preflightResult, policy, sourceContext, visualContext } =
+    const { preflightResult, policy, sourceContext, visualContext, replyContext } =
       await prepareExtensionReplyOptionsPolicy({
         post: hydratedPost,
         strategy: userContext.context.growthStrategySnapshot,
@@ -212,6 +212,7 @@ export async function POST(request: NextRequest) {
       policy,
       sourceContext,
       visualContext,
+      replyContext,
     });
     const verified = await verifyExtensionReplyOptionsResponse({
       response,

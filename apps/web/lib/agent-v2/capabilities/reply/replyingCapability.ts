@@ -12,6 +12,7 @@ import type {
   DraftFormatPreference,
   V2ConversationMemory,
 } from "../../contracts/chat.ts";
+import { analyzeSourceTweet } from "../../core/replyContextExtractor.ts";
 import type { VoiceStyleCard } from "../../core/styleProfile.ts";
 import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import { runConversationValidationWorkers } from "../../workers/validation/conversationValidationWorkers.ts";
@@ -64,6 +65,9 @@ export async function executeReplyingCapability(
   },
 ): Promise<CapabilityExecutionResult<ReplyingCapabilityOutput>> {
   const { context, services } = args;
+  const replyContext =
+    context.memory.activeReplyContext?.replyContext ||
+    await analyzeSourceTweet(context.memory.activeReplyContext?.sourceText || "");
   const buildFallbackResponse = () =>
     "that reply guidance came back malformed twice. want me to retry from the post angle or the actual wording?";
 
@@ -82,6 +86,7 @@ export async function executeReplyingCapability(
         goal: context.goal,
         conversationState: context.memory.conversationState,
         antiPatterns: context.antiPatterns,
+        replyContext,
         retryConstraints: attempt.retryConstraints,
       },
     );

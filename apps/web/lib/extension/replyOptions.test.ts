@@ -194,6 +194,97 @@ test("buildExtensionReplyOptions avoids generic agreement-only replies", () => {
   }
 });
 
+test("buildExtensionReplyOptions removes combative lanes for sensitive room contexts", () => {
+  const response = buildExtensionReplyOptions({
+    post: {
+      postId: "post_sensitive",
+      author: {
+        id: "author_sensitive",
+        handle: "builder",
+        name: "Builder",
+        verified: false,
+        followerCount: 4100,
+      },
+      text: "i'm honestly exhausted by how hard this has been",
+      url: "https://x.com/builder/status/sensitive",
+      createdAtIso: "2026-03-11T11:00:00.000Z",
+      engagement: {
+        replyCount: 2,
+        repostCount: 0,
+        likeCount: 8,
+        quoteCount: 0,
+        viewCount: 300,
+      },
+      postType: "original",
+      conversation: {
+        conversationId: "conv_sensitive",
+        inReplyToPostId: null,
+        inReplyToHandle: null,
+      },
+      media: {
+        hasMedia: false,
+        hasImage: false,
+        hasVideo: false,
+        hasGif: false,
+        hasLink: false,
+        hasPoll: false,
+      },
+      surface: "home",
+      captureSource: "graphql",
+      capturedAtIso: "2026-03-11T11:05:00.000Z",
+    },
+    opportunity: {
+      opportunityId: "opp_sensitive",
+      postId: "post_sensitive",
+      score: 74,
+      verdict: "reply",
+      why: ["Still niche-relevant, but tone needs care."],
+      riskFlags: [],
+      suggestedAngle: "disagree",
+      expectedValue: {
+        visibility: "medium",
+        profileClicks: "medium",
+        followConversion: "medium",
+      },
+      scoringBreakdown: {
+        niche_match: 70,
+        audience_fit: 70,
+        freshness: 82,
+        conversation_quality: 73,
+        profile_click_potential: 69,
+        follow_conversion_potential: 60,
+        visibility_potential: 60,
+        spam_risk: 8,
+        off_niche_risk: 12,
+        genericity_risk: 18,
+        negative_signal_risk: 5,
+      },
+    },
+    strategy,
+    strategyPillar: "product positioning",
+    styleCard: null,
+    stage: "0-1k",
+    tone: "builder",
+    goal: "followers",
+    replyContext: {
+      room_sentiment: "vulnerability",
+      social_intent: "looking for care",
+      recommended_stance: "be warm and avoid scoring points",
+      banned_angles: ["disagree", "pushback"],
+    },
+  });
+
+  assert.equal(response.options.some((option) => option.label === "disagree"), false);
+  assert.equal(
+    response.warnings.some((entry) => entry.includes("Sensitive room detected")),
+    true,
+  );
+  assert.equal(
+    response.groundingNotes.some((entry) => entry.includes("Recommended stance: be warm and avoid scoring points.")),
+    true,
+  );
+});
+
 test("buildExtensionReplyOptions follows a stable opportunity -> intent ordering", () => {
   const response = buildExtensionReplyOptions({
     post: {

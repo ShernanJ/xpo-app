@@ -2,6 +2,10 @@ import type { ChatCompletionMessageParam } from "groq-sdk/resources/chat/complet
 
 import { retrieveAnchors } from "../agent-v2/core/retrieval.ts";
 import { resolveVoiceTarget } from "../agent-v2/core/voiceTarget.ts";
+import {
+  doesReplyContextBanAngle,
+  isSensitiveReplyRoom,
+} from "../agent-v2/core/replyContextExtractor.ts";
 import type {
   CreatorProfileHints,
   GroundingPacket,
@@ -385,6 +389,19 @@ function formatPreflightBlock(args: {
   ].join("\n");
 }
 
+function formatRoomContextBlock(replyContext: ReplyPromptBuildInput["replyContext"]) {
+  if (!replyContext) {
+    return "No room context available.";
+  }
+
+  return [
+    `- Sentiment: ${replyContext.room_sentiment}`,
+    `- Author intent: ${replyContext.social_intent}`,
+    `- Recommended stance: ${replyContext.recommended_stance}`,
+    `- Banned angles: ${replyContext.banned_angles.join(" | ") || "none"}`,
+  ].join("\n");
+}
+
 function resolveGhostwritingHandle(args: {
   userHandle?: string | null;
   creatorAgentContext?: CreatorAgentContext | null;
@@ -541,6 +558,16 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
     "If the source is a quote tweet, respond to the visible quote-tweet text first and use the quoted post as supporting context only.",
     "If image context is present, use it only when it sharpens the reply to the actual post.",
     `Keep it under ${(args.maxCharacterLimit || 280).toLocaleString()} characters.`,
+    "CRITICAL: If ROOM CONTEXT is present, you must read the room.",
+    "CRITICAL: ROOM CONTEXT overrides creator voice calibration, golden examples, and optional strategic lensing when they conflict.",
+    isSensitiveReplyRoom(args.replyContext)
+      ? "CRITICAL: This room is emotionally sensitive. Completely abandon sarcasm, provocation, aggressive formatting, or performative boldness. Follow the recommended stance exactly."
+      : args.replyContext
+        ? "CRITICAL: Honor the recommended stance and banned angles in ROOM CONTEXT before reaching for a sharper or more provocative move."
+        : null,
+    args.replyContext && doesReplyContextBanAngle(args.replyContext, args.selectedIntent?.label || "")
+      ? "- The previously selected angle conflicts with ROOM CONTEXT. Do not force it."
+      : null,
     "",
     "FACTUAL TRUTH LAYER:",
     "Durable facts:",
@@ -573,6 +600,9 @@ export function buildReplyDraftSystemPrompt(args: ReplyPromptBuildInput & {
         ? "- Image reply anchor: do not center the reply on OCR details."
         : `- Image reply anchor: ${args.visualContext.imageReplyAnchor}`
       : "- Image reply anchor: none.",
+    "",
+    "ROOM CONTEXT:",
+    formatRoomContextBlock(args.replyContext),
     "",
     "CLASSIFIER READ:",
     formatPreflightBlock({
@@ -871,6 +901,7 @@ export async function prepareReplyPromptPacket(
     messages,
     sourceContext: args.sourceContext,
     groundingPacket: args.groundingPacket,
+    replyContext: args.replyContext || null,
     voiceTarget,
     visualContext: resolvedVisualContext,
     interpretation,

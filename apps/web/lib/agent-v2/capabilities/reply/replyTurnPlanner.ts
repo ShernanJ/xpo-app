@@ -1,4 +1,5 @@
 import type { VoiceStyleCard } from "../../core/styleProfile.ts";
+import { analyzeSourceTweet } from "../../core/replyContextExtractor.ts";
 import type { CreatorProfileHints } from "../../grounding/groundingPacket.ts";
 import type { ProfileReplyContext } from "../../grounding/profileReplyContext.ts";
 import type { GrowthStrategySnapshot } from "../../../onboarding/strategy/growthStrategy.ts";
@@ -324,12 +325,15 @@ async function planDirectReplyDraft(args: {
     resolvedReplySourcePreview = resolvedFromUrl.replySourcePreview;
   }
 
+  const replyContextCard = await analyzeSourceTweet(resolvedSourceText);
+
   const activeReplyContext = createEmptyActiveReplyContext({
     sourceText: resolvedSourceText,
     sourceUrl: resolvedSourceUrl,
     authorHandle: resolvedAuthorHandle,
     sourceContext: resolvedSourceContext,
     replySourcePreview: resolvedReplySourcePreview,
+    replyContext: replyContextCard,
     quotedUserAsk: replyContext.quotedUserAsk,
     confidence: replyContext.confidence,
     parseReason: resolvedParseReason,
@@ -358,6 +362,7 @@ async function planDirectReplyDraft(args: {
     stage: activeReplyContext.stage,
     tone: activeReplyContext.tone,
     goal: activeReplyContext.goal,
+    replyContext: activeReplyContext.replyContext || null,
   });
   const primaryOption = generated.response.options[0] ?? null;
   const response = primaryOption
@@ -521,6 +526,7 @@ export async function planReplyTurn(args: {
       authorHandle: args.replyParseResult.context.authorHandle,
       sourceContext: args.replyParseResult.context.sourceContext || null,
       replySourcePreview: args.replyParseResult.context.replySourcePreview || null,
+      replyContext: await analyzeSourceTweet(args.replyParseResult.context.sourceText),
       quotedUserAsk: args.replyParseResult.context.quotedUserAsk,
       confidence: args.replyParseResult.context.confidence,
       parseReason: args.replyParseResult.context.parseReason,

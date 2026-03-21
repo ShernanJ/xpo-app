@@ -1,5 +1,6 @@
 import type { CreatorProfileHints } from "../agent-v2/grounding/groundingPacket.ts";
 import type { ProfileReplyContext } from "../agent-v2/grounding/profileReplyContext.ts";
+import type { ReplyContextCard } from "../agent-v2/core/replyContextExtractor.ts";
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
 import {
@@ -239,6 +240,7 @@ export function buildChatReplyOptions(args: {
   strategyPillar: string;
   styleCard: VoiceStyleCard | null;
   replyInsights?: ReplyInsights | null;
+  replyContext?: ReplyContextCard | null;
   stage: string;
   tone: ExtensionReplyTone;
   goal: string;
@@ -262,6 +264,7 @@ export function buildChatReplyOptions(args: {
       tone: args.tone,
       goal: args.goal,
       replyInsights: args.replyInsights,
+      replyContext: args.replyContext || null,
     }),
   };
 }
@@ -280,6 +283,7 @@ export async function buildChatReplyDraftWithDeps(
   stage: ExtensionReplyDraftRequest["stage"];
   tone: ExtensionReplyTone;
   goal: string;
+  replyContext?: ReplyContextCard | null;
   selectedIntent?: ExtensionReplyIntentMetadata | null;
   length?: "same" | "shorter" | "longer";
 },
@@ -303,6 +307,7 @@ export async function buildChatReplyDraftWithDeps(
     request,
     strategy: args.strategy,
     replyInsights: args.replyInsights,
+    replyContext: args.replyContext || null,
     selectedIntent: args.selectedIntent || undefined,
     sourceContext,
   });
@@ -311,6 +316,7 @@ export async function buildChatReplyDraftWithDeps(
     request,
     strategy: args.strategy,
     replyInsights: args.replyInsights,
+    replyContext: args.replyContext || null,
     selectedIntent: args.selectedIntent || undefined,
   });
 
@@ -338,6 +344,7 @@ export async function buildChatReplyDraftWithDeps(
       profileReplyContext: args.profileReplyContext || null,
       userId: args.userId || null,
       xHandle: args.xHandle || null,
+      replyContext: args.replyContext || null,
       sourceContext,
     });
     const generated = await deps.generateReplyDraftText({
@@ -404,6 +411,7 @@ export async function buildChatReplyDraft(args: {
   stage: ExtensionReplyDraftRequest["stage"];
   tone: ExtensionReplyTone;
   goal: string;
+  replyContext?: ReplyContextCard | null;
   selectedIntent?: ExtensionReplyIntentMetadata | null;
   length?: "same" | "shorter" | "longer";
 }): Promise<ExtensionReplyDraftBuildResult> {

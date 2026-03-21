@@ -1,6 +1,7 @@
 import Groq from "groq-sdk";
 import { NextRequest, NextResponse } from "next/server";
 
+import { analyzeSourceTweet } from "@/lib/agent-v2/core/replyContextExtractor";
 import { buildCreatorProfileHintsFromOnboarding } from "@/lib/agent-v2/grounding/creatorProfileHints";
 import { buildProfileReplyContext } from "@/lib/agent-v2/grounding/profileReplyContext";
 import { authenticateExtensionRequest } from "@/lib/extension/auth";
@@ -179,6 +180,7 @@ export async function POST(request: NextRequest) {
     });
   }
   const visualContextPromise = analyzeReplySourceVisualContext(sourceContext);
+  const replyContextPromise = analyzeSourceTweet(parsed.data.tweetText);
   const userContext = await loadExtensionUserContext({
     userId: auth.user.id,
     requestedHandle: handleResolution.xHandle,
@@ -203,6 +205,7 @@ export async function POST(request: NextRequest) {
     replyInsights,
   });
   const visualContext = await visualContextPromise;
+  const replyContext = await replyContextPromise;
   if ((sourceContext.media?.images.length || 0) > 0) {
     console.log("[extension:reply-draft] image analysis summary", {
       tweetId: parsed.data.tweetId,
@@ -223,6 +226,7 @@ export async function POST(request: NextRequest) {
     request: parsed.data,
     strategy: userContext.context.growthStrategySnapshot,
     replyInsights,
+    replyContext,
     preflightResult,
     sourceContext,
     visualContext,
@@ -247,6 +251,7 @@ export async function POST(request: NextRequest) {
     profileReplyContext,
     userId: auth.user.id,
     xHandle: userContext.xHandle,
+    replyContext,
     sourceContext,
     visualContext,
     preflightResult,

@@ -15,6 +15,7 @@ import type {
   StrategyPlan,
   V2ConversationMemory,
 } from "../contracts/chat.ts";
+import type { ReplyContextCard } from "../core/replyContextExtractor.ts";
 
 export interface CreateMemoryArgs {
   runId?: string;
@@ -435,6 +436,41 @@ function normalizeReplyOptions(value: unknown): ActiveReplyContext["latestReplyO
     .slice(0, 6);
 }
 
+function normalizeReplyContextCard(value: unknown): ReplyContextCard | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.room_sentiment !== "string" ||
+    typeof record.social_intent !== "string" ||
+    typeof record.recommended_stance !== "string" ||
+    !Array.isArray(record.banned_angles)
+  ) {
+    return null;
+  }
+
+  const bannedAngles = record.banned_angles
+    .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    .map((entry) => entry.trim());
+
+  if (
+    !record.room_sentiment.trim() ||
+    !record.social_intent.trim() ||
+    !record.recommended_stance.trim()
+  ) {
+    return null;
+  }
+
+  return {
+    room_sentiment: record.room_sentiment.trim(),
+    social_intent: record.social_intent.trim(),
+    recommended_stance: record.recommended_stance.trim(),
+    banned_angles: bannedAngles,
+  };
+}
+
 function normalizeActiveReplyContext(value: unknown): ActiveReplyContext | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -452,6 +488,7 @@ function normalizeActiveReplyContext(value: unknown): ActiveReplyContext | null 
     sourceUrl: typeof record.sourceUrl === "string" ? record.sourceUrl.trim() || null : null,
     authorHandle:
       typeof record.authorHandle === "string" ? record.authorHandle.trim().replace(/^@+/, "").toLowerCase() || null : null,
+    replyContext: normalizeReplyContextCard(record.replyContext),
     quotedUserAsk: typeof record.quotedUserAsk === "string" ? record.quotedUserAsk.trim() || null : null,
     confidence:
       record.confidence === "low" || record.confidence === "medium" || record.confidence === "high"

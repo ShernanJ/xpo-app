@@ -2,6 +2,7 @@ import type { ChatCompletionMessageParam } from "groq-sdk/resources/chat/complet
 
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { VoiceTarget } from "../agent-v2/core/voiceTarget.ts";
+import type { ReplyContextCard } from "../agent-v2/core/replyContextExtractor.ts";
 import type {
   CreatorProfileHints,
   GroundingPacket,
@@ -175,6 +176,7 @@ export interface ReplyPromptBuildInput {
   creatorAgentContext?: CreatorAgentContext | null;
   profileReplyContext?: ProfileReplyContext | null;
   groundingPacket: GroundingPacket;
+  replyContext?: ReplyContextCard | null;
   maxCharacterLimit?: number;
   retrievalContext?: ReplyVoiceRetrievalContext | null;
   userHandle?: string | null;
@@ -184,6 +186,7 @@ export interface PreparedReplyPromptPacket {
   messages: ChatCompletionMessageParam[];
   sourceContext: ReplySourceContext;
   groundingPacket: GroundingPacket;
+  replyContext: ReplyContextCard | null;
   voiceTarget: VoiceTarget;
   visualContext: ReplyVisualContextSummary | null;
   interpretation: SourceInterpretation;

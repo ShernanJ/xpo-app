@@ -1,4 +1,5 @@
 import type { Persona } from "../../generated/prisma/client";
+import type { ReplyContextCard } from "../core/replyContextExtractor.ts";
 import type { VoiceStyleCard } from "../core/styleProfile.ts";
 import type { VoiceTarget } from "../core/voiceTarget.ts";
 import {
@@ -54,6 +55,7 @@ export interface PromptHydrationEnvelopeArgs {
   activePlan?: StrategyPlan | null;
   activeDraft?: string;
   liveContext?: string;
+  replyContext?: ReplyContextCard | null;
   latestRefinementInstruction?: string | null;
   lastIdeationAngles?: string[];
 }
@@ -266,6 +268,28 @@ function buildLiveContextXml(
   return `<live_context>${wrapXmlCdata(normalized)}</live_context>`;
 }
 
+function buildRoomContextXml(
+  replyContext?: ReplyContextCard | null,
+): string | null {
+  if (!replyContext) {
+    return null;
+  }
+
+  const bannedAngles = replyContext.banned_angles
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .join(", ");
+
+  return [
+    "<room_context>",
+    `  ${buildXmlTag("sentiment", replyContext.room_sentiment)}`,
+    `  ${buildXmlTag("author_intent", replyContext.social_intent)}`,
+    `  ${buildXmlTag("recommended_stance", replyContext.recommended_stance)}`,
+    `  ${buildXmlTag("banned_angles", bannedAngles || "none")}`,
+    "</room_context>",
+  ].join("\n");
+}
+
 export function buildPromptHydrationEnvelope(
   args: PromptHydrationEnvelopeArgs,
 ): string {
@@ -301,11 +325,18 @@ export function buildPromptHydrationEnvelope(
     goldenExamples: args.goldenExamples,
   });
   const liveContextXml = buildLiveContextXml(args.liveContext);
+  const roomContextXml = buildRoomContextXml(args.replyContext);
   const hasGoldenExamples = Boolean(goldenExamplesXml);
 
   return [
     "<prompt_hydration>",
     `  ${buildXmlTag("active_task", activeTask)}`,
+    roomContextXml
+      ? roomContextXml
+          .split("\n")
+          .map((line) => `  ${line}`)
+          .join("\n")
+      : null,
     `  ${buildXmlTag("target_persona", targetPersona)}`,
     `  ${buildXmlTag("goal_bias", goalBias)}`,
     `  ${buildXmlTag("state_bias", stateBias)}`,
@@ -331,6 +362,9 @@ export function buildPromptHydrationEnvelope(
       : null,
     "</prompt_hydration>",
     "If <session_constraints> conflicts with <mechanical_style_rules>, obey <session_constraints> for the current turn.",
+    roomContextXml
+      ? "If <room_context> conflicts with <target_persona> or <mechanical_style_rules>, obey <room_context> for the current turn."
+      : null,
     hasGoldenExamples
       ? "CRITICAL INSTRUCTION: You must internalize the <mechanical_style_rules> and format your output to match the structural cadence of the <golden_examples>."
       : null,

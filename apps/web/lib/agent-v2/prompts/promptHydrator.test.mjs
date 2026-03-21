@@ -27,6 +27,12 @@ test("prompt hydration envelope emits XML session constraints and priority instr
       { source: "explicit", text: "no emojis" },
       { source: "inferred", text: "make it angrier" },
     ],
+    replyContext: {
+      room_sentiment: "frustration",
+      social_intent: "looking for validation",
+      recommended_stance: "acknowledge the pain before adding critique",
+      banned_angles: ["sarcasm", "pile-on mockery"],
+    },
     goldenExamples: ["runtime example"],
     creatorProfileHints: {
       preferredOutputShape: "shortform",
@@ -47,6 +53,9 @@ test("prompt hydration envelope emits XML session constraints and priority instr
   });
 
   assert.equal(prompt.includes("<active_task>tighten the active draft</active_task>"), true);
+  assert.equal(prompt.includes("<room_context>"), true);
+  assert.equal(prompt.includes("<sentiment>frustration</sentiment>"), true);
+  assert.equal(prompt.indexOf("<room_context>") < prompt.indexOf("<target_persona>"), true);
   assert.equal(prompt.includes("<mechanical_style_rules><![CDATA["), true);
   assert.equal(
     prompt.includes(
@@ -61,6 +70,12 @@ test("prompt hydration envelope emits XML session constraints and priority instr
   assert.equal(
     prompt.includes(
       "If <session_constraints> conflicts with <mechanical_style_rules>, obey <session_constraints> for the current turn.",
+    ),
+    true,
+  );
+  assert.equal(
+    prompt.includes(
+      "If <room_context> conflicts with <target_persona> or <mechanical_style_rules>, obey <room_context> for the current turn.",
     ),
     true,
   );

@@ -1,6 +1,11 @@
 import type { GroundingPacket } from "../agent-v2/grounding/groundingPacket.ts";
 import type { CreatorProfileHints } from "../agent-v2/grounding/groundingPacket.ts";
 import type { ProfileReplyContext } from "../agent-v2/grounding/profileReplyContext.ts";
+import type { ReplyContextCard } from "../agent-v2/core/replyContextExtractor.ts";
+import {
+  doesReplyContextBanAngle,
+  isSensitiveReplyRoom,
+} from "../agent-v2/core/replyContextExtractor.ts";
 import type { VoiceStyleCard } from "../agent-v2/core/styleProfile.ts";
 import type { CreatorAgentContext } from "../onboarding/strategy/agentContext.ts";
 import type { GrowthStrategySnapshot } from "../onboarding/strategy/growthStrategy.ts";
@@ -48,6 +53,7 @@ export interface ReplyDraftGenerationContext {
   angleLabel: string;
   groundingPacket: GroundingPacket;
   intent: ExtensionReplyIntentMetadata | null;
+  replyContext: ReplyContextCard | null;
   policy: ReplyConstraintPolicy;
   notes: string[];
 }
@@ -126,6 +132,90 @@ function formatVoiceRules(styleCard: VoiceStyleCard | null | undefined) {
     `- Custom guidelines: ${compactList(styleCard.customGuidelines || [], 5).join(" | ") || "none recorded"}`,
     `- Blacklist: ${compactList(styleCard.userPreferences?.blacklist || [], 6).join(" | ") || "none recorded"}`,
   ].join("\n");
+}
+
+function buildReplyRoomNotes(replyContext?: ReplyContextCard | null): string[] {
+  if (!replyContext) {
+    return [];
+  }
+
+  return [
+    `Room sentiment: ${replyContext.room_sentiment}.`,
+    `Recommended stance: ${replyContext.recommended_stance}.`,
+    replyContext.banned_angles.length > 0
+      ? `Avoided angles: ${replyContext.banned_angles.join(" | ")}.`
+      : null,
+  ].filter((entry): entry is string => Boolean(entry));
+}
+
+function buildSensitiveRoomCloser(replyContext: ReplyContextCard): string {
+  const stance = replyContext.recommended_stance.trim().toLowerCase();
+
+  if (/\b(acknowledge|validate|care|gentle|soft)\b/.test(stance)) {
+    return "no need to overplay it.";
+  }
+
+  if (/\b(support|comfort)\b/.test(stance)) {
+    return "sending some care.";
+  }
+
+  return "that's enough of a point on its own.";
+}
+
+function buildSensitiveRoomFallback(args: {
+  focusPhrase: string | null;
+  replyContext: ReplyContextCard;
+}) {
+  const focus = args.focusPhrase || "that part";
+  const sentiment = args.replyContext.room_sentiment.trim().toLowerCase();
+
+  if (sentiment === "grief") {
+    return `really sorry. the ${focus} part lands hard enough on its own. ${buildSensitiveRoomCloser(args.replyContext)}`;
+  }
+
+  if (sentiment === "vulnerability") {
+    return `thanks for saying this out loud. the ${focus} part is what people will feel right away. ${buildSensitiveRoomCloser(args.replyContext)}`;
+  }
+
+  return `yeah. that's frustrating. the ${focus} part is the part people will feel immediately. ${buildSensitiveRoomCloser(args.replyContext)}`;
+}
+
+function applyRoomContextFallbackGuard(args: {
+  candidate: string;
+  fallbackText: string;
+  request: ExtensionReplyDraftRequest;
+  focusPhrase: string | null;
+  replyContext?: ReplyContextCard | null;
+}) {
+  const replyContext = args.replyContext || null;
+  if (!replyContext) {
+    return args.candidate;
+  }
+
+  if (doesReplyContextBanAngle(replyContext, args.candidate)) {
+    return isSensitiveReplyRoom(replyContext)
+      ? buildSensitiveRoomFallback({
+          focusPhrase: args.focusPhrase,
+          replyContext,
+        })
+      : args.fallbackText;
+  }
+
+  if (
+    isSensitiveReplyRoom(replyContext) &&
+    (
+      args.request.tone === "bold" ||
+      args.request.tone === "playful" ||
+      /\b(hotter take|counterpoint|one pushback|lmao)\b/i.test(args.candidate)
+    )
+  ) {
+    return buildSensitiveRoomFallback({
+      focusPhrase: args.focusPhrase,
+      replyContext,
+    });
+  }
+
+  return args.candidate;
 }
 
 function buildPrimaryFallbackReply(args: {
@@ -260,6 +350,7 @@ export function buildReplyDraftGenerationContext(args: {
   request: ExtensionReplyDraftRequest;
   strategy: GrowthStrategySnapshot;
   replyInsights?: ReplyInsights | null;
+  replyContext?: ReplyContextCard | null;
   selectedIntent?: ExtensionReplyIntentMetadata;
   preflightResult?: ReplyDraftPreflightResult | null;
   sourceContext?: ReplySourceContext | null;
@@ -305,6 +396,7 @@ export function buildReplyDraftGenerationContext(args: {
           "No strategic lens selected: stay literal to the post and keep the reply conversational.",
         ]),
     ...buildReplyLearningNotes(args.replyInsights),
+    ...buildReplyRoomNotes(args.replyContext || null),
     ...args.strategy.ambiguities.slice(0, 1).map((entry) => `Tentative positioning: ${entry}`),
   ];
 
@@ -320,6 +412,7 @@ export function buildReplyDraftGenerationContext(args: {
           rationale: intentPlan.rationale,
         }
       : null,
+    replyContext: args.replyContext || null,
     policy,
     notes,
   };
@@ -355,6 +448,7 @@ export function buildReplyDraftSystemPrompt(args: {
     creatorAgentContext: args.creatorAgentContext || null,
     profileReplyContext: args.profileReplyContext || null,
     groundingPacket: args.generation.groundingPacket,
+    replyContext: args.generation.replyContext,
     maxCharacterLimit: 280,
     visualContext: args.visualContext || null,
     preflightResult: args.preflightResult || null,
@@ -395,6 +489,7 @@ export async function prepareExtensionReplyDraftPromptPacket(args: {
   profileReplyContext?: ProfileReplyContext | null;
   userId?: string | null;
   xHandle?: string | null;
+  replyContext?: ReplyContextCard | null;
   sourceContext?: ReplySourceContext | null;
   visualContext?: ReplyVisualContextSummary | null;
   preflightResult?: ReplyDraftPreflightResult | null;
@@ -416,6 +511,7 @@ export async function prepareExtensionReplyDraftPromptPacket(args: {
     creatorAgentContext: args.creatorAgentContext || null,
     profileReplyContext: args.profileReplyContext || null,
     groundingPacket: args.generation.groundingPacket,
+    replyContext: args.generation.replyContext || args.replyContext || null,
     maxCharacterLimit: 280,
     userHandle: args.xHandle || null,
     visualContext: args.visualContext,
@@ -461,6 +557,7 @@ export function buildExtensionReplyDraft(args: {
   request: ExtensionReplyDraftRequest;
   strategy: GrowthStrategySnapshot;
   replyInsights?: ReplyInsights | null;
+  replyContext?: ReplyContextCard | null;
   selectedIntent?: ExtensionReplyIntentMetadata;
 }): ExtensionReplyDraftBuildResult {
   const generation = buildReplyDraftGenerationContext(args);
@@ -496,21 +593,54 @@ export function buildExtensionReplyDraft(args: {
       : args.request.tone === "playful"
       ? `hotter take: ${focusPhrase || "the joke"} working this well is exactly why a serious reply would ruin it.`
       : `hotter take: without ${buildPillarLens(strategyPillar)}, this stays interesting but not actionable.`;
+  const safeOptionText = applyRoomContextFallbackGuard({
+    candidate: buildPrimaryFallbackReply({
+      request: args.request,
+      strategy: args.strategy,
+      pillar: strategyPillar,
+      focusPhrase,
+      policy: generation.policy,
+    }),
+    fallbackText: safeFallback,
+    request: args.request,
+    focusPhrase,
+    replyContext: generation.replyContext,
+  });
+  const safeOptionFallback = applyRoomContextFallbackGuard({
+    candidate: safeFallback,
+    fallbackText: safeFallback,
+    request: args.request,
+    focusPhrase,
+    replyContext: generation.replyContext,
+  });
+  const boldOptionText = applyRoomContextFallbackGuard({
+    candidate: buildSecondaryFallbackReply({
+      request: args.request,
+      pillar: strategyPillar,
+      focusPhrase,
+      policy: generation.policy,
+    }),
+    fallbackText: safeFallback,
+    request: args.request,
+    focusPhrase,
+    replyContext: generation.replyContext,
+  });
+  const boldOptionFallback = applyRoomContextFallbackGuard({
+    candidate: boldFallback,
+    fallbackText: safeOptionFallback,
+    request: args.request,
+    focusPhrase,
+    replyContext: generation.replyContext,
+  });
   const options = [
     sanitizeReplyOption({
       option: {
         id: "safe-1",
         label: "safe",
-        text: buildPrimaryFallbackReply({
-          request: args.request,
-          strategy: args.strategy,
-          pillar: strategyPillar,
-          focusPhrase,
-          policy: generation.policy,
-        }),
+        text: safeOptionText,
         ...(generation.intent ? { intent: generation.intent } : {}),
       },
-      fallbackText: safeFallback,
+      fallbackText: safeOptionFallback,
       strategy: args.strategy,
       groundingPacket,
       sourceText: args.request.tweetText,
@@ -521,15 +651,10 @@ export function buildExtensionReplyDraft(args: {
       option: {
         id: "bold-1",
         label: "bold",
-        text: buildSecondaryFallbackReply({
-          request: args.request,
-          pillar: strategyPillar,
-          focusPhrase,
-          policy: generation.policy,
-        }),
+        text: boldOptionText,
         ...(generation.intent ? { intent: generation.intent } : {}),
       },
-      fallbackText: boldFallback,
+      fallbackText: boldOptionFallback,
       strategy: args.strategy,
       groundingPacket,
       sourceText: args.request.tweetText,

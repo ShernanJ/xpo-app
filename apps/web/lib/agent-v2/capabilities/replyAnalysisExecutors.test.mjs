@@ -4,6 +4,12 @@ import { existsSync } from "node:fs";
 
 import { executeReplyingCapability } from "./reply/replyingCapability.ts";
 import { executeAnalysisCapability } from "./analysis/analysisCapability.ts";
+import {
+  clearReplyContextCacheForTests,
+  setReplyContextGroqClientForTests,
+} from "../core/replyContextExtractor.ts";
+
+const ORIGINAL_GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 const baseMemory = {
   conversationState: "needs_more_context",
@@ -27,6 +33,20 @@ const baseMemory = {
   selectedReplyOptionId: null,
   voiceFidelity: "balanced",
 };
+
+function restoreEnv() {
+  if (ORIGINAL_GROQ_API_KEY === undefined) {
+    delete process.env.GROQ_API_KEY;
+  } else {
+    process.env.GROQ_API_KEY = ORIGINAL_GROQ_API_KEY;
+  }
+}
+
+test.afterEach(() => {
+  restoreEnv();
+  clearReplyContextCacheForTests();
+  setReplyContextGroqClientForTests(null);
+});
 
 test("executeReplyingCapability uses the reply guidance service and emits reply-specific worker metadata", async () => {
   let called = false;
@@ -67,6 +87,86 @@ test("executeReplyingCapability uses the reply guidance service and emits reply-
     "lead with the disagreement, then add one concrete example.",
   );
   assert.equal(execution.workers[0]?.worker, "reply_guidance");
+});
+
+test("executeReplyingCapability passes replyContext when an active reply source is present", async () => {
+  process.env.GROQ_API_KEY = "test-key";
+  setReplyContextGroqClientForTests({
+    chat: {
+      completions: {
+        create: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  room_sentiment: "grief",
+                  social_intent: "looking for care",
+                  recommended_stance: "be gentle and avoid point-scoring",
+                  banned_angles: ["sarcasm"],
+                }),
+              },
+            },
+          ],
+        }),
+      },
+    },
+  });
+
+  let receivedReplyContext = null;
+  await executeReplyingCapability({
+    workflow: "reply_to_post",
+    capability: "replying",
+    activeContextRefs: [],
+    context: {
+      userMessage: "help me decide how to reply",
+      effectiveContext: "recent context",
+      topicSummary: "x replies",
+      styleCard: null,
+      relevantTopicAnchors: [],
+      userContextString: "builder account",
+      goal: "followers",
+      memory: {
+        ...baseMemory,
+        activeReplyContext: {
+          sourceText: "i still can't believe she's gone",
+          sourceUrl: null,
+          authorHandle: "creator",
+          quotedUserAsk: "how do i reply?",
+          confidence: "high",
+          parseReason: "reply_ask_with_post_metadata",
+          awaitingConfirmation: false,
+          stage: "0_to_1k",
+          tone: "builder",
+          goal: "followers",
+          opportunityId: "chat-reply-1",
+          latestReplyOptions: [],
+          latestReplyDraftOptions: [],
+          selectedReplyOptionId: null,
+        },
+      },
+      antiPatterns: [],
+      feedbackMemoryNotice: null,
+      nextAssistantTurnCount: 2,
+      turnFormatPreference: "shortform",
+      refreshRollingSummary: false,
+    },
+    services: {
+      generateReplyGuidance: async (_userMessage, _recentHistory, _topicSummary, _styleCard, _topicAnchors, _userContextString, options) => {
+        receivedReplyContext = options?.replyContext || null;
+        return {
+          response: "lead with care and keep it simple.",
+          probingQuestion: null,
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(receivedReplyContext, {
+    room_sentiment: "grief",
+    social_intent: "looking for care",
+    recommended_stance: "be gentle and avoid point-scoring",
+    banned_angles: ["sarcasm"],
+  });
 });
 
 test("executeAnalysisCapability uses the analysis service and emits analysis-specific worker metadata", async () => {

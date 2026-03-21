@@ -9,6 +9,7 @@ import {
   type ReplySourceContext,
 } from "../../../reply-engine/index.ts";
 import type { ReplySourcePreview } from "../../../reply-engine/replySourcePreview.ts";
+import type { ReplyContextCard } from "../../core/replyContextExtractor.ts";
 import type {
   ActiveReplyArtifactRef,
   ActiveReplyContext,
@@ -562,6 +563,7 @@ export function createEmptyActiveReplyContext(args: {
   authorHandle: string | null;
   sourceContext?: ReplySourceContext | null;
   replySourcePreview?: ReplySourcePreview | null;
+  replyContext?: ReplyContextCard | null;
   quotedUserAsk: string | null;
   confidence: EmbeddedReplyConfidence;
   parseReason: string;
@@ -576,6 +578,7 @@ export function createEmptyActiveReplyContext(args: {
     authorHandle: args.authorHandle,
     ...(args.sourceContext ? { sourceContext: args.sourceContext } : {}),
     ...(args.replySourcePreview ? { replySourcePreview: args.replySourcePreview } : {}),
+    replyContext: args.replyContext || null,
     quotedUserAsk: args.quotedUserAsk,
     confidence: args.confidence,
     parseReason: args.parseReason,

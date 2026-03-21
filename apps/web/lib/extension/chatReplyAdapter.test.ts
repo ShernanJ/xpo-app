@@ -210,3 +210,30 @@ test("buildChatReplyDraft only reports image sharpening when the final policy al
     true,
   );
 });
+
+test("buildChatReplyDraft forwards replyContext into the live prompt packet", async () => {
+  const { calls, deps } = createDeps();
+
+  await buildChatReplyDraftWithDeps(
+    {
+      ...baseArgs,
+      replyContext: {
+        room_sentiment: "frustration",
+        social_intent: "looking for validation",
+        recommended_stance: "acknowledge the pain before adding critique",
+        banned_angles: ["sarcasm"],
+      },
+    },
+    deps,
+  );
+
+  assert.deepEqual(
+    (calls.promptPackets[0] as { replyContext: unknown }).replyContext,
+    {
+      room_sentiment: "frustration",
+      social_intent: "looking for validation",
+      recommended_stance: "acknowledge the pain before adding critique",
+      banned_angles: ["sarcasm"],
+    },
+  );
+});
