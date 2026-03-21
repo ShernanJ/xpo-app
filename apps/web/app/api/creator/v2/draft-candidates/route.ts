@@ -356,6 +356,7 @@ export async function POST(request: NextRequest) {
           ? (outcome.candidate.voiceTarget as unknown as Prisma.InputJsonValue)
           : Prisma.JsonNull,
         noveltyNotes: outcome.candidate.noveltyNotes as unknown as Prisma.InputJsonValue,
+        retrievedAnchorIds: outcome.candidate.retrievedAnchorIds,
       },
       include: {
         folder: true,

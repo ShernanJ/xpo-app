@@ -1,5 +1,5 @@
-import { Prisma } from "../../../../../../../lib/generated/prisma/client";
-import { prisma } from "../../../../../../../lib/db";
+import { Prisma } from "../../../../../../../lib/generated/prisma/client.ts";
+import { prisma } from "../../../../../../../lib/db.ts";
 import type { V2ConversationMemory } from "../../../../../../../lib/agent-v2/contracts/chat.ts";
 import type { NormalizedChatTurnDiagnostics } from "../../../../../../../lib/agent-v2/contracts/turnContract.ts";
 import { buildReplyMemorySnapshot } from "../../../../../../../lib/agent-v2/capabilities/reply/replyTurnPlanner.ts";
@@ -216,6 +216,7 @@ export async function finalizeReplyTurnWithDeps(
               artifact: activeDraftArtifact,
               voiceTarget: activeDraftArtifact.voiceTarget ?? null,
               noveltyNotes: activeDraftArtifact.noveltyNotes ?? [],
+              retrievedAnchorIds: activeDraftArtifact.retrievedAnchorIds ?? [],
               draftVersionId: mappedData.activeDraftVersionId ?? null,
               basedOnVersionId:
                 activeDraftVersion?.basedOnVersionId ??

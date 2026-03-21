@@ -30,6 +30,7 @@ export interface DraftBundleOptionResult {
   issuesFixed: string[];
   voiceTarget: VoiceTarget | null;
   noveltyNotes: string[];
+  retrievedAnchorIds?: string[];
   threadFramingStyle: ThreadFramingStyle | null;
   groundingSources?: GroundingPacketSourceMaterial[];
   groundingMode?: DraftGroundingMode | null;

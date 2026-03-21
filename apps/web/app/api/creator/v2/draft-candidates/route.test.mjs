@@ -64,6 +64,7 @@ test("buildDraftCandidateOutcome produces a thread artifact when the draft is va
       data: {
         draft: ["post one", "post two", "post three"].join("\n\n---\n\n"),
         threadFramingStyle: "soft_signal",
+        retrievedAnchorIds: ["anchor-1", "anchor-2"],
         voiceTarget: {
           casing: "normal",
           compression: "medium",
@@ -92,6 +93,7 @@ test("buildDraftCandidateOutcome produces a thread artifact when the draft is va
   assert.equal(outcome.candidate.outputShape, "thread_seed");
   assert.equal(outcome.candidate.artifact.kind, "thread_seed");
   assert.equal(outcome.candidate.voiceTarget?.summary, "normal casing");
+  assert.deepEqual(outcome.candidate.retrievedAnchorIds, ["anchor-1", "anchor-2"]);
 });
 
 test("buildDraftCandidateOutcome returns structured failures instead of silently dropping them", () => {

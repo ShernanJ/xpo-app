@@ -539,6 +539,7 @@ model DraftCandidate {
   artifact          Json
   voiceTarget       Json?
   noveltyNotes      Json?
+  retrievedAnchorIds String[]            @default([])
   rejectionReason   String?
   approvedAt        DateTime?
   editedAt          DateTime?

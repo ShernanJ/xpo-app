@@ -31,8 +31,14 @@ interface GoldenExampleRetrievalDeps {
 }
 
 const GOLDEN_EXAMPLE_LIMIT_MAX = 5;
+const GOLDEN_EXAMPLE_CHAR_LIMIT = 800;
 const OPENAI_EMBEDDING_MODEL = "text-embedding-3-small";
 let openAiClient: OpenAI | null = null;
+
+export interface RetrievedGoldenExample {
+  id: string;
+  content: string;
+}
 
 const TOPIC_STOPWORDS = new Set([
   "post",
@@ -101,12 +107,21 @@ async function embedPromptIntent(promptIntent: string): Promise<number[]> {
   return response.data[0]?.embedding || [];
 }
 
+function capGoldenExampleContent(content: string): string {
+  const normalized = content.trim();
+  if (normalized.length <= GOLDEN_EXAMPLE_CHAR_LIMIT) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, GOLDEN_EXAMPLE_CHAR_LIMIT - 3).trimEnd()}...`;
+}
+
 export async function retrieveGoldenExamplesWithDeps(args: {
   profileId: string;
   promptIntent: string;
   limit?: number;
   deps?: Partial<GoldenExampleRetrievalDeps>;
-}): Promise<string[]> {
+}): Promise<RetrievedGoldenExample[]> {
   const profileId = args.profileId.trim();
   const promptIntent = args.promptIntent.trim();
   const limit = Math.max(1, Math.min(args.limit ?? 3, GOLDEN_EXAMPLE_LIMIT_MAX));
@@ -121,8 +136,10 @@ export async function retrieveGoldenExamplesWithDeps(args: {
       return [];
     }
 
-    const examples = await (args.deps?.prismaClient || prisma).$queryRaw<{ content: string }[]>`
-      SELECT content
+    const examples = await (args.deps?.prismaClient || prisma).$queryRaw<
+      { id: string; content: string }[]
+    >`
+      SELECT id, content
       FROM "GoldenExample"
       WHERE "profileId" = ${profileId}
         AND "embedding" IS NOT NULL
@@ -131,7 +148,10 @@ export async function retrieveGoldenExamplesWithDeps(args: {
       LIMIT ${limit};
     `;
 
-    return examples.map((row) => row.content);
+    return examples.map((row) => ({
+      id: row.id,
+      content: capGoldenExampleContent(row.content),
+    }));
   } catch (error) {
     console.error("Golden Example retrieval failed:", error);
     return [];
@@ -142,7 +162,7 @@ export async function retrieveGoldenExamples(
   profileId: string,
   promptIntent: string,
   limit: number = 3,
-): Promise<string[]> {
+): Promise<RetrievedGoldenExample[]> {
   return retrieveGoldenExamplesWithDeps({
     profileId,
     promptIntent,

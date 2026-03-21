@@ -56,8 +56,8 @@ test("retrieveGoldenExamples returns content rows from vector search", async () 
       prismaClient: {
         $queryRaw: createQueryRawMock(
           [
-            { content: "example one" },
-            { content: "example two" },
+            { id: "anchor-1", content: "example one" },
+            { id: "anchor-2", content: "example two" },
           ],
           (strings, values) => {
           queryCalls.push({
@@ -70,11 +70,32 @@ test("retrieveGoldenExamples returns content rows from vector search", async () 
     },
   });
 
-  assert.deepEqual(result, ["example one", "example two"]);
+  assert.deepEqual(result, [
+    { id: "anchor-1", content: "example one" },
+    { id: "anchor-2", content: "example two" },
+  ]);
   assert.equal(queryCalls.length, 1);
   assert.match(queryCalls[0]?.strings.join(""), /AND "embedding" IS NOT NULL/);
   assert.match(queryCalls[0]?.strings.join(""), /< 0\.45/);
   assert.doesNotMatch(queryCalls[0]?.strings.join(""), /::uuid/);
+});
+
+test("retrieveGoldenExamples caps oversized content to 800 characters including ellipsis", async () => {
+  const oversizedContent = "x".repeat(900);
+
+  const result = await retrieveGoldenExamplesWithDeps({
+    profileId: "8a0d4e56-52b7-44d6-9409-51233012f9f2",
+    promptIntent: "write about react hiring systems",
+    deps: {
+      embedPromptIntent: async () => [0.1, 0.2, 0.3],
+      prismaClient: {
+        $queryRaw: createQueryRawMock([{ id: "anchor-1", content: oversizedContent }]),
+      },
+    },
+  });
+
+  assert.equal(result[0]?.content.length, 800);
+  assert.equal(result[0]?.content.endsWith("..."), true);
 });
 
 test("retrieveGoldenExamples preserves empty results when similarity threshold finds no matches", async () => {
@@ -101,7 +122,7 @@ test("retrieveGoldenExamples degrades gracefully when embeddings fail", async ()
         throw new Error("embedding unavailable");
       },
       prismaClient: {
-        $queryRaw: createQueryRawMock([{ content: "should not be reached" }]),
+        $queryRaw: createQueryRawMock([{ id: "anchor-1", content: "should not be reached" }]),
       },
     },
   });

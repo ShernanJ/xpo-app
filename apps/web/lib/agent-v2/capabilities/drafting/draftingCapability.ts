@@ -236,6 +236,7 @@ export async function executeDraftingCapability(
             noveltyCheck,
             retrievalReasons: draftResult.retrievalReasons,
           }),
+          retrievedAnchorIds: draftResult.writerOutput.retrievedAnchorIds ?? [],
           threadFramingStyle: draftResult.threadFramingStyle,
           groundingSources: context.groundingSources,
           groundingMode: context.groundingMode,

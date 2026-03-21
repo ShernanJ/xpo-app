@@ -98,6 +98,41 @@ test("prompt hydration envelope preserves an explicit empty golden example list"
     },
   });
 
-  assert.equal(prompt.includes("<golden_examples></golden_examples>"), true);
+  assert.equal(prompt.includes("<golden_examples>"), false);
+  assert.equal(prompt.includes("legacy fallback"), false);
+  assert.equal(
+    prompt.includes(
+      "CRITICAL INSTRUCTION: You must internalize the <mechanical_style_rules> and format your output to match the structural cadence of the <golden_examples>.",
+    ),
+    false,
+  );
+});
+
+test("prompt hydration envelope omits golden example tags when examples are undefined", () => {
+  const prompt = buildPromptHydrationEnvelope({
+    mode: "draft",
+    goal: "audience growth",
+    conversationState: "editing",
+    styleCard: null,
+    antiPatterns: [],
+    creatorProfileHints: {
+      preferredOutputShape: "shortform",
+      threadBias: "low",
+      preferredHookPatterns: [],
+      toneGuidelines: [],
+      ctaPolicy: null,
+      topExampleSnippets: ["legacy fallback"],
+      knownFor: null,
+      targetAudience: null,
+      contentPillars: [],
+      replyGoals: [],
+      profileConversionCues: [],
+      offBrandThemes: [],
+      ambiguities: [],
+      learningSignals: [],
+    },
+  });
+
+  assert.equal(prompt.includes("<golden_examples>"), false);
   assert.equal(prompt.includes("legacy fallback"), false);
 });

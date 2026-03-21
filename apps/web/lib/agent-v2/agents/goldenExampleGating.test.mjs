@@ -94,12 +94,15 @@ test("writer golden example retrieval uses the source user message when availabl
       retrieveGoldenExamples: async (profileId, promptIntent) => {
         seenProfileId = profileId;
         seenPromptIntent = promptIntent;
-        return ["writer example"];
+        return [{ id: "anchor-1", content: "writer example" }];
       },
     },
   });
 
-  assert.deepEqual(result, ["writer example"]);
+  assert.deepEqual(result, {
+    goldenExamples: ["writer example"],
+    retrievedAnchorIds: ["anchor-1"],
+  });
   assert.equal(seenProfileId, "vp_1");
   assert.equal(seenPromptIntent, "write a thread about our new startup");
 });
@@ -133,12 +136,15 @@ test("ideation golden example retrieval uses the ideation-driving request", asyn
     deps: {
       retrieveGoldenExamples: async (_profileId, promptIntent) => {
         seenPromptIntent = promptIntent;
-        return ["ideation example"];
+        return [{ id: "anchor-7", content: "ideation example" }];
       },
     },
   });
 
-  assert.deepEqual(result, ["ideation example"]);
+  assert.deepEqual(result, {
+    goldenExamples: ["ideation example"],
+    retrievedAnchorIds: ["anchor-7"],
+  });
   assert.equal(seenPromptIntent, "give me post ideas about react hiring");
 });
 

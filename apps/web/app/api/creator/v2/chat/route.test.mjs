@@ -568,17 +568,18 @@ test("buildChatRoutePersistencePlan prepares thread updates, candidate writes, a
       plan: null,
       draft: "selected draft",
       drafts: ["selected draft", "backup draft"],
-      draftArtifacts: [
-        {
-          id: "artifact-1",
-          title: "Primary draft",
-          kind: "short_form_post",
-          content: "selected draft",
-          voiceTarget: { summary: "plainspoken" },
-          noveltyNotes: ["lead with proof"],
-          groundingSources: [{ type: "story", title: "Customer story", claims: [], snippets: [] }],
-          groundingMode: "saved_sources",
-          groundingExplanation: "Grounded in saved material.",
+          draftArtifacts: [
+            {
+              id: "artifact-1",
+              title: "Primary draft",
+              kind: "short_form_post",
+              content: "selected draft",
+              voiceTarget: { summary: "plainspoken" },
+              noveltyNotes: ["lead with proof"],
+              retrievedAnchorIds: ["anchor-primary"],
+              groundingSources: [{ type: "story", title: "Customer story", claims: [], snippets: [] }],
+              groundingMode: "saved_sources",
+              groundingExplanation: "Grounded in saved material.",
         },
       ],
       draftVersions: [
@@ -611,6 +612,7 @@ test("buildChatRoutePersistencePlan prepares thread updates, candidate writes, a
               content: "first draft",
               voiceTarget: { summary: "first" },
               noveltyNotes: ["open with tension"],
+              retrievedAnchorIds: ["anchor-option-1"],
               groundingSources: [],
               groundingMode: "saved_sources",
               groundingExplanation: "Saved sources",
@@ -628,6 +630,7 @@ test("buildChatRoutePersistencePlan prepares thread updates, candidate writes, a
               content: "selected draft",
               voiceTarget: { summary: "second" },
               noveltyNotes: ["keep it tighter"],
+              retrievedAnchorIds: ["anchor-option-2"],
               groundingSources: [{ type: "story", title: "Customer story", claims: [], snippets: [] }],
               groundingMode: "saved_sources",
               groundingExplanation: "Saved sources",
@@ -674,6 +677,7 @@ test("buildChatRoutePersistencePlan prepares thread updates, candidate writes, a
   assert.equal(plan.memoryUpdate.shouldClearReplyWorkflow, true);
   assert.equal(plan.draftCandidateCreates.length, 1);
   assert.equal(plan.draftCandidateCreates[0]?.title, "Option one");
+  assert.deepEqual(plan.draftCandidateCreates[0]?.retrievedAnchorIds, ["anchor-option-1"]);
   assert.equal(plan.analytics.primaryGroundingMode, "saved_sources");
   assert.equal(plan.analytics.primaryGroundingSourceCount, 0);
   assert.equal(plan.analytics.autoSavedSourceMaterialCount, 2);
@@ -1955,6 +1959,7 @@ test("finalizeMainAssistantTurnWithDeps keeps prepared turns separate from route
               },
               voiceTarget: null,
               noveltyNotes: ["Fresh angle"],
+              retrievedAnchorIds: ["anchor-option-a"],
             },
           ],
           analytics: {
@@ -2260,12 +2265,14 @@ test("persistAssistantTurnWithDeps preserves sequential write order", async () =
           artifact: { id: "artifact-1" },
           voiceTarget: { summary: "first" },
           noveltyNotes: ["note one"],
+          retrievedAnchorIds: ["anchor-1"],
         },
         {
           title: "Option two",
           artifact: { id: "artifact-2" },
           voiceTarget: null,
           noveltyNotes: ["note two"],
+          retrievedAnchorIds: ["anchor-2"],
         },
       ],
       draftCandidateContext: {
@@ -2299,7 +2306,12 @@ test("persistAssistantTurnWithDeps preserves sequential write order", async () =
         calls.push(["syncIndexedContentTitlesForThread", args.threadId, args.title]);
       },
       async createDraftCandidate(args) {
-        calls.push(["createDraftCandidate", args.threadId, args.title]);
+        calls.push([
+          "createDraftCandidate",
+          args.threadId,
+          args.title,
+          args.retrievedAnchorIds.join(","),
+        ]);
         return null;
       },
     },
@@ -2342,8 +2354,8 @@ test("persistAssistantTurnWithDeps preserves sequential write order", async () =
     ["updateConversationMemory", "thread-1", "assistant-msg-1", "version-1"],
     ["updateChatThread", "thread-1", "Updated title"],
     ["syncIndexedContentTitlesForThread", "thread-1", "Updated title"],
-    ["createDraftCandidate", "thread-1", "Updated title"],
-    ["createDraftCandidate", "thread-1", "Updated title"],
+    ["createDraftCandidate", "thread-1", "Updated title", "anchor-1"],
+    ["createDraftCandidate", "thread-1", "Updated title", "anchor-2"],
   ]);
 });
 
@@ -2621,7 +2633,7 @@ test("persistAssistantTurnWithDeps keeps core writes single-shot while draft can
     updateConversationMemory: 0,
     updateChatThread: 0,
   };
-  const candidateTitles = [];
+  const candidateWrites = [];
 
   const result = await persistAssistantTurnWithDeps(
     {
@@ -2647,12 +2659,14 @@ test("persistAssistantTurnWithDeps keeps core writes single-shot while draft can
           artifact: { id: "artifact-1" },
           voiceTarget: null,
           noveltyNotes: [],
+          retrievedAnchorIds: ["anchor-1"],
         },
         {
           title: "Option two",
           artifact: { id: "artifact-2" },
           voiceTarget: null,
           noveltyNotes: [],
+          retrievedAnchorIds: ["anchor-2"],
         },
       ],
       draftCandidateContext: {
@@ -2678,8 +2692,11 @@ test("persistAssistantTurnWithDeps keeps core writes single-shot while draft can
         return { title: "Updated title" };
       },
       async createDraftCandidate(args) {
-        candidateTitles.push(args.title);
-        await new Promise((resolve) => setTimeout(resolve, candidateTitles.length === 1 ? 15 : 1));
+        candidateWrites.push({
+          title: args.title,
+          retrievedAnchorIds: args.retrievedAnchorIds,
+        });
+        await new Promise((resolve) => setTimeout(resolve, candidateWrites.length === 1 ? 15 : 1));
         return null;
       },
     },
@@ -2690,7 +2707,10 @@ test("persistAssistantTurnWithDeps keeps core writes single-shot while draft can
     updateConversationMemory: 1,
     updateChatThread: 1,
   });
-  assert.deepEqual(candidateTitles, ["Updated title", "Updated title"]);
+  assert.deepEqual(candidateWrites, [
+    { title: "Updated title", retrievedAnchorIds: ["anchor-1"] },
+    { title: "Updated title", retrievedAnchorIds: ["anchor-2"] },
+  ]);
   assert.deepEqual(result.tracePatch.persistedStateChanges.draftCandidates, {
     attempted: 2,
     created: 2,
@@ -2733,12 +2753,14 @@ test("persistAssistantTurnWithDeps does not double-write memory while candidate 
           artifact: { id: "artifact-slow" },
           voiceTarget: null,
           noveltyNotes: ["slow note"],
+          retrievedAnchorIds: ["anchor-slow"],
         },
         {
           title: "Fast option",
           artifact: { id: "artifact-fast" },
           voiceTarget: null,
           noveltyNotes: ["fast note"],
+          retrievedAnchorIds: ["anchor-fast"],
         },
       ],
       draftCandidateContext: {
@@ -3000,6 +3022,7 @@ test("thread payloads build structured thread artifacts with posts", () => {
     groundingMode: "saved_sources",
     groundingExplanation: "Built from saved stories and proof you've already taught Xpo to reuse.",
     noveltyNotes: ["avoid mirroring last week's thread hook"],
+    retrievedAnchorIds: ["anchor-thread"],
     threadPostMaxCharacterLimit: 25_000,
     threadFramingStyle: "numbered",
   });
@@ -3020,6 +3043,7 @@ test("thread payloads build structured thread artifacts with posts", () => {
     "Built from saved stories and proof you've already taught Xpo to reuse.",
   );
   assert.equal(payload.draftArtifacts[0]?.noveltyNotes[0], "avoid mirroring last week's thread hook");
+  assert.deepEqual(payload.draftArtifacts[0]?.retrievedAnchorIds, ["anchor-thread"]);
 });
 
 test("bundle payload builds sibling draft versions and keeps the selected option active", () => {
@@ -3037,6 +3061,7 @@ test("bundle payload builds sibling draft versions and keeps the selected option
           issuesFixed: [],
           voiceTarget: null,
           noveltyNotes: ["keep it distinct"],
+          retrievedAnchorIds: ["anchor-lesson"],
           threadFramingStyle: null,
           groundingSources: [],
           groundingMode: "saved_sources",
@@ -3051,6 +3076,7 @@ test("bundle payload builds sibling draft versions and keeps the selected option
           issuesFixed: [],
           voiceTarget: null,
           noveltyNotes: ["lead with proof"],
+          retrievedAnchorIds: ["anchor-proof"],
           threadFramingStyle: null,
           groundingSources: [],
           groundingMode: "saved_sources",
@@ -3068,6 +3094,10 @@ test("bundle payload builds sibling draft versions and keeps the selected option
   assert.equal(
     payload.draftBundle?.options.find((option) => option.id === "bundle-proof")?.versionId,
     payload.activeDraftVersionId,
+  );
+  assert.deepEqual(
+    payload.draftArtifacts.map((artifact) => artifact.retrievedAnchorIds ?? []),
+    [["anchor-lesson"], ["anchor-proof"]],
   );
 });
 

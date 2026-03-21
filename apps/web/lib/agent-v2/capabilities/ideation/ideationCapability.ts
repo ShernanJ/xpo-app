@@ -277,6 +277,7 @@ export async function executeIdeationCapability(
     angles: responseAngles,
     formatHint: ideationFormatHint,
   });
+  const retrievedAnchorIds = ideas?.retrievedAnchorIds ?? [];
 
   return {
     workflow: args.workflow,
@@ -300,6 +301,7 @@ export async function executeIdeationCapability(
               angles: responseAngles,
               ideationFormatHint,
               quickReplies,
+              retrievedAnchorIds,
             }
           : undefined,
       },

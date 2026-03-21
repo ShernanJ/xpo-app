@@ -29,6 +29,21 @@ export const IdeasMenuSchema = z.object({
 });
 
 export type IdeasMenu = z.infer<typeof IdeasMenuSchema>;
+export type IdeasMenuWithMetadata = IdeasMenu & {
+  retrievedAnchorIds?: string[];
+};
+
+function splitRetrievedGoldenExamples(
+  examples: Awaited<ReturnType<typeof retrieveGoldenExamples>>,
+): {
+  goldenExamples: string[];
+  retrievedAnchorIds: string[];
+} {
+  return {
+    goldenExamples: examples.map((example) => example.content),
+    retrievedAnchorIds: examples.map((example) => example.id),
+  };
+}
 
 export async function resolveIdeationGoldenExamples(args: {
   userMessage: string;
@@ -37,16 +52,24 @@ export async function resolveIdeationGoldenExamples(args: {
   deps?: {
     retrieveGoldenExamples?: typeof retrieveGoldenExamples;
   };
-}): Promise<string[] | undefined> {
+}): Promise<
+  | {
+      goldenExamples: string[];
+      retrievedAnchorIds: string[];
+    }
+  | undefined
+> {
   const promptIntent = args.userMessage.trim();
   if (!args.voiceProfileId || (args.goldenExampleCount ?? 0) <= 0 || !promptIntent) {
     return undefined;
   }
 
-  return (args.deps?.retrieveGoldenExamples || retrieveGoldenExamples)(
+  const examples = await (args.deps?.retrieveGoldenExamples || retrieveGoldenExamples)(
     args.voiceProfileId,
     promptIntent,
   );
+
+  return splitRetrievedGoldenExamples(examples);
 }
 
 const GENERIC_IDEA_QUESTION_FRAGMENTS = [
@@ -521,7 +544,7 @@ export async function generateIdeasMenu(
     latestRefinementInstruction?: string | null;
     lastIdeationAngles?: string[];
   },
-): Promise<IdeasMenu | null> {
+): Promise<IdeasMenuWithMetadata | null> {
   const goal = options?.goal || "audience growth";
   const conversationState = options?.conversationState || "collecting_context";
   const antiPatterns = options?.antiPatterns || [];
@@ -536,7 +559,7 @@ export async function generateIdeasMenu(
   const voiceHint = styleCard
     ? `Voice: ${styleCard.pacing}. Openers they use: ${styleCard.sentenceOpenings?.slice(0, 2).join(", ") || "N/A"}.`
     : "No voice profile loaded.";
-  const goldenExamples = await resolveIdeationGoldenExamples({
+  const goldenExamplePayload = await resolveIdeationGoldenExamples({
     userMessage,
     voiceProfileId: options?.voiceProfileId,
     goldenExampleCount: options?.goldenExampleCount,
@@ -554,7 +577,7 @@ export async function generateIdeasMenu(
       [],
     sessionConstraints: options?.sessionConstraints,
     creatorProfileHints: options?.creatorProfileHints,
-    goldenExamples,
+    goldenExamples: goldenExamplePayload?.goldenExamples,
     userContextString,
     activeTaskSummary: options?.activeTaskSummary,
     activePlan: options?.activePlan || null,
@@ -692,6 +715,7 @@ Respond ONLY with valid JSON matching the exact schema requirements.
     return {
       ...parsed,
       angles: noveltyCheckedAngles,
+      retrievedAnchorIds: goldenExamplePayload?.retrievedAnchorIds || [],
     };
   } catch (err) {
     console.error("Ideator validation failed.", err);

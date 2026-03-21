@@ -82,6 +82,7 @@ export interface OrchestratorData {
   quickReplies?: CreatorChatQuickReply[];
   voiceTarget?: VoiceTarget | null;
   noveltyNotes?: string[];
+  retrievedAnchorIds?: string[];
   threadFramingStyle?: ThreadFramingStyle | null;
   groundingSources?: GroundingPacketSourceMaterial[];
   groundingMode?: DraftGroundingMode | null;

@@ -1,6 +1,6 @@
-import type { DraftArtifactDetails } from "../onboarding/shared/draftArtifacts";
-import { prisma } from "../db";
-import { Prisma } from "../generated/prisma/client";
+import type { DraftArtifactDetails } from "../onboarding/shared/draftArtifacts.ts";
+import { prisma } from "../db.ts";
+import { Prisma } from "../generated/prisma/client.ts";
 
 export const GLOBAL_CONTENT_OUTPUT_SHAPES = [
   "short_form_post",
@@ -423,6 +423,7 @@ export interface ResolvedCurrentChatDraft {
   artifact: DraftArtifactDetails;
   voiceTarget: unknown | null;
   noveltyNotes: string[];
+  retrievedAnchorIds: string[];
   draftVersionId: string | null;
   basedOnVersionId: string | null;
   revisionChainId: string | null;
@@ -553,6 +554,7 @@ export function resolveCurrentChatDraft(
     artifact,
     voiceTarget: artifact.voiceTarget ?? null,
     noveltyNotes: artifact.noveltyNotes ?? [],
+    retrievedAnchorIds: artifact.retrievedAnchorIds ?? [],
     draftVersionId: activeDraftVersion?.id ?? activeBundleOption?.versionId ?? activeDraftVersionId,
     basedOnVersionId:
       activeDraftVersion?.basedOnVersionId ?? previousVersionSnapshot.versionId ?? null,
@@ -605,6 +607,10 @@ export async function syncIndexedContentFromChatMessage(args: {
   const runId = args.runId ?? existing?.runId ?? null;
   const xHandle = args.xHandle ?? existing?.xHandle ?? null;
   const threadTitle = args.threadTitle?.trim() || existing?.title || resolvedDraft.title;
+  const retrievedAnchorIds =
+    resolvedDraft.retrievedAnchorIds.length > 0
+      ? resolvedDraft.retrievedAnchorIds
+      : existing?.retrievedAnchorIds ?? [];
 
   const payload = {
     ...(xHandle ? { xHandle } : {}),
@@ -625,6 +631,7 @@ export async function syncIndexedContentFromChatMessage(args: {
         ? Prisma.JsonNull
         : (resolvedDraft.voiceTarget as never),
     noveltyNotes: resolvedDraft.noveltyNotes as never,
+    retrievedAnchorIds,
   };
 
   if (existing) {

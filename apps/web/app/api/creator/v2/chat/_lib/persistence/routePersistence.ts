@@ -37,6 +37,7 @@ export interface PersistDraftCandidateCreate {
   artifact: unknown;
   voiceTarget: unknown | null;
   noveltyNotes: string[];
+  retrievedAnchorIds: string[];
   draftVersionId: string | null;
   basedOnVersionId: string | null;
   revisionChainId: string | null;
@@ -219,6 +220,7 @@ export interface ChatRoutePersistenceDeps {
     artifact: unknown;
     voiceTarget: unknown | null;
     noveltyNotes: unknown;
+    retrievedAnchorIds: string[];
     draftVersionId: string | null;
     basedOnVersionId: string | null;
     revisionChainId: string | null;
@@ -362,6 +364,7 @@ export async function persistAssistantTurnWithDeps(
           artifact: candidate.artifact,
           voiceTarget: candidate.voiceTarget,
           noveltyNotes: candidate.noveltyNotes,
+          retrievedAnchorIds: candidate.retrievedAnchorIds,
           draftVersionId: candidate.draftVersionId,
           basedOnVersionId: candidate.basedOnVersionId,
           revisionChainId: candidate.revisionChainId,
@@ -511,6 +514,7 @@ async function createDefaultDeps(): Promise<ChatRoutePersistenceDeps> {
           artifact: args.artifact as never,
           voiceTarget: args.voiceTarget === null ? Prisma.JsonNull : (args.voiceTarget as never),
           noveltyNotes: args.noveltyNotes as never,
+          retrievedAnchorIds: args.retrievedAnchorIds,
         },
       }),
     markSupersededDraftVersions: async ({ userId, xHandle, candidates }) => {

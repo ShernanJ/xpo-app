@@ -908,6 +908,7 @@ export function buildInitialDraftVersionPayload(args: {
   replyPlan?: string[];
   voiceTarget?: DraftArtifactDetails["voiceTarget"];
   noveltyNotes?: string[];
+  retrievedAnchorIds?: string[];
   threadPostMaxCharacterLimit?: number;
   threadFramingStyle?: DraftArtifactDetails["threadFramingStyle"];
   replySourcePreview?: ReplySourcePreview | null;
@@ -951,6 +952,9 @@ export function buildInitialDraftVersionPayload(args: {
     ...(args.replyPlan?.length ? { replyPlan: args.replyPlan } : {}),
     ...(args.voiceTarget ? { voiceTarget: args.voiceTarget } : {}),
     ...(args.noveltyNotes?.length ? { noveltyNotes: args.noveltyNotes } : {}),
+    ...(args.retrievedAnchorIds?.length
+      ? { retrievedAnchorIds: args.retrievedAnchorIds }
+      : {}),
     ...(args.threadPostMaxCharacterLimit
       ? { threadPostMaxCharacterLimit: args.threadPostMaxCharacterLimit }
       : {}),
@@ -1061,6 +1065,9 @@ export function buildDraftBundleVersionPayload(args: {
         : {}),
       ...(option.voiceTarget ? { voiceTarget: option.voiceTarget } : {}),
       ...(option.noveltyNotes?.length ? { noveltyNotes: option.noveltyNotes } : {}),
+      ...(option.retrievedAnchorIds?.length
+        ? { retrievedAnchorIds: option.retrievedAnchorIds }
+        : {}),
       ...(args.threadPostMaxCharacterLimit
         ? { threadPostMaxCharacterLimit: args.threadPostMaxCharacterLimit }
         : {}),
@@ -1125,6 +1132,7 @@ export interface ChatRouteMappedDataSeed {
   revisionChainId?: string;
   draftBundle: DraftBundlePayload | null;
   supportAsset: string | null;
+  retrievedAnchorIds?: string[];
   mediaAttachments?: ChatMediaAttachmentRef[];
   groundingSources: GroundingPacketSourceMaterial[];
   autoSavedSourceMaterials: {
@@ -1200,6 +1208,7 @@ export interface ChatRouteDraftCandidateCreate {
   artifact: DraftArtifactDetails;
   voiceTarget: VoiceTarget | null;
   noveltyNotes: string[];
+  retrievedAnchorIds: string[];
   draftVersionId: string | null;
   basedOnVersionId: string | null;
   revisionChainId: string | null;
@@ -1510,6 +1519,11 @@ export function buildChatRouteMappedData(args: {
   const responseNoveltyNotes = Array.isArray(resultData?.noveltyNotes)
     ? (resultData.noveltyNotes as string[])
     : [];
+  const responseRetrievedAnchorIds = Array.isArray(resultData?.retrievedAnchorIds)
+    ? resultData.retrievedAnchorIds
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter(Boolean)
+    : [];
   const responseGroundingSources = Array.isArray(resultData?.groundingSources)
     ? (resultData.groundingSources as GroundingPacketSourceMaterial[])
     : [];
@@ -1580,6 +1594,7 @@ export function buildChatRouteMappedData(args: {
         groundingExplanation: responseGroundingExplanation,
         voiceTarget: responseVoiceTarget,
         noveltyNotes: responseNoveltyNotes,
+        retrievedAnchorIds: responseRetrievedAnchorIds,
         threadPostMaxCharacterLimit: getXCharacterLimitForAccount(args.isVerifiedAccount),
         threadFramingStyle: responseThreadFramingStyle,
       })
@@ -1612,6 +1627,9 @@ export function buildChatRouteMappedData(args: {
       draftBundle: draftBundlePayload?.draftBundle ?? null,
       supportAsset:
         selectedBundleOption?.supportAsset ?? ((resultData?.supportAsset as string) || null),
+      ...(responseRetrievedAnchorIds.length > 0
+        ? { retrievedAnchorIds: responseRetrievedAnchorIds }
+        : {}),
       mediaAttachments: args.mediaAttachments ?? undefined,
       groundingSources: responseGroundingSources,
       autoSavedSourceMaterials:
@@ -1811,6 +1829,7 @@ export function buildChatRoutePersistencePlan(args: {
         artifact: activeArtifact,
         voiceTarget: activeArtifact.voiceTarget ?? null,
         noveltyNotes: activeArtifact.noveltyNotes ?? [],
+        retrievedAnchorIds: activeArtifact.retrievedAnchorIds ?? [],
         draftVersionId: activeVersionId,
         basedOnVersionId:
           activeVersion?.basedOnVersionId ??

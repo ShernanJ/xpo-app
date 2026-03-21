@@ -45,6 +45,7 @@ export interface DraftArtifactDetails {
   replyPlan: string[];
   voiceTarget: VoiceTarget | null;
   noveltyNotes: string[];
+  retrievedAnchorIds?: string[];
   threadFramingStyle: ThreadFramingStyle | null;
   replySourcePreview?: ReplySourcePreview | null;
 }
@@ -64,6 +65,7 @@ export interface DraftArtifactInput {
   replyPlan?: string[];
   voiceTarget?: VoiceTarget | null;
   noveltyNotes?: string[];
+  retrievedAnchorIds?: string[];
   threadPostMaxCharacterLimit?: number;
   threadFramingStyle?: ThreadFramingStyle | null;
   replySourcePreview?: ReplySourcePreview | null;
@@ -182,6 +184,7 @@ export function buildDraftArtifacts(params: {
   groundingSources?: DraftGroundingSource[];
   voiceTarget?: VoiceTarget | null;
   noveltyNotes?: string[];
+  retrievedAnchorIds?: string[];
   threadPostMaxCharacterLimit?: number;
   threadFramingStyle?: ThreadFramingStyle | null;
 }): DraftArtifactDetails[] {
@@ -202,6 +205,7 @@ export function buildDraftArtifacts(params: {
       groundingSources: params.groundingSources || [],
       voiceTarget: params.voiceTarget ?? null,
       noveltyNotes: params.noveltyNotes || [],
+      retrievedAnchorIds: params.retrievedAnchorIds || [],
       ...(params.threadPostMaxCharacterLimit
         ? { threadPostMaxCharacterLimit: params.threadPostMaxCharacterLimit }
         : {}),
@@ -246,6 +250,13 @@ export function buildDraftArtifact(params: DraftArtifactInput): DraftArtifactDet
       ? resolveThreadFramingStyle(params.threadFramingStyle) ??
         inferThreadFramingStyleFromPosts(posts.map((post) => post.content))
       : null;
+  const retrievedAnchorIds = Array.from(
+    new Set(
+      (params.retrievedAnchorIds || [])
+        .map((anchorId) => anchorId.trim())
+        .filter(Boolean),
+    ),
+  );
   const isWithinXLimit =
     posts.every((post) => post.isWithinXLimit) &&
     weightedCharacterCount <= maxCharacterLimit;
@@ -272,6 +283,7 @@ export function buildDraftArtifact(params: DraftArtifactInput): DraftArtifactDet
         : buildReplyPlan(posts, params.kind),
     voiceTarget: params.voiceTarget ?? null,
     noveltyNotes: (params.noveltyNotes || []).slice(0, 3),
+    ...(retrievedAnchorIds.length > 0 ? { retrievedAnchorIds } : {}),
     threadFramingStyle,
     replySourcePreview: params.replySourcePreview ?? null,
   };

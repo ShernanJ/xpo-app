@@ -29,7 +29,21 @@ export const WriterOutputSchema = z.object({
   watchOutFor: z.string().describe("One-sentence warning about risk or tone"),
 });
 
-export type WriterOutput = z.infer<typeof WriterOutputSchema>;
+export type WriterOutput = z.infer<typeof WriterOutputSchema> & {
+  retrievedAnchorIds?: string[];
+};
+
+function splitRetrievedGoldenExamples(
+  examples: Awaited<ReturnType<typeof retrieveGoldenExamples>>,
+): {
+  goldenExamples: string[];
+  retrievedAnchorIds: string[];
+} {
+  return {
+    goldenExamples: examples.map((example) => example.content),
+    retrievedAnchorIds: examples.map((example) => example.id),
+  };
+}
 
 export async function resolveWriterGoldenExamples(args: {
   plan: PlannerOutput;
@@ -39,7 +53,13 @@ export async function resolveWriterGoldenExamples(args: {
   deps?: {
     retrieveGoldenExamples?: typeof retrieveGoldenExamples;
   };
-}): Promise<string[] | undefined> {
+}): Promise<
+  | {
+      goldenExamples: string[];
+      retrievedAnchorIds: string[];
+    }
+  | undefined
+> {
   const promptIntent = (
     args.sourceUserMessage || [args.plan.objective, args.plan.angle].join(" ")
   ).trim();
@@ -48,10 +68,12 @@ export async function resolveWriterGoldenExamples(args: {
     return undefined;
   }
 
-  return (args.deps?.retrieveGoldenExamples || retrieveGoldenExamples)(
+  const examples = await (args.deps?.retrieveGoldenExamples || retrieveGoldenExamples)(
     args.voiceProfileId,
     promptIntent,
   );
+
+  return splitRetrievedGoldenExamples(examples);
 }
 
 /**
@@ -96,7 +118,7 @@ export async function generateDrafts(
       options?.sourceUserMessage || [plan.objective, plan.angle].join(" "),
     formatIntent: options?.formatIntent || plan.formatIntent,
   });
-  const goldenExamples = await resolveWriterGoldenExamples({
+  const goldenExamplePayload = await resolveWriterGoldenExamples({
     plan,
     sourceUserMessage: options?.sourceUserMessage,
     voiceProfileId: options?.voiceProfileId,
@@ -106,7 +128,7 @@ export async function generateDrafts(
     plan,
     styleCard,
     primaryPersona: options?.primaryPersona,
-    goldenExamples,
+    goldenExamples: goldenExamplePayload?.goldenExamples,
     topicAnchors,
     referenceAnchorMode: options?.referenceAnchorMode,
     activeConstraints,
@@ -140,5 +162,12 @@ export async function generateDrafts(
     ],
   });
 
-  return data;
+  if (!data) {
+    return null;
+  }
+
+  return {
+    ...data,
+    retrievedAnchorIds: goldenExamplePayload?.retrievedAnchorIds || [],
+  };
 }

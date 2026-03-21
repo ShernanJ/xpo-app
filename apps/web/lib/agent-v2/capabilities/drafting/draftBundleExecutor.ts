@@ -281,6 +281,7 @@ export async function executeDraftBundleCapability(
         noveltyCheck,
         retrievalReasons: bundleDraftResult.retrievalReasons,
       }),
+      retrievedAnchorIds: bundleDraftResult.writerOutput.retrievedAnchorIds ?? [],
       threadFramingStyle: bundleDraftResult.threadFramingStyle,
       groundingSources: context.groundingSources,
       groundingMode: context.groundingMode,

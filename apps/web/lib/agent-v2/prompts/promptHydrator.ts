@@ -232,23 +232,16 @@ function buildSessionConstraintsXml(args: {
 
 function buildGoldenExamplesXml(
   args: {
-    creatorProfileHints?: CreatorProfileHints | null;
     goldenExamples?: string[] | null;
   },
-): string {
-  const examples =
-    typeof args.goldenExamples !== "undefined"
-      ? (args.goldenExamples || [])
-          .map((example) => example.trim())
-          .filter(Boolean)
-          .slice(0, 3)
-      : (args.creatorProfileHints?.topExampleSnippets || [])
-          .map((example) => example.trim())
-          .filter(Boolean)
-          .slice(0, 3);
+): string | null {
+  const examples = (args.goldenExamples || [])
+    .map((example) => example.trim())
+    .filter(Boolean)
+    .slice(0, 3);
 
   if (examples.length === 0) {
-    return "<golden_examples></golden_examples>";
+    return null;
   }
 
   return [
@@ -292,6 +285,10 @@ export function buildPromptHydrationEnvelope(
       voiceTarget: args.voiceTarget,
     }),
   );
+  const goldenExamplesXml = buildGoldenExamplesXml({
+    goldenExamples: args.goldenExamples,
+  });
+  const hasGoldenExamples = Boolean(goldenExamplesXml);
 
   return [
     "<prompt_hydration>",
@@ -312,16 +309,17 @@ export function buildPromptHydrationEnvelope(
       .split("\n")
       .map((line) => `  ${line}`)
       .join("\n"),
-    buildGoldenExamplesXml({
-      creatorProfileHints: args.creatorProfileHints,
-      goldenExamples: args.goldenExamples,
-    })
-      .split("\n")
-      .map((line) => `  ${line}`)
-      .join("\n"),
+    goldenExamplesXml
+      ? goldenExamplesXml
+          .split("\n")
+          .map((line) => `  ${line}`)
+          .join("\n")
+      : null,
     "</prompt_hydration>",
     "If <session_constraints> conflicts with <mechanical_style_rules>, obey <session_constraints> for the current turn.",
-    "CRITICAL INSTRUCTION: You must internalize the <mechanical_style_rules> and format your output to match the structural cadence of the <golden_examples>.",
+    hasGoldenExamples
+      ? "CRITICAL INSTRUCTION: You must internalize the <mechanical_style_rules> and format your output to match the structural cadence of the <golden_examples>."
+      : null,
   ]
     .filter(Boolean)
     .join("\n");

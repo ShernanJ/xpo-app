@@ -44,6 +44,7 @@ export interface DraftCandidateArtifactPayload {
   revisionChainId: string | null;
   voiceTarget: VoiceTarget | null;
   noveltyNotes: string[];
+  retrievedAnchorIds: string[];
 }
 
 function buildFailureBase(
@@ -160,6 +161,11 @@ export function buildDraftCandidateOutcome(args: {
     noveltyNotes: Array.isArray(resultData?.noveltyNotes)
       ? (resultData.noveltyNotes as string[])
       : [],
+    retrievedAnchorIds: Array.isArray(resultData?.retrievedAnchorIds)
+      ? resultData.retrievedAnchorIds
+          .map((value) => (typeof value === "string" ? value.trim() : ""))
+          .filter(Boolean)
+      : [],
     threadPostMaxCharacterLimit: args.threadPostMaxCharacterLimit,
     threadFramingStyle: resolveThreadFramingStyle(resultData?.threadFramingStyle),
   });
@@ -194,6 +200,7 @@ export function buildDraftCandidateOutcome(args: {
       noveltyNotes: Array.isArray(resultData?.noveltyNotes)
         ? (resultData.noveltyNotes as string[])
         : [],
+      retrievedAnchorIds: artifact.retrievedAnchorIds ?? [],
     },
   };
 }
