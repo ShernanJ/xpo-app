@@ -1,4 +1,3 @@
-import { generateStyleProfile } from "@/lib/agent-v2/core/styleProfile";
 import { prisma } from "@/lib/db";
 import type { OnboardingInput, OnboardingResult } from "@/lib/onboarding/contracts/types";
 import { maybeEnqueueOnboardingBackfillJob } from "@/lib/onboarding/pipeline/backfill";
@@ -33,6 +32,7 @@ export async function finalizeOnboardingRunForUser(params: {
       }
     | null;
   suppressLegacyBackfill?: boolean;
+  skipStyleProfileRefresh?: boolean;
   userAgent: string | null;
   userId: string;
 }): Promise<FinalizedOnboardingRunResult> {
@@ -47,14 +47,6 @@ export async function finalizeOnboardingRunForUser(params: {
 
   await syncOnboardingPostsToDb(params.userId, params.input.account, params.result).catch((error) =>
     console.error("Failed to sync posts to DB:", error),
-  );
-  await generateStyleProfile(
-    params.userId,
-    normalizedHandle,
-    80,
-    { forceRegenerate: true },
-  ).catch((error) =>
-    console.error("Failed to refresh style profile after onboarding sync:", error),
   );
   const backfill = params.backgroundSync
     ? params.backgroundSync

@@ -122,6 +122,10 @@ function buildWorkerId(workerId?: string): string {
   return workerId?.trim() || `onboarding-scrape-worker-${randomUUID().slice(0, 8)}`;
 }
 
+function isLeaseExpired(value: Date | null | undefined, now: Date): boolean {
+  return value instanceof Date && value.getTime() <= now.getTime();
+}
+
 function toNullableJsonValue(value: Record<string, unknown> | null | undefined) {
   if (value === null) {
     return Prisma.JsonNull;
@@ -174,12 +178,17 @@ export async function enqueueOnboardingScrapeJob(params: {
     normalizedAccount,
     params.dedupeScope ?? null,
   );
+  const now = new Date();
   return prisma.$transaction(async (tx) => {
     const existing = await tx.onboardingScrapeJob.findUnique({
       where: { dedupeKey },
     });
 
-    if (existing && (existing.status === "pending" || existing.status === "processing")) {
+    const hasActiveLease =
+      existing?.status === "processing" &&
+      (!existing.leaseExpiresAt || !isLeaseExpired(existing.leaseExpiresAt, now));
+
+    if (existing && (existing.status === "pending" || hasActiveLease)) {
       return {
         job: mapJob(existing)!,
         deduped: true,
@@ -190,6 +199,16 @@ export async function enqueueOnboardingScrapeJob(params: {
       await tx.onboardingScrapeJob.update({
         where: { id: existing.id },
         data: {
+          ...(existing.status === "processing" && isLeaseExpired(existing.leaseExpiresAt, now)
+            ? {
+                status: "failed",
+                failedAt: now,
+                heartbeatAt: now,
+                leaseOwner: null,
+                leaseExpiresAt: null,
+                lastError: existing.lastError ?? "Job lease expired before completion.",
+              }
+            : {}),
           dedupeKey: buildArchivedDedupeKey(dedupeKey),
         },
       });

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   claimOnboardingScrapeJobById: vi.fn(),
   enqueueContextPrimerJob: vi.fn(),
   finalizeOnboardingRunForUser: vi.fn(),
+  generateStyleProfile: vi.fn(),
   getConfiguredOnboardingMode: vi.fn(),
   hasXApiSourceCredentials: vi.fn(),
   markOnboardingScrapeJobCompleted: vi.fn(),
@@ -17,6 +18,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/posthog/server", () => ({
   capturePostHogServerEvent: mocks.capturePostHogServerEvent,
   capturePostHogServerException: mocks.capturePostHogServerException,
+}));
+
+vi.mock("@/lib/agent-v2/core/styleProfile", () => ({
+  generateStyleProfile: mocks.generateStyleProfile,
 }));
 
 vi.mock("@/lib/onboarding/pipeline/scrapeJob", () => ({
@@ -159,6 +164,7 @@ beforeEach(() => {
   });
   mocks.runOnboarding.mockResolvedValue(createOnboardingResult());
   mocks.finalizeOnboardingRunForUser.mockResolvedValue(createFinalizedResult());
+  mocks.generateStyleProfile.mockResolvedValue(null);
   mocks.getConfiguredOnboardingMode.mockReturnValue("scrape");
   mocks.hasXApiSourceCredentials.mockReturnValue(false);
   mocks.markOnboardingScrapeJobCompleted.mockResolvedValue(undefined);
@@ -233,6 +239,7 @@ describe("processOnboardingRunHandler", () => {
         deduped: false,
       },
       runId: buildQueuedOnboardingRunId("job_123"),
+      skipStyleProfileRefresh: true,
       suppressLegacyBackfill: true,
       userAgent: "vitest",
       userId: "user_1",
@@ -242,6 +249,9 @@ describe("processOnboardingRunHandler", () => {
       completedRunId: "or_job_123",
       resultPayload: createFinalizedResult().payload,
       workerId: "run_1",
+    });
+    expect(mocks.generateStyleProfile).toHaveBeenCalledWith("user_1", "stan", 80, {
+      forceRegenerate: true,
     });
   });
 
@@ -280,6 +290,7 @@ describe("processOnboardingRunHandler", () => {
         deduped: false,
       },
       runId: "or_job_123",
+      skipStyleProfileRefresh: true,
       suppressLegacyBackfill: true,
       userAgent: "vitest",
       userId: "user_1",
@@ -293,6 +304,7 @@ describe("processOnboardingRunHandler", () => {
         deduped: false,
       },
       runId: "or_job_123",
+      skipStyleProfileRefresh: true,
       suppressLegacyBackfill: true,
       userAgent: "vitest",
       userId: "user_1",

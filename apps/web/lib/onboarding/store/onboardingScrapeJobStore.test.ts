@@ -201,4 +201,48 @@ describe("enqueueOnboardingScrapeJob", () => {
       });
     },
   );
+
+  test("requeues when an existing processing job has an expired lease", async () => {
+    state.seed({
+      id: "job_stale",
+      dedupeKey: "onboarding_run:user_1:stan",
+      userId: "user_1",
+      account: "stan",
+      kind: "onboarding_run",
+      status: "processing",
+      requestInput: { account: "stan" },
+      attempts: 1,
+      leaseOwner: "worker_1",
+      leaseExpiresAt: date("2026-03-19T00:00:00.000Z"),
+      heartbeatAt: date("2026-03-19T00:00:00.000Z"),
+      startedAt: date("2026-03-19T00:00:00.000Z"),
+      completedAt: null,
+      failedAt: null,
+      lastError: null,
+      resultPayload: null,
+      completedRunId: null,
+      createdAt: date("2026-03-19T00:00:00.000Z"),
+      updatedAt: date("2026-03-19T00:00:00.000Z"),
+    });
+
+    const queued = await enqueueOnboardingScrapeJob({
+      kind: "onboarding_run",
+      userId: "user_1",
+      account: "stan",
+      requestInput: { account: "stan" },
+    });
+
+    expect(queued.deduped).toBe(false);
+    expect(queued.job.jobId).not.toBe("job_stale");
+    expect(state.jobs).toHaveLength(2);
+
+    const stale = state.jobs.find((job) => job.id === "job_stale");
+    expect(stale).toMatchObject({
+      status: "failed",
+      leaseOwner: null,
+      leaseExpiresAt: null,
+    });
+    expect(String(stale?.dedupeKey)).toMatch(/^onboarding_run:user_1:stan:archived:/);
+    expect(stale?.lastError).toBe("Job lease expired before completion.");
+  });
 });

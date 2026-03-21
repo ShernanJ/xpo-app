@@ -119,4 +119,50 @@ describe("GET /api/onboarding/jobs/[jobId]", () => {
     expect(payload.runId).toBe("or_123");
     expect(payload.account).toBe("stan");
   });
+
+  test("treats an expired processing lease as a failed onboarding job", async () => {
+    mocks.readOnboardingScrapeJobByIdForUser.mockResolvedValue({
+      jobId: "job_123",
+      kind: "onboarding_run",
+      userId: "user_1",
+      account: "stan",
+      createdAt: "2026-03-19T00:00:00.000Z",
+      updatedAt: "2026-03-19T00:00:00.000Z",
+      status: "processing",
+      requestInput: null,
+      attempts: 1,
+      lastError: null,
+      resultPayload: null,
+      completedRunId: null,
+      leaseOwner: "worker_1",
+      leaseExpiresAt: "2026-03-19T00:00:01.000Z",
+      heartbeatAt: "2026-03-19T00:00:00.000Z",
+      completedAt: null,
+      failedAt: null,
+    });
+
+    const response = await GET(
+      new Request("http://localhost/api/onboarding/jobs/job_123"),
+      {
+        params: Promise.resolve({
+          jobId: "job_123",
+        }),
+      },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({
+      ok: false,
+      status: "failed",
+      jobId: "job_123",
+      account: "stan",
+      errors: [
+        {
+          field: "account",
+          message: "This onboarding job stopped responding before completion. Please try again.",
+        },
+      ],
+    });
+  });
 });

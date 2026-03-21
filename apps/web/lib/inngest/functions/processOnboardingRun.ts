@@ -1,5 +1,6 @@
 import { NonRetriableError, type GetFunctionInput, type GetStepTools } from "inngest";
 
+import { generateStyleProfile } from "@/lib/agent-v2/core/styleProfile";
 import { capturePostHogServerEvent, capturePostHogServerException } from "@/lib/posthog/server";
 import { enqueueContextPrimerJob } from "@/lib/onboarding/pipeline/scrapeJob";
 import { parseOnboardingInput } from "@/lib/onboarding/contracts/validation";
@@ -204,6 +205,7 @@ export async function processOnboardingRunHandler({
         result,
         backgroundSync,
         runId: queuedRunId,
+        skipStyleProfileRefresh: true,
         suppressLegacyBackfill: true,
         userAgent,
         userId: claimedJob.userId,
@@ -217,6 +219,17 @@ export async function processOnboardingRunHandler({
         resultPayload: finalized.payload,
         workerId: runId,
       });
+    });
+
+    await step.run("refresh-style-profile", async () => {
+      await generateStyleProfile(
+        claimedJob.userId,
+        finalized.normalizedHandle,
+        80,
+        { forceRegenerate: true },
+      ).catch((error) =>
+        console.error("Failed to refresh style profile after onboarding sync:", error),
+      );
     });
 
     await step.run("capture-completed-event", async () => {

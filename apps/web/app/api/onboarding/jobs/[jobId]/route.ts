@@ -9,6 +9,15 @@ interface RouteContext {
   }>;
 }
 
+function hasExpiredLease(value: string | null): boolean {
+  if (!value) {
+    return false;
+  }
+
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && timestamp <= Date.now();
+}
+
 export async function GET(request: Request, context: RouteContext) {
   const session = await getServerSession();
   if (!session?.user?.id) {
@@ -50,6 +59,26 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   if (job.status === "processing") {
+    if (hasExpiredLease(job.leaseExpiresAt)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          status: "failed",
+          jobId: job.jobId,
+          account: job.account,
+          errors: [
+            {
+              field: "account",
+              message:
+                job.lastError ??
+                "This onboarding job stopped responding before completion. Please try again.",
+            },
+          ],
+        },
+        { status: 200 },
+      );
+    }
+
     return NextResponse.json(
       {
         ok: true,

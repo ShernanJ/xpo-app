@@ -146,6 +146,15 @@ export type FeedbackAttachment = z.infer<typeof FeedbackAttachmentSchema>;
 export type FeedbackSubmissionStatus = z.infer<typeof FeedbackSubmissionStatusSchema>;
 export type FeedbackSubmission = z.infer<typeof FeedbackSubmissionSchema>;
 
+function getStyleProfileRequestTimeoutMs(): number {
+  const raw = Number(process.env.STYLE_PROFILE_REQUEST_TIMEOUT_MS);
+  if (!Number.isFinite(raw) || raw < 1_000) {
+    return 20_000;
+  }
+
+  return Math.floor(raw);
+}
+
 function normalizeMemoryLine(value: string): string {
   return value.trim().replace(/\s+/g, " ");
 }
@@ -448,7 +457,18 @@ Respond ONLY with a valid JSON object matching this schema:
         temperature: 0.1,
         response_format: { type: "json_object" },
       }),
+      signal: AbortSignal.timeout(getStyleProfileRequestTimeoutMs()),
+    }).catch((error) => {
+      console.error("Style profile LLM request failed before completion.", {
+        error,
+        model,
+      });
+      return null;
     });
+
+    if (!response) {
+      return existingParsed;
+    }
 
     if (!response.ok) {
       console.error("Style profile LLM request failed.", {
