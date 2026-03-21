@@ -124,7 +124,7 @@ export async function retrieveGoldenExamplesWithDeps(args: {
     const examples = await (args.deps?.prismaClient || prisma).$queryRaw<{ content: string }[]>`
       SELECT content
       FROM "GoldenExample"
-      WHERE "profileId" = ${profileId}::uuid
+      WHERE "profileId" = ${profileId}
         AND "embedding" IS NOT NULL
         AND "embedding" <=> ${JSON.stringify(promptEmbedding)}::vector < 0.45
       ORDER BY "embedding" <=> ${JSON.stringify(promptEmbedding)}::vector
