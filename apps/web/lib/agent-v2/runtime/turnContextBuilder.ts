@@ -5,13 +5,14 @@ import { planTurn } from "../runtime/turnPlanner";
 import { hydrateTurnContextWorkers } from "../workers/turnContextHydrationWorkers.ts";
 import { createConversationMemorySnapshot } from "../memory/memoryStore";
 import { scopeMemoryForCurrentTurn } from "../memory/turnScopedMemory";
+import { buildSessionConstraints } from "../core/sessionConstraints";
 import {
   normalizeHandleForContext,
   type ConversationServices,
   type StoredOnboardingRun,
 } from "./services.ts";
 import type { OrchestratorInput } from "./types.ts";
-import type { V2ConversationMemory } from "../contracts/chat";
+import type { SessionConstraint, V2ConversationMemory } from "../contracts/chat";
 import type { CreatorProfileHints } from "../grounding/groundingPacket";
 import type { ProfileReplyContext } from "../grounding/profileReplyContext";
 import type { VoiceStyleCard } from "../core/styleProfile";
@@ -45,6 +46,7 @@ export interface TurnContext {
   profileReplyContext: ProfileReplyContext | null;
   memory: V2ConversationMemory;
   effectiveActiveConstraints: string[];
+  sessionConstraints: SessionConstraint[];
   turnPlan: ReturnType<typeof planTurn>;
   
   styleCard: VoiceStyleCard | null;
@@ -160,6 +162,11 @@ export async function buildTurnContext(
       ...((preferenceConstraints || []).filter((value) => value.trim().length > 0)),
     ]),
   );
+  const sessionConstraints = buildSessionConstraints({
+    activeConstraints: effectiveActiveConstraints,
+    inferredConstraints: memory.inferredSessionConstraints,
+    pendingPlan: memory.pendingPlan,
+  });
 
   const turnPlan = planTurn({
     userMessage,
@@ -208,6 +215,7 @@ export async function buildTurnContext(
     profileReplyContext,
     memory,
     effectiveActiveConstraints,
+    sessionConstraints,
     turnPlan,
     styleCard,
     anchors,

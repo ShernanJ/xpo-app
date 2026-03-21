@@ -2,6 +2,7 @@ export interface CoachReplyShape {
   response: string;
   probingQuestion: string | null;
 }
+import { scrubXpoPleasantries } from "../core/sparringPartnerTone.ts";
 
 const COACH_WORKFLOW_TAIL_PATTERNS = [
   /\s*if this lands,\s*i can draft (?:it|that|this)(?: now)?\s*[-,]?\s*or we can tweak (?:it|the angle) first\.?\s*/i,
@@ -79,6 +80,7 @@ export function finalizeCoachReplyForSurface(
   }
 
   response = normalizeCoachWhitespace(response);
+  response = scrubXpoPleasantries(response) || response;
 
   return {
     response: response || probingQuestion || reply.response.trim(),

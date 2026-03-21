@@ -11,6 +11,7 @@ import {
 } from "../onboarding/profile/profileHydration";
 import { shouldDeferLiveScrapesToWorker } from "../onboarding/pipeline/liveScrapePolicy";
 import { enqueueProfileRefreshJobIfNeeded } from "../onboarding/pipeline/scrapeJob";
+import { bootstrapScrapeCaptureWithOptions } from "../onboarding/sources/scrapeBootstrap";
 import {
   readLatestOnboardingRunByHandle,
   type StoredOnboardingRun,
@@ -81,6 +82,7 @@ export interface LoadCreatorWorkspaceSnapshotArgs {
   xHandle: string;
   input?: Record<string, unknown>;
   refreshPinnedProfile?: boolean;
+  forceFreshScrapeForAnalysis?: boolean;
   storedRun?: CreatorWorkspaceSnapshotStoredRun | null;
   allowMockFallback?: boolean;
 }
@@ -90,6 +92,7 @@ type LoadCreatorWorkspaceSnapshotSerializedArgs = {
   xHandle: string;
   input: Record<string, unknown>;
   refreshPinnedProfile: boolean;
+  forceFreshScrapeForAnalysis: boolean;
 };
 
 function normalizeStoredRun(
@@ -176,6 +179,22 @@ async function loadCreatorWorkspaceSnapshotImpl(
     }).catch((error) =>
       console.error("Failed to queue pinned profile refresh:", error),
     );
+  }
+  if (args.forceFreshScrapeForAnalysis) {
+    try {
+      await bootstrapScrapeCaptureWithOptions(args.xHandle, {
+        pages: 2,
+        count: 40,
+        targetOriginalPostCount: 40,
+        maxDurationMs: 12_000,
+        captureMode: "user_tweets",
+        forceRefresh: true,
+        mergeWithExisting: true,
+        userAgent: "chat-inline-profile-analysis",
+      });
+    } catch (error) {
+      console.error("Failed to refresh profile-analysis scrape capture:", error);
+    }
   }
   const onboarding = await hydrateOnboardingProfileForAnalysis(overriddenOnboarding);
 
@@ -266,6 +285,7 @@ export async function loadCreatorWorkspaceSnapshot(
           xHandle: args.xHandle,
           input: args.input ?? {},
           refreshPinnedProfile: args.refreshPinnedProfile === true,
+          forceFreshScrapeForAnalysis: args.forceFreshScrapeForAnalysis === true,
         } satisfies LoadCreatorWorkspaceSnapshotSerializedArgs),
   );
 }

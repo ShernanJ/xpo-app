@@ -81,10 +81,15 @@ test("mergeFreshProfileIntoOnboarding replaces the avatar when X returns a newer
   const onboarding = createOnboarding("https://pbs.twimg.com/profile_images/old_400x400.jpg");
 
   const hydrated = mergeFreshProfileIntoOnboarding(onboarding, {
+    name: onboarding.profile.name,
     avatarUrl: "https://pbs.twimg.com/profile_images/new_400x400.jpg",
     bio: onboarding.profile.bio,
     headerImageUrl: onboarding.profile.headerImageUrl,
     isVerified: false,
+    followersCount: onboarding.profile.followersCount,
+    followingCount: onboarding.profile.followingCount,
+    createdAt: onboarding.profile.createdAt,
+    statusesCount: null,
   });
 
   assert.equal(
@@ -97,10 +102,15 @@ test("mergeFreshProfileIntoOnboarding does not blank an existing avatar when the
   const onboarding = createOnboarding("https://pbs.twimg.com/profile_images/existing_400x400.jpg");
 
   const hydrated = mergeFreshProfileIntoOnboarding(onboarding, {
+    name: onboarding.profile.name,
     avatarUrl: null,
     bio: onboarding.profile.bio,
     headerImageUrl: onboarding.profile.headerImageUrl,
     isVerified: false,
+    followersCount: onboarding.profile.followersCount,
+    followingCount: onboarding.profile.followingCount,
+    createdAt: onboarding.profile.createdAt,
+    statusesCount: null,
   });
 
   assert.equal(
@@ -126,10 +136,15 @@ test("mergeLatestScrapeIntoOnboarding refreshes the pinned post from the latest 
 
   const hydrated = mergeLatestScrapeIntoOnboarding(onboarding, {
     profile: {
+      name: onboarding.profile.name,
       avatarUrl: onboarding.profile.avatarUrl,
       bio: onboarding.profile.bio,
       headerImageUrl: onboarding.profile.headerImageUrl,
       isVerified: false,
+      followersCount: onboarding.profile.followersCount,
+      followingCount: onboarding.profile.followingCount,
+      createdAt: onboarding.profile.createdAt,
+      statusesCount: null,
     },
     pinnedPost: {
       id: "2010284331479249364",
@@ -168,10 +183,15 @@ test("mergeLatestScrapeIntoOnboarding preserves the current pinned post but upgr
 
   const hydrated = mergeLatestScrapeIntoOnboarding(onboarding, {
     profile: {
+      name: onboarding.profile.name,
       avatarUrl: onboarding.profile.avatarUrl,
       bio: onboarding.profile.bio,
       headerImageUrl: onboarding.profile.headerImageUrl,
       isVerified: false,
+      followersCount: onboarding.profile.followersCount,
+      followingCount: onboarding.profile.followingCount,
+      createdAt: onboarding.profile.createdAt,
+      statusesCount: null,
     },
     pinnedPost: {
       ...onboarding.pinnedPost,
@@ -190,17 +210,27 @@ test("hydrateOnboardingProfileForAnalysis merges live profile fields and latest 
   const hydrated = await hydrateOnboardingProfileForAnalysis(
     onboarding,
     async () => ({
+      name: "Stanley X",
       avatarUrl: "https://pbs.twimg.com/profile_images/new_400x400.jpg",
       bio: "updated bio",
       headerImageUrl: "https://pbs.twimg.com/profile_banners/123/1500x500",
       isVerified: true,
+      followersCount: 1337,
+      followingCount: 222,
+      createdAt: onboarding.profile.createdAt,
+      statusesCount: 456,
     }),
     async () => ({
       profile: {
+        name: "Stanley X",
         avatarUrl: onboarding.profile.avatarUrl,
         bio: onboarding.profile.bio,
         headerImageUrl: onboarding.profile.headerImageUrl,
         isVerified: false,
+        followersCount: 1337,
+        followingCount: 222,
+        createdAt: onboarding.profile.createdAt,
+        statusesCount: 456,
       },
       pinnedPost: {
         id: "2010284331479249364",
@@ -218,9 +248,67 @@ test("hydrateOnboardingProfileForAnalysis merges live profile fields and latest 
   );
 
   assert.equal(hydrated.profile.bio, "updated bio");
+  assert.equal(hydrated.profile.name, "Stanley X");
   assert.equal(hydrated.profile.headerImageUrl, "https://pbs.twimg.com/profile_banners/123/1500x500");
   assert.equal(hydrated.profile.isVerified, true);
+  assert.equal(hydrated.profile.followersCount, 1337);
+  assert.equal(hydrated.profile.followingCount, 222);
   assert.equal(hydrated.pinnedPost?.id, "2010284331479249364");
+});
+
+test("mergeLatestScrapeIntoOnboarding refreshes the recent post sample and capture counts", () => {
+  const onboarding = createOnboarding("https://pbs.twimg.com/profile_images/existing_400x400.jpg");
+
+  const hydrated = mergeLatestScrapeIntoOnboarding(onboarding, {
+    profile: {
+      name: "Stanley Fresh",
+      avatarUrl: onboarding.profile.avatarUrl,
+      bio: "new bio",
+      headerImageUrl: "https://pbs.twimg.com/profile_banners/123/1500x500",
+      isVerified: true,
+      followersCount: 1500,
+      followingCount: 210,
+      createdAt: onboarding.profile.createdAt,
+      statusesCount: 999,
+    },
+    pinnedPost: null,
+    posts: [
+      {
+        id: "new_1",
+        text: "Newest post",
+        createdAt: "2026-03-20T10:00:00.000Z",
+        metrics: { likeCount: 10, replyCount: 2, repostCount: 1, quoteCount: 0 },
+      },
+      {
+        id: "old_viral",
+        text: "Older viral post",
+        createdAt: "2025-01-01T10:00:00.000Z",
+        metrics: { likeCount: 200, replyCount: 40, repostCount: 20, quoteCount: 10 },
+      },
+    ],
+    replyPosts: [
+      {
+        id: "reply_1",
+        text: "Reply",
+        createdAt: "2026-03-19T10:00:00.000Z",
+        metrics: { likeCount: 1, replyCount: 0, repostCount: 0, quoteCount: 0 },
+      },
+    ],
+    quotePosts: [
+      {
+        id: "quote_1",
+        text: "Quote",
+        createdAt: "2026-03-18T10:00:00.000Z",
+        metrics: { likeCount: 3, replyCount: 0, repostCount: 1, quoteCount: 0 },
+      },
+    ],
+  });
+
+  assert.equal(hydrated.recentPosts[0]?.id, "new_1");
+  assert.equal(hydrated.capturedPostCount, 2);
+  assert.equal(hydrated.capturedReplyPostCount, 1);
+  assert.equal(hydrated.capturedQuotePostCount, 1);
+  assert.equal(hydrated.totalCapturedActivityCount, 4);
 });
 
 test("hydrateOnboardingProfileForAnalysis resolves missing pinned media when the latest scrape still lacks it", async () => {

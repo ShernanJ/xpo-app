@@ -52,6 +52,9 @@ function createArgs(overrides = {}) {
         preserveThreadStructure: false,
       },
       revisionActiveConstraints: [],
+      persistedActiveConstraints: [],
+      inferredSessionConstraints: [],
+      sessionConstraints: [],
       effectiveContext: "",
       relevantTopicAnchors: [],
       styleCard: null,
@@ -83,6 +86,7 @@ function createArgs(overrides = {}) {
         approved: true,
         finalAngle: "same angle",
         finalDraft: "changed draft text",
+        mechanicalDirective: "No further rewrite needed.",
         issues: [],
       }),
       buildClarificationResponse: async () => ({
@@ -96,22 +100,49 @@ function createArgs(overrides = {}) {
   };
 }
 
-test("critic rejection returns an honest fallback instead of a revision-ready result", async () => {
+test("critic rejection retries with critic analysis and returns the best available draft", async () => {
+  const reviserCalls = [];
+  let criticCallCount = 0;
+
   const result = await executeRevisingCapability(
     createArgs({
       services: {
-        critiqueDrafts: async () => ({
-          approved: false,
-          finalAngle: "same angle",
-          finalDraft: "changed draft text",
-          issues: ["revision drifted farther than the requested edit scope"],
-        }),
+        generateRevisionDraft: async (args) => {
+          reviserCalls.push(args);
+          return {
+            revisedDraft:
+              reviserCalls.length === 1 ? "first revision draft" : "second revision draft",
+            supportAsset: null,
+            issuesFixed: ["tightened wording"],
+          };
+        },
+        critiqueDrafts: async () => {
+          criticCallCount += 1;
+          return {
+            approved: false,
+            finalAngle: "same angle",
+            finalDraft:
+              criticCallCount === 1 ? "first critic draft" : "second critic draft",
+            mechanicalDirective:
+              criticCallCount === 1
+                ? "Tone is cheesy. Strip adjectives and remove exclamation marks."
+                : "Tone is still cheesy. Strip adjectives harder.",
+            issues: ["revision drifted farther than the requested edit scope"],
+          };
+        },
       },
     }),
   );
 
-  assert.equal(result.output.kind, "response");
-  assert.match(result.output.response.response, /left the current draft as-is/i);
+  assert.equal(result.output.kind, "revision_ready");
+  assert.equal(result.output.responseSeed.data.draft, "second critic draft");
+  assert.equal(reviserCalls.length, 2);
+  assert.equal(reviserCalls[0].options.userCritique, "make it punchier");
+  assert.equal(reviserCalls[0].options.criticAnalysis, null);
+  assert.equal(
+    reviserCalls[1].options.criticAnalysis,
+    "Tone is cheesy. Strip adjectives and remove exclamation marks.",
+  );
 });
 
 test("no-op revisions return the same fallback instead of claiming the edit landed", async () => {

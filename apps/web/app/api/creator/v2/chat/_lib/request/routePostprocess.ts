@@ -142,6 +142,7 @@ export function validatePreparedTurnPlan(planCandidate: unknown): StrategyPlan |
     mustAvoid?: string[];
     hookType?: string;
     pitchResponse?: string;
+    extractedConstraints?: string[];
     formatPreference?: "shortform" | "longform" | "thread";
   };
 
@@ -167,6 +168,9 @@ export function validatePreparedTurnPlan(planCandidate: unknown): StrategyPlan |
     mustAvoid: plan.mustAvoid.filter((value): value is string => typeof value === "string"),
     hookType: plan.hookType,
     pitchResponse: plan.pitchResponse,
+    extractedConstraints: Array.isArray(plan.extractedConstraints)
+      ? plan.extractedConstraints.filter((value): value is string => typeof value === "string")
+      : [],
     ...(plan.formatPreference ? { formatPreference: plan.formatPreference } : {}),
   };
 }

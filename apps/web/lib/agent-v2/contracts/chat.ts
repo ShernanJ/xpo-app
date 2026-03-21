@@ -27,6 +27,12 @@ export type DraftPreference =
 
 export type DraftFormatPreference = "shortform" | "longform" | "thread";
 export type FormatIntent = "story" | "lesson" | "joke" | "observation";
+export type SessionConstraintSource = "explicit" | "inferred";
+
+export interface SessionConstraint {
+  source: SessionConstraintSource;
+  text: string;
+}
 
 export type ResponseMode =
   | "natural_chat"
@@ -61,6 +67,7 @@ export interface StrategyPlan {
   mustAvoid: string[];
   hookType: string;
   pitchResponse: string;
+  extractedConstraints: string[];
   deliveryPreference?: DraftPreference;
   formatPreference?: DraftFormatPreference;
   formatIntent?: FormatIntent;
@@ -175,6 +182,7 @@ export interface ActiveReplyContext {
 export interface V2ConversationMemory {
   conversationState: ConversationState;
   activeConstraints: string[];
+  inferredSessionConstraints?: string[];
   topicSummary: string | null;
   lastIdeationAngles: string[];
   concreteAnswerCount: number;

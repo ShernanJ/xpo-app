@@ -11,7 +11,8 @@ async function run() {
     mustInclude: [],
     mustAvoid: ["emojis"],
     hookType: "Direct Action",
-    pitchResponse: "Here's the angle I'm thinking..."
+    pitchResponse: "Here's the angle I'm thinking...",
+    extractedConstraints: [],
   };
 
   const styleCard = {

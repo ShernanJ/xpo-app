@@ -4,6 +4,7 @@ import type {
   SurfaceMode,
   V2ChatOutputShape,
 } from "../contracts/chat";
+import { scrubXpoPleasantries } from "../core/sparringPartnerTone.ts";
 
 interface ShapeResponseArgs {
   response: string;
@@ -247,7 +248,7 @@ function shapeBySurfaceMode(response: string, surfaceMode: SurfaceMode): string 
 }
 
 export function shapeAssistantResponse(args: ShapeResponseArgs): string {
-  let nextResponse = normalizeWhitespace(args.response);
+  let nextResponse = normalizeWhitespace(scrubXpoPleasantries(args.response));
   nextResponse = stripFeedbackNotice(nextResponse);
   nextResponse = stripFormulaicLeadIn(nextResponse);
   nextResponse = removeAutomaticDraftPrompt(nextResponse);

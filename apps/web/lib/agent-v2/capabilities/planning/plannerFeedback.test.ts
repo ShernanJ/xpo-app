@@ -9,6 +9,7 @@ async function runTest() {
     mustAvoid: [],
     hookType: "Counter-narrative",
     pitchResponse: "i'm thinking we lean into the messy middle. sound good?",
+    extractedConstraints: [],
   };
 
   console.log("approve:", await interpretPlannerFeedback("yes", basePlan));

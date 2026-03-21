@@ -30,6 +30,7 @@ import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.
 import type {
   DraftFormatPreference,
   DraftPreference,
+  SessionConstraint,
   StrategyPlan,
   V2ConversationMemory,
 } from "../../contracts/chat.ts";
@@ -47,6 +48,10 @@ import {
   executeDraftingCapability,
   type DraftingCapabilityRunResult,
 } from "../drafting/draftingCapability.ts";
+import {
+  buildSessionConstraints,
+  sessionConstraintsToLegacyStrings,
+} from "../../core/sessionConstraints.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -61,6 +66,7 @@ export async function handlePendingPlanTurn(
     memory: V2ConversationMemory;
     getMemory: () => V2ConversationMemory;
     effectiveActiveConstraints: string[];
+    sessionConstraints: SessionConstraint[];
     safeFrameworkConstraint?: string | null;
     activeDraft?: string;
     effectiveContext: string;
@@ -96,6 +102,7 @@ export async function handlePendingPlanTurn(
     runGroundedDraft: (args: {
       plan: StrategyPlan;
       activeConstraints: string[];
+      sessionConstraints?: SessionConstraint[];
       activeDraft?: string;
       sourceUserMessage?: string;
       draftPreference: DraftPreference;
@@ -129,9 +136,13 @@ export async function handlePendingPlanTurn(
   }
 
   const pendingPlanHasNoFabrication = hasNoFabricationPlanGuardrail(pendingPlan);
+  const pendingPlanSessionConstraints = buildSessionConstraints({
+    activeConstraints: args.effectiveActiveConstraints,
+    inferredConstraints: pendingPlan.extractedConstraints,
+  });
   const baseDraftActiveConstraints = Array.from(
     new Set([
-      ...args.effectiveActiveConstraints,
+      ...sessionConstraintsToLegacyStrings(pendingPlanSessionConstraints),
       ...(args.safeFrameworkConstraint ? [args.safeFrameworkConstraint] : []),
     ]),
   );
@@ -165,6 +176,7 @@ export async function handlePendingPlanTurn(
         memory: args.memory,
         plan: pendingPlan,
         activeConstraints: draftActiveConstraints,
+        sessionConstraints: pendingPlanSessionConstraints,
         historicalTexts,
         userMessage: args.userMessage,
         draftPreference: approvedDraftPreference,
@@ -186,6 +198,7 @@ export async function handlePendingPlanTurn(
           const result = await args.runGroundedDraft({
             plan: pendingPlan,
             activeConstraints: draftActiveConstraints,
+            sessionConstraints: pendingPlanSessionConstraints,
             activeDraft: args.activeDraft,
             sourceUserMessage: args.buildPlanSourceMessage(pendingPlan),
             draftPreference: approvedDraftPreference,
@@ -244,7 +257,7 @@ export async function handlePendingPlanTurn(
     const revisedPlan = await args.services.generatePlan(
       revisionPrompt,
       args.memory.topicSummary,
-      args.effectiveActiveConstraints,
+      sessionConstraintsToLegacyStrings(pendingPlanSessionConstraints),
       args.effectiveContext,
       args.activeDraft,
       {
@@ -260,6 +273,8 @@ export async function handlePendingPlanTurn(
         voiceTarget: args.baseVoiceTarget,
         groundingPacket: args.groundingPacket,
         creatorProfileHints: args.creatorProfileHints,
+        activeTaskSummary: args.memory.rollingSummary,
+        sessionConstraints: pendingPlanSessionConstraints,
       },
     );
 
@@ -297,6 +312,7 @@ export async function handlePendingPlanTurn(
       topicSummary: guardedRevisedPlan.objective,
       conversationState: "plan_pending_approval",
       pendingPlan: guardedRevisedPlan,
+      inferredSessionConstraints: guardedRevisedPlan.extractedConstraints,
       clarificationState: null,
       assistantTurnCount: args.nextAssistantTurnCount,
       formatPreference: guardedRevisedPlan.formatPreference || args.turnFormatPreference,

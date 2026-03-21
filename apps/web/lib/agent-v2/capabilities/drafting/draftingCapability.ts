@@ -9,6 +9,7 @@ import type { CriticOutput } from "../../agents/critic.ts";
 import type {
   DraftFormatPreference,
   DraftPreference,
+  SessionConstraint,
   StrategyPlan,
   V2ConversationMemory,
 } from "../../contracts/chat.ts";
@@ -76,6 +77,7 @@ export interface DraftingCapabilityContext {
   memory: V2ConversationMemory;
   plan: StrategyPlan;
   activeConstraints: string[];
+  sessionConstraints: SessionConstraint[];
   historicalTexts: string[];
   userMessage: string;
   draftPreference: DraftPreference;
@@ -179,11 +181,15 @@ export async function executeDraftingCapability(
   }
 
   const rollingSummary = context.refreshRollingSummary
-    ? buildRollingSummary({
+      ? buildRollingSummary({
         currentSummary: context.memory.rollingSummary,
         topicSummary: context.plan.objective,
         approvedPlan: context.plan,
-        activeConstraints: context.activeConstraints,
+        activeConstraints: context.memory.activeConstraints,
+        inferredSessionConstraints:
+          context.sessionConstraints
+            .filter((constraint) => constraint.source === "inferred")
+            .map((constraint) => constraint.text),
         latestDraftStatus: context.latestDraftStatus,
         formatPreference: context.plan.formatPreference || context.turnFormatPreference,
       })

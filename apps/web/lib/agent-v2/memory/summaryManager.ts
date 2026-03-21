@@ -5,6 +5,7 @@ interface SummaryArgs {
   topicSummary: string | null;
   approvedPlan: StrategyPlan | null;
   activeConstraints: string[];
+  inferredSessionConstraints?: string[];
   latestDraftStatus: string;
   formatPreference?: DraftFormatPreference | null;
   unresolvedQuestion?: string | null;
@@ -46,6 +47,7 @@ export function buildRollingSummary(args: SummaryArgs): string {
   const persistentStyleConstraints = args.activeConstraints
     .filter((constraint) => !constraint.startsWith("Correction lock:"))
     .slice(-2);
+  const inferredSessionConstraints = (args.inferredSessionConstraints || []).slice(-3);
   const currentKnownFacts =
     pickSummaryValue(args.currentSummary, "Known facts:") || "none recorded";
   const knownFacts = correctionLocks.length > 0 ? correctionLocks.join(" | ") : currentKnownFacts;
@@ -55,6 +57,7 @@ export function buildRollingSummary(args: SummaryArgs): string {
     `Format preference: ${args.formatPreference || args.approvedPlan?.formatPreference || "shortform"}`,
     `Known facts: ${knownFacts}`,
     `Preferences discovered: ${persistentStyleConstraints.join(" | ") || "none recorded"}`,
+    `Inferred turn constraints: ${inferredSessionConstraints.join(" | ") || "none recorded"}`,
     `Latest draft status: ${args.latestDraftStatus}`,
   ];
 

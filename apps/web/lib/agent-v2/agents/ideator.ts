@@ -1,15 +1,17 @@
 import { fetchStructuredJsonFromGroq } from "./llm.ts";
 import { z } from "zod";
 import type { VoiceStyleCard } from "../core/styleProfile";
-import type { ConversationState } from "../contracts/chat";
+import type {
+  ConversationState,
+  SessionConstraint,
+  StrategyPlan,
+} from "../contracts/chat";
 import {
-  buildAntiPatternBlock,
   buildConversationToneBlock,
-  buildGoalHydrationBlock,
-  buildStateHydrationBlock,
-  buildVoiceHydrationBlock,
+  buildPromptHydrationEnvelope,
 } from "../prompts/promptHydrator";
 import { dedupeAngleTitlesForRetry } from "../core/angleNovelty";
+import type { CreatorProfileHints } from "../grounding/groundingPacket";
 
 export const IdeaSchema = z.object({
   title: z.string().describe("A concise, draftable angle title for the post idea. Keep it short, specific, and immediately usable as a direction, not an open-ended question. e.g. 'the hiring filter that kept our team lean' or 'why founder-led sales breaks when the process stays tribal'"),
@@ -486,6 +488,14 @@ export async function generateIdeasMenu(
     goal?: string;
     conversationState?: ConversationState;
     antiPatterns?: string[];
+    activeConstraints?: string[];
+    sessionConstraints?: SessionConstraint[];
+    creatorProfileHints?: CreatorProfileHints | null;
+    activeTaskSummary?: string | null;
+    activePlan?: StrategyPlan | null;
+    activeDraft?: string;
+    latestRefinementInstruction?: string | null;
+    lastIdeationAngles?: string[];
   },
 ): Promise<IdeasMenu | null> {
   const goal = options?.goal || "audience growth";
@@ -502,6 +512,25 @@ export async function generateIdeasMenu(
   const voiceHint = styleCard
     ? `Voice: ${styleCard.pacing}. Openers they use: ${styleCard.sentenceOpenings?.slice(0, 2).join(", ") || "N/A"}.`
     : "No voice profile loaded.";
+  const hydrationEnvelope = buildPromptHydrationEnvelope({
+    mode: "ideate",
+    goal,
+    conversationState,
+    styleCard,
+    antiPatterns,
+    activeConstraints:
+      options?.sessionConstraints?.map((constraint) => constraint.text) ||
+      options?.activeConstraints ||
+      [],
+    sessionConstraints: options?.sessionConstraints,
+    creatorProfileHints: options?.creatorProfileHints,
+    userContextString,
+    activeTaskSummary: options?.activeTaskSummary,
+    activePlan: options?.activePlan || null,
+    activeDraft: options?.activeDraft,
+    latestRefinementInstruction: options?.latestRefinementInstruction || null,
+    lastIdeationAngles: options?.lastIdeationAngles || [],
+  });
 
   // Ground the ideas in actual post history — this prevents making up topics
   const hasRealAnchors = topicAnchors.length > 0;
@@ -536,10 +565,7 @@ You are an elite X (Twitter) content strategist collaborating directly with a cr
 Your job is to provide highly tailored post ideas based on their history or current request, sounding like an expert peer.
 
 ${buildConversationToneBlock()}
-${buildGoalHydrationBlock(goal, "ideate")}
-${buildStateHydrationBlock(conversationState, "ideate")}
-${buildVoiceHydrationBlock(styleCard)}
-${buildAntiPatternBlock(antiPatterns)}
+${hydrationEnvelope}
 
 THE IDEATION FORMAT (CRITICAL):
 You MUST follow this exact structure for your output:

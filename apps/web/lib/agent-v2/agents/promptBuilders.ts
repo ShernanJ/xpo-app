@@ -6,16 +6,14 @@ import type {
   DraftFormatPreference,
   DraftPreference,
   FormatIntent,
+  SessionConstraint,
   StrategyPlan,
 } from "../contracts/chat";
 import {
-  buildAntiPatternBlock,
   buildConversationToneBlock,
   buildDraftPreferenceBlock,
   buildFormatPreferenceBlock,
-  buildGoalHydrationBlock,
-  buildStateHydrationBlock,
-  buildVoiceHydrationBlock,
+  buildPromptHydrationEnvelope,
 } from "../prompts/promptHydrator";
 import {
   buildConcreteSceneDraftBlock,
@@ -81,6 +79,47 @@ ${lines.join("\n")}
 Use this block to continue the current plan/draft/idea set even if the latest user turn is short.
 Treat this artifact context as more reliable than vague transcript wording when they conflict.
 Do NOT reset to a fresh direction if the user is clearly continuing the active artifact.
+  `.trim();
+}
+
+function buildActiveTaskBlock(args: {
+  activeTaskSummary?: string | null;
+  activePlan?: StrategyPlan | null;
+  activeDraft?: string;
+  latestRefinementInstruction?: string | null;
+}): string | null {
+  const lines: string[] = [];
+
+  if (args.activeTaskSummary?.trim()) {
+    lines.push(args.activeTaskSummary.trim());
+  }
+
+  if (args.activePlan) {
+    lines.push(
+      `Current plan objective: ${args.activePlan.objective}`,
+      `Current plan angle: ${args.activePlan.angle}`,
+      `Current plan format: ${args.activePlan.formatPreference || "shortform"}`,
+    );
+  }
+
+  if (args.activeDraft?.trim()) {
+    lines.push("Current draft artifact: present");
+  }
+
+  if (args.latestRefinementInstruction?.trim()) {
+    lines.push(`Latest refinement instruction: ${args.latestRefinementInstruction.trim()}`);
+  }
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  return `
+ACTIVE TASK:
+${lines.join("\n")}
+
+Use this to continue the current task when the latest user turn is short, corrective, or mid-thread.
+Do NOT reset to a fresh task if this block makes the continuation clear.
   `.trim();
 }
 
@@ -428,11 +467,14 @@ export interface BuildPlanInstructionArgs {
   userMessage: string;
   topicSummary: string | null;
   activeConstraints: string[];
+  sessionConstraints?: SessionConstraint[];
   recentHistory: string;
   activeDraft?: string;
   voiceTarget?: VoiceTarget | null;
   groundingPacket?: GroundingPacket | null;
   creatorProfileHints?: CreatorProfileHints | null;
+  activeTaskSummary?: string | null;
+  userContextString?: string;
   options?: {
     goal?: string;
     conversationState?: ConversationState;
@@ -452,37 +494,42 @@ function buildPlanRequirementsBlock(args: {
 }): string {
   if (args.isEditing) {
     return `REQUIREMENTS:
-1. Identify EXACTLY what needs to change in the existing draft to satisfy the user's request.
-2. Keep the core angle intact unless the user explicitly asks to change it.
-3. Put additions in "mustInclude" and removals in "mustAvoid".
-4. If any active session constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding. Preserve it exactly and do not reintroduce the old assumption.`;
+1. Before planning the edit, capture hidden or implied turn-level rules inside "extracted_constraints".
+2. Use "extracted_constraints" for tone shifts, formatting bans, omitted context, and mechanical asks hidden inside the user's wording.
+3. Identify EXACTLY what needs to change in the existing draft to satisfy the user's request.
+4. Keep the core angle intact unless the user explicitly asks to change it.
+5. Put additions in "mustInclude" and removals in "mustAvoid".
+6. If any active session constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding. Preserve it exactly and do not reintroduce the old assumption.`;
   }
 
   const shouldUseCasualStructure = shouldSuppressGrowthFormatting(args.formatIntent);
 
   return `REQUIREMENTS:
-1. Pick a compelling, draftable angle for this exact request. If enough context already exists to write from, choose a direction that can be drafted immediately instead of turning the turn into extra discovery.
-2. ${shouldUseCasualStructure
+1. Before choosing the plan, extract hidden or implied turn-level rules into "extracted_constraints".
+2. Use "extracted_constraints" for tone, pacing, framing, formatting bans, emotional direction, and mechanical asks hidden inside the user's wording. Examples: "make it angrier", "less cheesy", "no listicles", "keep the same skeleton".
+3. Keep "extracted_constraints" turn-specific. Do not invent durable profile rules or generic writing advice.
+4. Pick a compelling, draftable angle for this exact request. If enough context already exists to write from, choose a direction that can be drafted immediately instead of turning the turn into extra discovery.
+5. ${shouldUseCasualStructure
       ? 'Choose the right target lane (original / reply / quote) and the cleanest opening move for that angle. Keep it native and low-friction instead of forcing a lesson-first "growth hook."'
       : 'Choose the right target lane (original / reply / quote) and the strongest hook type for that angle. The hook should come from a real tension, surprise, contradiction, stake, or concrete moment in the request, not a generic "thoughts on" setup.'}
-3. Use "mustInclude" for concrete proof, scenes, stakes, outcomes, or facts that make the draft feel earned. Use "mustAvoid" for cliches, stale framing, or user-rejected patterns. Do NOT fill either list with meta writing advice like "be clear", "make it engaging", or "keep it concise."
-4. Do NOT invent fake metrics, backstory, hidden workflow steps, UI pain points, product behavior, or constraints the user never gave.
-5. If the user names a product, extension, tool, or company but does NOT explain what it actually does, keep the plan generic rather than filling in imagined specifics.
-6. If the user asks for a post about a concrete scene, event, conversation, game, meeting, or anecdote, keep the plan anchored to that exact scene. Do NOT swap in a product pitch, internal tool, growth mechanic, or lesson they never named.
-7. If FACTUAL GROUNDING or hard grounding is present, use it as the source of truth. Do NOT broaden the product into a nearby category, implied mechanic, market comparison, or first-person usage story that was not explicitly grounded.
-8. If PLAIN FACTUAL PRODUCT MODE is present, prefer a descriptive angle over a contrarian one. Do not force a "most people get this wrong" or "every tool..." setup unless the user explicitly asked for comparison or pushback.
-9. If RECENT CHAT HISTORY includes an earlier assistant guess or rejected draft that the user corrected, treat the correction as the source of truth and ignore the older assistant wording.
-10. ${args.formatIntent === "story"
+6. Use "mustInclude" for concrete proof, scenes, stakes, outcomes, or facts that make the draft feel earned. Use "mustAvoid" for cliches, stale framing, or user-rejected patterns. Do NOT fill either list with meta writing advice like "be clear", "make it engaging", or "keep it concise."
+7. Do NOT invent fake metrics, backstory, hidden workflow steps, UI pain points, product behavior, or constraints the user never gave.
+8. If the user names a product, extension, tool, or company but does NOT explain what it actually does, keep the plan generic rather than filling in imagined specifics.
+9. If the user asks for a post about a concrete scene, event, conversation, game, meeting, or anecdote, keep the plan anchored to that exact scene. Do NOT swap in a product pitch, internal tool, growth mechanic, or lesson they never named.
+10. If FACTUAL GROUNDING or hard grounding is present, use it as the source of truth. Do NOT broaden the product into a nearby category, implied mechanic, market comparison, or first-person usage story that was not explicitly grounded.
+11. If PLAIN FACTUAL PRODUCT MODE is present, prefer a descriptive angle over a contrarian one. Do not force a "most people get this wrong" or "every tool..." setup unless the user explicitly asked for comparison or pushback.
+12. If RECENT CHAT HISTORY includes an earlier assistant guess or rejected draft that the user corrected, treat the correction as the source of truth and ignore the older assistant wording.
+13. ${args.formatIntent === "story"
       ? "If the user asked for a lived-experience story and exact specifics are missing, keep the story angle and use [Bracketed Placeholders] instead of downgrading it into a framework."
       : "If GROUNDING PACKET says Allowed first-person claims is empty, do NOT choose a lived-experience story angle. Pick a framework, opinion, or plain factual angle instead."}
-11. If AUTOBIOGRAPHICAL PERSPECTIVE MODE is present, keep grounded story claims in first person and do NOT reframe the creator as a candidate, the user, or they.
-12. If SAFE FRAMEWORK FALLBACK MODE is present, treat that as the preferred fallback instead of squeezing in invented specifics.
-13. Use CREATOR PROFILE HINTS to bias target lane, hook family, and format preference when the user did not explicitly override them.
-14. ${shouldUseCasualStructure
+14. If AUTOBIOGRAPHICAL PERSPECTIVE MODE is present, keep grounded story claims in first person and do NOT reframe the creator as a candidate, the user, or they.
+15. If SAFE FRAMEWORK FALLBACK MODE is present, treat that as the preferred fallback instead of squeezing in invented specifics.
+16. Use CREATOR PROFILE HINTS to bias target lane, hook family, and format preference when the user did not explicitly override them.
+17. ${shouldUseCasualStructure
       ? 'Keep "pitchResponse" short, lowercase, natural, and directionally specific. Do not promise a lesson, CTA, or framework if the user asked for a joke or observation.'
       : 'Keep "pitchResponse" short, lowercase, natural, and action-oriented. It should describe the direction itself, not your process.'}
-15. Good \`pitchResponse\`: "lead with the contradiction between the promise and what actually changed"
-16. Bad \`pitchResponse\`: "got it, here's the plan", "let's do...", "i'm thinking we should...", "want me to draft it?"`;
+18. Good \`pitchResponse\`: "lead with the contradiction between the promise and what actually changed"
+19. Bad \`pitchResponse\`: "got it, here's the plan", "let's do...", "i'm thinking we should...", "want me to draft it?"`;
 }
 
 function buildThreadBeatPlanningBlock(): string {
@@ -557,7 +604,18 @@ export function buildPlanInstruction(args: BuildPlanInstructionArgs): string {
   const assetCtaBlock = buildAssetCtaBlock(
     [args.userMessage, args.topicSummary || "", args.recentHistory].filter(Boolean).join("\n"),
   );
-  const artifactContextBlock = buildArtifactContextBlock({
+  const hydrationEnvelope = buildPromptHydrationEnvelope({
+    mode: "plan",
+    goal,
+    conversationState,
+    styleCard: null,
+    antiPatterns,
+    voiceTarget: args.voiceTarget,
+    activeConstraints: args.activeConstraints,
+    sessionConstraints: args.sessionConstraints,
+    creatorProfileHints: args.creatorProfileHints,
+    userContextString: args.userContextString,
+    activeTaskSummary: args.activeTaskSummary,
     activePlan: args.options?.activePlan || null,
     activeDraft: args.activeDraft,
     latestRefinementInstruction: args.options?.latestRefinementInstruction || null,
@@ -574,15 +632,11 @@ ${isEditing
 ${buildFormatIntentPromptOverride({ formatIntent, mode: "plan" }) ? `\n${buildFormatIntentPromptOverride({ formatIntent, mode: "plan" })}` : ""}
 
 ${buildConversationToneBlock("plan")}
-${buildGoalHydrationBlock(goal, "plan")}
-${buildStateHydrationBlock(conversationState, "plan")}
+${hydrationEnvelope}
 ${buildDraftPreferenceBlock(draftPreference, "plan")}
 ${buildFormatPreferenceBlock(formatPreference, "plan")}
-${buildVoiceHydrationBlock(null, args.voiceTarget)}
-${buildAntiPatternBlock(antiPatterns)}
 
-${isEditing ? `EXISTING DRAFT TO EDIT:\n${args.activeDraft}\n\n` : ""}
-${artifactContextBlock ? `${artifactContextBlock}\n\n` : ""}
+	${isEditing ? `EXISTING DRAFT TO EDIT:\n${args.activeDraft}\n\n` : ""}
 
 WORKFLOW CONTEXT PACKET:
 ${args.recentHistory}
@@ -631,11 +685,13 @@ export interface BuildWriterInstructionArgs {
   topicAnchors: string[];
   referenceAnchorMode?: "historical_posts" | "reference_hints";
   activeConstraints: string[];
+  sessionConstraints?: SessionConstraint[];
   recentHistory: string;
   activeDraft?: string;
   voiceTarget?: VoiceTarget | null;
   groundingPacket?: GroundingPacket | null;
   creatorProfileHints?: CreatorProfileHints | null;
+  userContextString?: string;
   options?: {
     conversationState?: ConversationState;
     antiPatterns?: string[];
@@ -650,6 +706,7 @@ export interface BuildWriterInstructionArgs {
     activePlan?: StrategyPlan | null;
     latestRefinementInstruction?: string | null;
     lastIdeationAngles?: string[];
+    activeTaskSummary?: string | null;
   };
 }
 
@@ -726,7 +783,18 @@ Do NOT turn the product into "another tool", a meetup, a hashtag engine, a growt
       .filter(Boolean)
       .join("\n"),
   );
-  const artifactContextBlock = buildArtifactContextBlock({
+  const hydrationEnvelope = buildPromptHydrationEnvelope({
+    mode: "draft",
+    goal,
+    conversationState,
+    styleCard: args.styleCard,
+    antiPatterns,
+    voiceTarget: args.voiceTarget,
+    activeConstraints: args.activeConstraints,
+    sessionConstraints: args.sessionConstraints,
+    creatorProfileHints: args.creatorProfileHints,
+    userContextString: args.userContextString,
+    activeTaskSummary: args.options?.activeTaskSummary || null,
     activePlan: args.options?.activePlan || args.plan,
     activeDraft: args.activeDraft,
     latestRefinementInstruction: args.options?.latestRefinementInstruction || null,
@@ -840,15 +908,11 @@ ${isEditing ? `Your task is to take a Strategy Plan and apply it to EDIT an exis
 ${buildFormatIntentPromptOverride({ formatIntent, mode: isEditing ? "revision" : "draft" }) ? `\n${buildFormatIntentPromptOverride({ formatIntent, mode: isEditing ? "revision" : "draft" })}` : ""}
 
 ${buildConversationToneBlock("draft")}
-${buildGoalHydrationBlock(goal, "draft")}
-${buildStateHydrationBlock(conversationState, "draft")}
+${hydrationEnvelope}
 ${buildDraftPreferenceBlock(draftPreference, "draft")}
 ${buildFormatPreferenceBlock(formatPreference, "draft")}
-${buildVoiceHydrationBlock(args.styleCard, args.voiceTarget)}
-${buildAntiPatternBlock(antiPatterns)}
 
 ${isEditing ? `EXISTING DRAFT TO EDIT (USE THIS AS YOUR BASELINE):\n${args.activeDraft}\n\n` : ""}
-${artifactContextBlock ? `${artifactContextBlock}\n\n` : ""}
 
 WORKFLOW CONTEXT PACKET:
 ${args.recentHistory}

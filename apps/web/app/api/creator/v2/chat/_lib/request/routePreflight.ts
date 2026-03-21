@@ -238,12 +238,14 @@ export async function resolveRouteProfileContext(args: {
   transientPreferenceSettings: Partial<UserPreferences> | null;
   preferenceConstraints: string[];
   forcePinnedRefreshForAnalysis?: boolean;
+  forceFreshScrapeForAnalysis?: boolean;
 }): Promise<RouteProfileContext> {
   const snapshot = args.storedRun
     ? await loadCreatorWorkspaceSnapshot({
         userId: args.userId,
         xHandle: args.activeHandle,
         refreshPinnedProfile: args.forcePinnedRefreshForAnalysis,
+        forceFreshScrapeForAnalysis: args.forceFreshScrapeForAnalysis,
         storedRun: args.storedRun,
         allowMockFallback: true,
       })

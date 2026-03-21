@@ -22,6 +22,8 @@ export function applyMemoryPatch(
     ...patch,
     lastIdeationAngles: patch.lastIdeationAngles ?? current.lastIdeationAngles,
     activeConstraints: patch.activeConstraints ?? current.activeConstraints,
+    inferredSessionConstraints:
+      patch.inferredSessionConstraints ?? current.inferredSessionConstraints,
     pendingPlan: patch.pendingPlan === undefined ? current.pendingPlan : patch.pendingPlan,
     clarificationState: patch.clarificationState === undefined ? current.clarificationState : patch.clarificationState,
     continuationState:
@@ -59,6 +61,7 @@ export async function saveConversationTurnMemory(args: {
   const optimistic = applyMemoryPatch(memory, {
     conversationState: patch.conversationState,
     activeConstraints: patch.activeConstraints,
+    inferredSessionConstraints: patch.inferredSessionConstraints,
     pendingPlan: patch.pendingPlan,
     clarificationState: patch.clarificationState,
     continuationState: patch.continuationState,
@@ -103,6 +106,7 @@ export async function saveConversationTurnMemory(args: {
     threadId,
     topicSummary: patch.topicSummary,
     activeConstraints: patch.activeConstraints,
+    inferredSessionConstraints: patch.inferredSessionConstraints,
     concreteAnswerCount: patch.concreteAnswerCount,
     lastDraftArtifactId: patch.currentDraftArtifactId,
     conversationState: patch.conversationState,

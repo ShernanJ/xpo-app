@@ -28,6 +28,7 @@ export interface UpdateMemoryArgs {
   topicSummary?: string | null;
   lastIdeationAngles?: string[];
   activeConstraints?: string[];
+  inferredSessionConstraints?: string[];
   concreteAnswerCount?: number;
   lastDraftArtifactId?: string | null;
   activeDraftRef?: ActiveDraftRef | null;
@@ -50,6 +51,7 @@ export interface UpdateMemoryArgs {
 
 interface StoredMemoryEnvelope {
   constraints: string[];
+  inferredConstraints: string[];
   conversationState: ConversationState;
   pendingPlan: StrategyPlan | null;
   clarificationState: ClarificationState | null;
@@ -72,6 +74,7 @@ interface StoredMemoryEnvelope {
 function createInitialStoredMemoryEnvelope(): StoredMemoryEnvelope {
   return {
     constraints: [],
+    inferredConstraints: [],
     conversationState: "collecting_context",
     pendingPlan: null,
     clarificationState: null,
@@ -139,6 +142,7 @@ function normalizePlan(value: unknown): StrategyPlan | null {
     mustAvoid: normalizeStringArray(record.mustAvoid),
     hookType: record.hookType,
     pitchResponse: record.pitchResponse,
+    extractedConstraints: normalizeStringArray(record.extractedConstraints),
     ...(record.deliveryPreference === "balanced" ||
     record.deliveryPreference === "voice_first" ||
     record.deliveryPreference === "growth_first"
@@ -478,6 +482,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
   if (Array.isArray(value)) {
     return {
       constraints: normalizeStringArray(value),
+      inferredConstraints: [],
       conversationState: "collecting_context",
       pendingPlan: null,
       clarificationState: null,
@@ -501,6 +506,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
   if (!value || typeof value !== "object") {
     return {
       constraints: [],
+      inferredConstraints: [],
       conversationState: "collecting_context",
       pendingPlan: null,
       clarificationState: null,
@@ -524,6 +530,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
   const record = value as Record<string, unknown>;
   return {
     constraints: normalizeStringArray(record.constraints),
+    inferredConstraints: normalizeStringArray(record.inferredConstraints),
     conversationState: normalizeConversationState(record.conversationState),
     pendingPlan: normalizePlan(record.pendingPlan),
     clarificationState: normalizeClarificationState(record.clarificationState),
@@ -567,6 +574,7 @@ function parseMemoryEnvelope(value: unknown): StoredMemoryEnvelope {
 function serializeMemoryEnvelope(value: StoredMemoryEnvelope): Prisma.InputJsonValue {
   return {
     constraints: value.constraints,
+    inferredConstraints: value.inferredConstraints,
     conversationState: value.conversationState,
     pendingPlan: value.pendingPlan,
     clarificationState: value.clarificationState,
@@ -592,6 +600,7 @@ function buildStoredMemoryEnvelopeFromSnapshot(
 ): StoredMemoryEnvelope {
   return {
     constraints: snapshot.activeConstraints,
+    inferredConstraints: snapshot.inferredSessionConstraints || [],
     conversationState: snapshot.conversationState,
     pendingPlan: snapshot.pendingPlan,
     clarificationState: snapshot.clarificationState,
@@ -642,11 +651,11 @@ export function createConversationMemorySnapshot(
       typeof memory?.concreteAnswerCount === "number" && Number.isFinite(memory.concreteAnswerCount)
         ? memory.concreteAnswerCount
         : 0,
-    envelope: {
-      constraints: parsedEnvelope.constraints,
-      lastIdeationAngles: parsedEnvelope.lastIdeationAngles,
-      rollingSummary: parsedEnvelope.rollingSummary,
-      latestRefinementInstruction: parsedEnvelope.latestRefinementInstruction,
+      envelope: {
+        constraints: parsedEnvelope.constraints,
+        lastIdeationAngles: parsedEnvelope.lastIdeationAngles,
+        rollingSummary: parsedEnvelope.rollingSummary,
+        latestRefinementInstruction: parsedEnvelope.latestRefinementInstruction,
       unresolvedQuestion: parsedEnvelope.unresolvedQuestion,
     },
   });
@@ -662,6 +671,7 @@ export function createConversationMemorySnapshot(
   return {
     conversationState: envelope.conversationState,
     activeConstraints: envelope.constraints,
+    inferredSessionConstraints: envelope.inferredConstraints,
     topicSummary: salience.topicSummary,
     lastIdeationAngles: envelope.lastIdeationAngles,
     concreteAnswerCount: salience.concreteAnswerCount,
@@ -796,6 +806,10 @@ export async function updateConversationMemory(args: UpdateMemoryArgs) {
       const existingSnapshot = createConversationMemorySnapshot(existing as unknown as Record<string, unknown>);
       const nextEnvelope: StoredMemoryEnvelope = {
         constraints: args.activeConstraints ?? existingSnapshot.activeConstraints,
+        inferredConstraints:
+          args.inferredSessionConstraints ??
+          existingSnapshot.inferredSessionConstraints ??
+          [],
         conversationState: args.conversationState ?? existingSnapshot.conversationState,
         pendingPlan:
           args.pendingPlan === undefined ? existingSnapshot.pendingPlan : args.pendingPlan,

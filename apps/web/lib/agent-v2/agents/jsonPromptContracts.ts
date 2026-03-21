@@ -11,6 +11,7 @@ export function buildPlannerJsonContract(args: {
   "mustAvoid": ["generic word 1"],
   "hookType": "...",
   "pitchResponse": "Conversational pitch to the user...",
+  "extracted_constraints": ["no listicles", "sharpen the tone"],
   "posts": [
     {
       "role": "hook",
@@ -28,7 +29,8 @@ export function buildPlannerJsonContract(args: {
   "mustInclude": ["specific detail 1"],
   "mustAvoid": ["generic word 1"],
   "hookType": "...",
-  "pitchResponse": "Conversational pitch to the user..."
+  "pitchResponse": "Conversational pitch to the user...",
+  "extracted_constraints": ["no listicles", "sharpen the tone"]
 }`;
 }
 
@@ -58,6 +60,7 @@ export function buildCriticJsonContract(): string {
   "approved": boolean,
   "finalAngle": "...",
   "finalDraft": "The corrected draft text...",
+  "mechanicalDirective": "Concrete rewrite instruction for the reviser. Example: Strip adjectives, remove exclamation marks, and lower the reading grade level.",
   "issues": ["Issue 1 found and fixed", "Issue 2 found and fixed"]
 }`;
 }

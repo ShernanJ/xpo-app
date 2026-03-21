@@ -19,6 +19,7 @@ import type {
 import type {
   DraftFormatPreference,
   DraftPreference,
+  SessionConstraint,
   StrategyPlan,
   V2ConversationMemory,
 } from "../../contracts/chat.ts";
@@ -42,6 +43,7 @@ import type {
   RuntimeWorkerExecution,
 } from "../../runtime/runtimeContracts.ts";
 import type { DraftingCapabilityRunResult } from "../drafting/draftingCapability.ts";
+import { buildSessionConstraints } from "../../core/sessionConstraints.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -61,6 +63,7 @@ export async function handleDraftEditReviewTurn(args: {
   focusedThreadPostIndex?: number | null;
   draftInstruction: string;
   effectiveActiveConstraints: string[];
+  sessionConstraints: SessionConstraint[];
   safeFrameworkConstraint?: string | null;
   effectiveContext: string;
   relevantTopicAnchors: string[];
@@ -100,6 +103,7 @@ export async function handleDraftEditReviewTurn(args: {
   runGroundedDraft: (args: {
     plan: StrategyPlan;
     activeConstraints: string[];
+    sessionConstraints?: SessionConstraint[];
     activeDraft?: string;
     sourceUserMessage?: string;
     draftPreference: DraftPreference;
@@ -163,7 +167,7 @@ export async function handleDraftEditReviewTurn(args: {
     });
   }
 
-  const revisionActiveConstraints = Array.from(
+  const persistedRevisionActiveConstraints = Array.from(
     new Set([
       ...(isConstraintDeclaration(args.userMessage)
         ? [...args.effectiveActiveConstraints, args.userMessage.trim()]
@@ -171,6 +175,10 @@ export async function handleDraftEditReviewTurn(args: {
       ...(args.safeFrameworkConstraint ? [args.safeFrameworkConstraint] : []),
     ]),
   );
+  const revisionActiveConstraints = buildSessionConstraints({
+    activeConstraints: persistedRevisionActiveConstraints,
+    inferredConstraints: args.memory.inferredSessionConstraints,
+  }).map((constraint) => constraint.text);
 
   if (
     shouldUseRevisionDraftPath({
@@ -211,6 +219,12 @@ export async function handleDraftEditReviewTurn(args: {
         activeDraft: effectiveActiveDraft,
         revision,
         revisionActiveConstraints,
+        persistedActiveConstraints: persistedRevisionActiveConstraints,
+        inferredSessionConstraints: args.memory.inferredSessionConstraints || [],
+        sessionConstraints: buildSessionConstraints({
+          activeConstraints: persistedRevisionActiveConstraints,
+          inferredConstraints: args.memory.inferredSessionConstraints,
+        }),
         effectiveContext: args.effectiveContext,
         relevantTopicAnchors: args.relevantTopicAnchors,
         styleCard: args.styleCard,
@@ -262,6 +276,12 @@ export async function handleDraftEditReviewTurn(args: {
               userMessage: args.userMessage,
               draftInstruction: revision.instruction,
               revisionActiveConstraints,
+              persistedActiveConstraints: persistedRevisionActiveConstraints,
+              inferredSessionConstraints: args.memory.inferredSessionConstraints || [],
+              sessionConstraints: buildSessionConstraints({
+                activeConstraints: persistedRevisionActiveConstraints,
+                inferredConstraints: args.memory.inferredSessionConstraints,
+              }),
               effectiveContext: args.effectiveContext,
               activeDraft: effectiveActiveDraft,
               historicalTexts,
@@ -293,6 +313,10 @@ export async function handleDraftEditReviewTurn(args: {
                 args.runGroundedDraft({
                   plan,
                   activeConstraints,
+                  sessionConstraints: buildSessionConstraints({
+                    activeConstraints: persistedRevisionActiveConstraints,
+                    inferredConstraints: plan.extractedConstraints,
+                  }),
                   activeDraft: effectiveActiveDraft,
                   sourceUserMessage: revision.instruction,
                   draftPreference: plan.deliveryPreference || args.turnDraftPreference,
@@ -354,6 +378,8 @@ export async function handleDraftEditReviewTurn(args: {
               memoryPatch: {
                 conversationState: "editing",
                 activeConstraints: replanningExecution.output.memoryPatch.activeConstraints,
+                inferredSessionConstraints:
+                  replanningExecution.output.memoryPatch.inferredSessionConstraints,
                 pendingPlan: null,
                 clarificationState: null,
                 rollingSummary: replanningExecution.output.memoryPatch.rollingSummary,
@@ -402,6 +428,12 @@ export async function handleDraftEditReviewTurn(args: {
       userMessage: args.userMessage,
       draftInstruction: args.draftInstruction,
       revisionActiveConstraints,
+      persistedActiveConstraints: persistedRevisionActiveConstraints,
+      inferredSessionConstraints: args.memory.inferredSessionConstraints || [],
+      sessionConstraints: buildSessionConstraints({
+        activeConstraints: persistedRevisionActiveConstraints,
+        inferredConstraints: args.memory.inferredSessionConstraints,
+      }),
       effectiveContext: args.effectiveContext,
       activeDraft: args.activeDraft,
       historicalTexts,
@@ -433,6 +465,11 @@ export async function handleDraftEditReviewTurn(args: {
         args.runGroundedDraft({
           plan,
           activeConstraints,
+          sessionConstraints: buildSessionConstraints({
+            activeConstraints: persistedRevisionActiveConstraints,
+            inferredConstraints: args.memory.inferredSessionConstraints,
+            pendingPlan: plan,
+          }),
           activeDraft: args.activeDraft,
           sourceUserMessage: args.draftInstruction,
           draftPreference: plan.deliveryPreference || args.turnDraftPreference,

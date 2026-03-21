@@ -61,6 +61,10 @@ import {
 } from "../capabilities/planning/draftFastStart.ts";
 import { stripSelectedAnglePromptPrefix } from "../capabilities/drafting/selectedAnglePrompt.ts";
 import { resolveConversationRouterState } from "./conversationRouterMachine";
+import {
+  buildSessionConstraints,
+  sessionConstraintsToLegacyStrings,
+} from "../core/sessionConstraints";
 import { evaluateDraftContextSlots } from "../capabilities/planning/draftContextSlots";
 import {
   shouldForceNoFabricationPlanGuardrail,
@@ -92,6 +96,7 @@ import type {
   CreatorChatQuickReply,
   DraftFormatPreference,
   DraftPreference,
+  SessionConstraint,
   StrategyPlan,
   V2ConversationMemory,
 } from "../contracts/chat";
@@ -194,6 +199,7 @@ export async function executeDraftPipeline(args: {
     anchors,
     effectiveXHandle,
     effectiveActiveConstraints,
+    sessionConstraints,
     formatPreference,
     creatorProfileHints,
     userContextString: preloadedUserContextString,
@@ -205,6 +211,9 @@ export async function executeDraftPipeline(args: {
   } = context;
 
   const { routingTrace } = routing;
+  const effectiveSessionConstraintTexts = sessionConstraintsToLegacyStrings(
+    sessionConstraints,
+  );
   let mode = routing.resolvedMode; // resolvedMode;
   const runtimeWorkflow =
     routingTrace.runtimeResolution?.workflow || resolveLegacyRuntimeWorkflow(mode);
@@ -303,7 +312,7 @@ export async function executeDraftPipeline(args: {
     );
   };
   const groundingPacket = buildGroundingPacketForContext(
-    effectiveActiveConstraints,
+    effectiveSessionConstraintTexts,
     userMessage,
   );
   const factualContext = groundingPacket.factualAuthority || groundingPacket.durableFacts;
@@ -327,7 +336,7 @@ export async function executeDraftPipeline(args: {
     topicAnchors: anchors.topicAnchors,
     factualContext,
     voiceContextHints,
-    activeConstraints: effectiveActiveConstraints,
+    activeConstraints: effectiveSessionConstraintTexts,
   });
   const shouldForceNoFabricationGuardrailForTurn = shouldForceNoFabricationPlanGuardrail({
     userMessage,
@@ -391,7 +400,7 @@ export async function executeDraftPipeline(args: {
   const nextAssistantTurnCount = memory.assistantTurnCount + 1;
   const groundedTopicDraftInput = buildGroundedTopicDraftInput({
     userMessage,
-    activeConstraints: effectiveActiveConstraints,
+    activeConstraints: effectiveSessionConstraintTexts,
   });
   const turnDraftPreference = inferDraftPreference(
     userMessage,
@@ -504,7 +513,7 @@ export async function executeDraftPipeline(args: {
     missingAutobiographicalGroundingForTurn ||
     shouldUseFactSafeReferenceHints({
       sourceText: userMessage,
-      activeConstraints: effectiveActiveConstraints,
+      activeConstraints: effectiveSessionConstraintTexts,
     });
   const modelReferenceAnchors = useFactSafeReferenceHintsForTurn
     ? buildFactSafeReferenceHints({
@@ -518,7 +527,7 @@ export async function executeDraftPipeline(args: {
     relevantTopicAnchors: modelReferenceAnchors,
     factualContext,
     voiceContextHints,
-    activeConstraints: effectiveActiveConstraints,
+    activeConstraints: effectiveSessionConstraintTexts,
     approvedPlan: memory.pendingPlan,
     activeDraft: activeDraft || null,
     sourceMaterialRefs: selectedSourceMaterials,
@@ -1095,6 +1104,7 @@ export async function executeDraftPipeline(args: {
   async function generateDraftWithGroundingRetry(args: {
     plan: StrategyPlan;
     activeConstraints: string[];
+    sessionConstraints?: SessionConstraint[];
     activeDraft?: string;
     sourceUserMessage?: string | null;
     draftPreference: DraftPreference;
@@ -1128,6 +1138,20 @@ export async function executeDraftPipeline(args: {
             ...extraConstraints,
           ]),
         );
+        const attemptSessionConstraints = buildSessionConstraints({
+          activeConstraints: [
+            ...((args.sessionConstraints || [])
+              .filter((constraint) => constraint.source === "explicit")
+              .map((constraint) => constraint.text)),
+            ...(safeFrameworkConstraint ? [safeFrameworkConstraint] : []),
+            ...sourceMaterialDraftConstraints,
+            ...extraConstraints,
+          ],
+          inferredConstraints:
+            (args.sessionConstraints || [])
+              .filter((constraint) => constraint.source === "inferred")
+              .map((constraint) => constraint.text),
+        });
         const voiceTarget = resolveVoiceTarget({
           styleCard,
           userMessage: args.sourceUserMessage || args.plan.objective,
@@ -1166,6 +1190,9 @@ export async function executeDraftPipeline(args: {
             lastIdeationAngles: memory.lastIdeationAngles,
             groundingPacket: draftGroundingPacket,
             creatorProfileHints,
+            userContextString,
+            sessionConstraints: attemptSessionConstraints,
+            activeTaskSummary: memory.rollingSummary,
           },
         );
 
@@ -1193,6 +1220,12 @@ export async function executeDraftPipeline(args: {
             threadPostMaxCharacterLimit,
             threadFramingStyle: args.threadFramingStyle,
             groundingPacket: draftGroundingPacket,
+            creatorProfileHints,
+            userContextString,
+            sessionConstraints: attemptSessionConstraints,
+            activeTaskSummary: memory.rollingSummary,
+            activePlan: args.pendingPlan || args.plan,
+            latestRefinementInstruction: memory.latestRefinementInstruction,
           },
         );
 
@@ -1309,16 +1342,27 @@ export async function executeDraftPipeline(args: {
       draftContinuationState.sourceUserMessage?.trim() ||
       draftContinuationState.sourcePrompt?.trim() ||
       userMessage;
+    const groundingFollowUpConstraints = shouldResumeFromGroundingAnswer
+      ? buildGroundingFollowUpConstraints(userMessage)
+      : [];
+    const resumedPersistedActiveConstraints = Array.from(
+      new Set([
+        ...effectiveActiveConstraints,
+        ...groundingFollowUpConstraints,
+      ]),
+    );
     const resumedActiveConstraints = Array.from(
       new Set([
         ...(draftContinuationState.activeConstraints?.length
           ? draftContinuationState.activeConstraints
-          : effectiveActiveConstraints),
-        ...(shouldResumeFromGroundingAnswer
-          ? buildGroundingFollowUpConstraints(userMessage)
-          : []),
+          : effectiveSessionConstraintTexts),
+        ...groundingFollowUpConstraints,
       ]),
     );
+    const resumedSessionConstraints = buildSessionConstraints({
+      activeConstraints: resumedPersistedActiveConstraints,
+      inferredConstraints: resumedPlan.extractedConstraints,
+    });
     const resumedGroundingPacket = buildGroundingPacketForContext(
       resumedActiveConstraints,
       resumedSourceUserMessage,
@@ -1326,6 +1370,7 @@ export async function executeDraftPipeline(args: {
     const draftResult = await generateDraftWithGroundingRetry({
       plan: resumedPlan,
       activeConstraints: resumedActiveConstraints,
+      sessionConstraints: resumedSessionConstraints,
       activeDraft,
       sourceUserMessage: resumedSourceUserMessage,
       draftPreference: turnDraftPreference,
@@ -1362,6 +1407,7 @@ export async function executeDraftPipeline(args: {
         memory,
         plan: resumedPlan,
         activeConstraints: resumedActiveConstraints,
+        sessionConstraints: resumedSessionConstraints,
         historicalTexts,
         userMessage: resumedSourceUserMessage,
         draftPreference: turnDraftPreference,
@@ -1398,7 +1444,8 @@ export async function executeDraftPipeline(args: {
 
     await writeMemoryLocal({
       ...execution.output.memoryPatch,
-      activeConstraints: resumedActiveConstraints,
+      activeConstraints: resumedPersistedActiveConstraints,
+      inferredSessionConstraints: resumedPlan.extractedConstraints,
       continuationState: null,
     });
 
@@ -1486,6 +1533,7 @@ export async function executeDraftPipeline(args: {
       memory,
       getMemory: () => memory,
       effectiveActiveConstraints,
+      sessionConstraints,
       safeFrameworkConstraint,
       activeDraft,
       effectiveContext,
@@ -1636,6 +1684,7 @@ export async function executeDraftPipeline(args: {
       factualContext,
       feedbackMemoryNotice,
       nextAssistantTurnCount,
+      sessionConstraints,
       writeMemory: writeMemoryLocal,
       clearClarificationPatch,
       returnClarificationQuestion,
@@ -1699,6 +1748,7 @@ export async function executeDraftPipeline(args: {
       getMemory: () => memory,
       userMessage,
       effectiveActiveConstraints,
+      sessionConstraints,
       safeFrameworkConstraint,
       groundedTopicDraftInput,
       effectiveContext,
@@ -1763,6 +1813,7 @@ export async function executeDraftPipeline(args: {
       focusedThreadPostIndex,
       draftInstruction,
       effectiveActiveConstraints,
+      sessionConstraints,
       safeFrameworkConstraint,
       effectiveContext,
       relevantTopicAnchors,
@@ -1828,6 +1879,14 @@ export async function executeDraftPipeline(args: {
         goal,
         conversationState: memory.conversationState,
         antiPatterns,
+        activeConstraints: effectiveSessionConstraintTexts,
+        sessionConstraints,
+        creatorProfileHints,
+        activeTaskSummary: memory.rollingSummary,
+        activePlan: memory.pendingPlan,
+        activeDraft,
+        latestRefinementInstruction: memory.latestRefinementInstruction,
+        lastIdeationAngles: memory.lastIdeationAngles,
       },
     );
 
@@ -1841,7 +1900,8 @@ export async function executeDraftPipeline(args: {
         currentSummary: memory.rollingSummary,
         topicSummary: memory.topicSummary,
         approvedPlan: memory.pendingPlan,
-        activeConstraints: effectiveActiveConstraints,
+        activeConstraints: memory.activeConstraints,
+        inferredSessionConstraints: memory.inferredSessionConstraints,
         latestDraftStatus: "Context gathering",
         formatPreference: memory.formatPreference || turnFormatPreference,
         unresolvedQuestion: coachReply?.probingQuestion || null,
@@ -1865,7 +1925,7 @@ export async function executeDraftPipeline(args: {
 
     const finalResponse =
       coachReply?.response ||
-      "i can help with ideas, drafts, revisions, or figuring out what to post.";
+      "post, draft, revision, or profile read?";
 
     return {
       mode: "coach",

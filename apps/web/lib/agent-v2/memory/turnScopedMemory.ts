@@ -234,6 +234,7 @@ export function scopeMemoryForCurrentTurn(args: {
     continuationState: null,
     latestRefinementInstruction: null,
     unresolvedQuestion: null,
+    inferredSessionConstraints: [],
     activeReplyContext: null,
     activeReplyArtifactRef: null,
     activeProfileAnalysisRef: null,

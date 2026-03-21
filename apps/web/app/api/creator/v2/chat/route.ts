@@ -952,7 +952,7 @@ async function handleChatRouteRequest(args: {
     userId: args.userId,
     artifactContext: normalizedTurn.artifactContext,
   });
-  const shouldForcePinnedRefreshForAnalysis = isInlineProfileAnalysisRequest(
+  const shouldForceFreshProfileScrapeForAnalysis = isInlineProfileAnalysisRequest(
     effectiveMessage,
   );
 
@@ -1075,7 +1075,8 @@ async function handleChatRouteRequest(args: {
     storedRun,
     transientPreferenceSettings,
     preferenceConstraints,
-    forcePinnedRefreshForAnalysis: shouldForcePinnedRefreshForAnalysis,
+    forcePinnedRefreshForAnalysis: shouldForceFreshProfileScrapeForAnalysis,
+    forceFreshScrapeForAnalysis: shouldForceFreshProfileScrapeForAnalysis,
   });
 
   const effectiveExplicitIntent = normalizedTurn.explicitIntent;

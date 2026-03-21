@@ -10,6 +10,7 @@ import type {
 import type {
   DraftFormatPreference,
   DraftPreference,
+  SessionConstraint,
   StrategyPlan,
   V2ConversationMemory,
 } from "../../contracts/chat.ts";
@@ -44,6 +45,7 @@ export async function handlePlanModeTurn(args: {
   getMemory: () => V2ConversationMemory;
   userMessage: string;
   effectiveActiveConstraints: string[];
+  sessionConstraints: SessionConstraint[];
   safeFrameworkConstraint?: string | null;
   groundedTopicDraftInput: {
     planMessage?: string | null;
@@ -94,6 +96,7 @@ export async function handlePlanModeTurn(args: {
   runGroundedDraft: (args: {
     plan: StrategyPlan;
     activeConstraints: string[];
+    sessionConstraints?: SessionConstraint[];
     activeDraft?: string;
     sourceUserMessage?: string;
     draftPreference: DraftPreference;
@@ -163,6 +166,7 @@ export async function handlePlanModeTurn(args: {
     context: {
       planInputMessage: planInput.planMessage,
       planActiveConstraints: preparedPlanActiveConstraints,
+      sessionConstraints: args.sessionConstraints,
       planGroundingPacket: preparedPlanGroundingPacket,
       memory: args.memory,
       effectiveContext: args.effectiveContext,
@@ -204,6 +208,7 @@ export async function handlePlanModeTurn(args: {
     getMemory: args.getMemory,
     guardedPlan: execution.output.plan,
     planActiveConstraints: execution.output.planActiveConstraints,
+    sessionConstraints: args.sessionConstraints,
     planGroundingPacket: execution.output.planGroundingPacket,
     planResponseSeed: execution.output.responseSeed,
     planMemoryPatch: execution.output.memoryPatch,

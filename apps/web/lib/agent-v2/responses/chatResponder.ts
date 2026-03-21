@@ -11,6 +11,7 @@ import {
   getDeterministicChatReplySpec,
   type DeterministicChatReplySpec,
 } from "./chatResponderDeterministic.ts";
+import { scrubXpoPleasantries } from "../core/sparringPartnerTone.ts";
 
 // ---------------------------------------------------------------------------
 // Chat Responder (V3)
@@ -72,7 +73,13 @@ export async function respondConversationally(args: {
     diagnosticContext: args.diagnosticContext,
   });
   if (deterministicReply) {
-    return deterministicReply;
+    const scrubbedResponse =
+      scrubXpoPleasantries(deterministicReply.response) ||
+      deterministicReply.response.trim();
+    return {
+      ...deterministicReply,
+      response: scrubbedResponse,
+    };
   }
 
   // Otherwise use the existing coach for a conversational reply.
@@ -83,13 +90,18 @@ export async function respondConversationally(args: {
     args.styleCard,
     args.topicAnchors,
     args.userContextString,
-    args.options,
+    {
+      ...args.options,
+      activeConstraints: args.activeConstraints,
+    },
   );
 
   return reply?.response
     ? {
-        response: reply.response,
-        presentationStyle: responseLooksStructured(reply.response)
+        response: scrubXpoPleasantries(reply.response) || reply.response.trim(),
+        presentationStyle: responseLooksStructured(
+          scrubXpoPleasantries(reply.response) || reply.response.trim(),
+        )
           ? "preserve_authored_structure"
           : undefined,
       }

@@ -45,6 +45,22 @@ export interface NormalizedThreadPlan extends StrategyPlan {
   posts: NormalizedThreadPostPlan[];
 }
 
+interface PlannerOutputLike extends Omit<StrategyPlan, "extractedConstraints"> {
+  extractedConstraints?: string[];
+  extracted_constraints?: string[];
+}
+
+interface RawThreadPostPlan {
+  role: "hook" | "setup" | "proof" | "turn" | "payoff" | "close";
+  objective: string;
+  proofPoints: string[];
+  transitionHint: string | null;
+}
+
+interface RawThreadPlan extends PlannerOutputLike {
+  posts: RawThreadPostPlan[];
+}
+
 export type NormalizedPlannerOutput = StrategyPlan | NormalizedThreadPlan;
 
 function normalizePlanText(value: string): string {
@@ -392,7 +408,9 @@ function buildFallbackThreadPosts(plan: StrategyPlan): NormalizedThreadPostPlan[
   return normalizeThreadPosts(posts);
 }
 
-export function normalizePlannerOutput<T extends NormalizedPlannerOutput>(plan: T): T {
+export function normalizePlannerOutput<T extends PlannerOutputLike | RawThreadPlan>(
+  plan: T,
+): NormalizedPlannerOutput {
   const mustInclude = normalizePlanList(plan.mustInclude);
   const mustIncludeKeys = new Set(mustInclude.map((entry) => entry.toLowerCase()));
   const mustAvoid = normalizePlanList(plan.mustAvoid).filter(
@@ -407,16 +425,19 @@ export function normalizePlannerOutput<T extends NormalizedPlannerOutput>(plan: 
     mustAvoid,
     hookType: normalizePlanText(plan.hookType),
     pitchResponse: sanitizePlanPitchResponse(plan.pitchResponse || ""),
+    extractedConstraints: normalizePlanList(
+      plan.extractedConstraints || plan.extracted_constraints || [],
+    ),
   };
 
   if ("posts" in plan && Array.isArray(plan.posts)) {
     return {
       ...(normalizedPlan as NormalizedThreadPlan),
       posts: normalizeThreadPosts(plan.posts),
-    } as T;
+    };
   }
 
-  return normalizedPlan as T;
+  return normalizedPlan;
 }
 
 export function ensureThreadPlanPosts<T extends StrategyPlan>(

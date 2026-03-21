@@ -10,6 +10,7 @@ import type {
 import type {
   DraftFormatPreference,
   DraftPreference,
+  SessionConstraint,
   StrategyPlan,
   V2ConversationMemory,
 } from "../../contracts/chat.ts";
@@ -31,6 +32,10 @@ import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.
 import type { VoiceStyleCard } from "../../core/styleProfile.ts";
 import type { PlanningCapabilityMemoryPatch } from "./planningCapability.ts";
 import type { DraftRequestPolicy } from "../../grounding/requestPolicy.ts";
+import {
+  buildSessionConstraints,
+  sessionConstraintsToLegacyStrings,
+} from "../../core/sessionConstraints.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -45,6 +50,7 @@ export async function handleAutoApprovedPlanTurn(args: {
   getMemory: () => V2ConversationMemory;
   guardedPlan: StrategyPlan;
   planActiveConstraints: string[];
+  sessionConstraints: SessionConstraint[];
   planGroundingPacket: GroundingPacket;
   planResponseSeed: RawResponseSeed;
   planMemoryPatch: PlanningCapabilityMemoryPatch;
@@ -75,6 +81,7 @@ export async function handleAutoApprovedPlanTurn(args: {
   runGroundedDraft: (args: {
     plan: StrategyPlan;
     activeConstraints: string[];
+    sessionConstraints?: SessionConstraint[];
     activeDraft?: string;
     sourceUserMessage?: string;
     draftPreference: DraftPreference;
@@ -99,6 +106,13 @@ export async function handleAutoApprovedPlanTurn(args: {
   }
 
   if (args.isMultiDraftTurn) {
+    const draftSessionConstraints = buildSessionConstraints({
+      activeConstraints: args.planActiveConstraints,
+      inferredConstraints: args.guardedPlan.extractedConstraints,
+    });
+    const draftConstraintTexts = sessionConstraintsToLegacyStrings(
+      draftSessionConstraints,
+    );
     const historicalTexts = await args.loadHistoricalTexts();
     const execution = await executeDraftBundleCapability({
       workflow: "plan_then_draft",
@@ -112,7 +126,10 @@ export async function handleAutoApprovedPlanTurn(args: {
         userMessage: args.planInputMessage || args.userMessage,
         memory: args.memory,
         plan: args.guardedPlan,
-        activeConstraints: args.planActiveConstraints,
+        activeConstraints: draftConstraintTexts,
+        persistedActiveConstraints: args.planActiveConstraints,
+        inferredSessionConstraints: args.guardedPlan.extractedConstraints,
+        sessionConstraints: draftSessionConstraints,
         sourceMaterials: args.selectedSourceMaterials,
         draftPreference: args.turnDraftPreference,
         topicSummary: args.guardedPlan.objective,
@@ -140,6 +157,7 @@ export async function handleAutoApprovedPlanTurn(args: {
           args.runGroundedDraft({
             plan,
             activeConstraints,
+            sessionConstraints: draftSessionConstraints,
             sourceUserMessage,
             draftPreference,
             formatPreference: "shortform",
@@ -177,9 +195,14 @@ export async function handleAutoApprovedPlanTurn(args: {
     };
   }
 
+  const draftSessionConstraints = buildSessionConstraints({
+    activeConstraints: args.planActiveConstraints,
+    inferredConstraints: args.guardedPlan.extractedConstraints,
+  });
   const draftResult = await args.runGroundedDraft({
     plan: args.guardedPlan,
-    activeConstraints: args.planActiveConstraints,
+    activeConstraints: sessionConstraintsToLegacyStrings(draftSessionConstraints),
+    sessionConstraints: draftSessionConstraints,
     activeDraft: args.activeDraft,
     sourceUserMessage: args.planInputMessage || undefined,
     draftPreference: args.turnDraftPreference,
@@ -219,7 +242,16 @@ export async function handleAutoApprovedPlanTurn(args: {
     context: {
       memory: args.memory,
       plan: args.guardedPlan,
-      activeConstraints: args.planActiveConstraints,
+      activeConstraints: sessionConstraintsToLegacyStrings(
+        buildSessionConstraints({
+          activeConstraints: args.planActiveConstraints,
+          inferredConstraints: args.guardedPlan.extractedConstraints,
+        }),
+      ),
+      sessionConstraints: buildSessionConstraints({
+        activeConstraints: args.planActiveConstraints,
+        inferredConstraints: args.guardedPlan.extractedConstraints,
+      }),
       historicalTexts,
       userMessage: args.userMessage,
       draftPreference: args.turnDraftPreference,
@@ -250,6 +282,7 @@ export async function handleAutoApprovedPlanTurn(args: {
   await args.writeMemory({
     ...execution.output.memoryPatch,
     activeConstraints: args.planActiveConstraints,
+    inferredSessionConstraints: args.guardedPlan.extractedConstraints,
   });
 
   return {

@@ -4,7 +4,7 @@ import {
   createConversationMemory,
   updateConversationMemory,
   createConversationMemorySnapshot,
-} from "./memoryStore";
+} from "./memoryStore.ts";
 import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
 import { randomUUID } from "crypto";
@@ -46,6 +46,7 @@ async function runTest() {
       mustAvoid: ["generic opener"],
       hookType: "Counter-narrative",
       pitchResponse: "i'm thinking we focus on the messy middle. sound good?",
+      extractedConstraints: [],
     },
     rollingSummary: "Current topic: tricky refactor",
     assistantTurnCount: 2,

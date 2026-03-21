@@ -23,6 +23,7 @@ import { buildDraftRequestPolicy } from "../../grounding/requestPolicy.ts";
 import type {
   DraftFormatPreference,
   DraftPreference,
+  SessionConstraint,
   StrategyPlan,
   V2ConversationMemory,
 } from "../../contracts/chat.ts";
@@ -39,6 +40,7 @@ import type {
 } from "../../grounding/groundingPacket.ts";
 import type { SourceMaterialAssetRecord } from "../../grounding/sourceMaterials.ts";
 import { hasAutobiographicalGrounding } from "../../grounding/groundingPacket.ts";
+import { sessionConstraintsToLegacyStrings } from "../../core/sessionConstraints.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -50,6 +52,7 @@ type RawResponseSeed = RuntimeResponseSeed<RawOrchestratorResponse>;
 export interface PlanningCapabilityContext {
   planInputMessage: string;
   planActiveConstraints: string[];
+  sessionConstraints: SessionConstraint[];
   planGroundingPacket: GroundingPacket;
   memory: V2ConversationMemory;
   effectiveContext: string;
@@ -71,6 +74,7 @@ export interface PlanningCapabilityContext {
 export interface PlanningCapabilityMemoryPatch {
   topicSummary: string;
   activeConstraints: string[];
+  inferredSessionConstraints: string[];
   conversationState: "plan_pending_approval";
   pendingPlan: StrategyPlan;
   clarificationState: null;
@@ -114,7 +118,7 @@ export async function executePlanningCapability(
   const plan = await services.generatePlan(
     context.planInputMessage,
     context.memory.topicSummary,
-    context.planActiveConstraints,
+    sessionConstraintsToLegacyStrings(context.sessionConstraints),
     context.effectiveContext,
     context.activeDraft,
     {
@@ -130,6 +134,8 @@ export async function executePlanningCapability(
       voiceTarget: context.baseVoiceTarget,
       groundingPacket: context.planGroundingPacket,
       creatorProfileHints: context.creatorProfileHints,
+      activeTaskSummary: context.memory.rollingSummary,
+      sessionConstraints: context.sessionConstraints,
       onFailureReason: (reason: string) => {
         planFailureReason = reason;
       },
@@ -226,6 +232,7 @@ export async function executePlanningCapability(
       memoryPatch: {
         topicSummary: guardedPlan.objective,
         activeConstraints: context.planActiveConstraints,
+        inferredSessionConstraints: guardedPlan.extractedConstraints,
         conversationState: "plan_pending_approval",
         pendingPlan: guardedPlan,
         clarificationState: null,

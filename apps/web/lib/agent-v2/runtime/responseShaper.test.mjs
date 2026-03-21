@@ -49,6 +49,28 @@ test("response shaper strips fluffy lead-ins from visible replies", () => {
   assert.equal(response, "i can help with post ideas, drafts, or revisions.");
 });
 
+test("response shaper strips banned pleasantries from visible replies", () => {
+  const plan = selectResponseShapePlan({
+    outputShape: "coach_question",
+    response: "Sure! Here is your draft: tighten the hook and cut the throat-clearing. Let me know what you think.",
+    hasQuickReplies: false,
+    hasAngles: false,
+    hasPlan: false,
+    hasDraft: false,
+    conversationState: "needs_more_context",
+    preferredSurfaceMode: "natural",
+  });
+
+  const response = shapeAssistantResponse({
+    response:
+      "Sure! Here is your draft: tighten the hook and cut the throat-clearing. Let me know what you think.",
+    outputShape: "coach_question",
+    plan,
+  });
+
+  assert.equal(response, "tighten the hook and cut the throat-clearing.");
+});
+
 test("response shaper strips short canned acknowledgments before substantive replies", () => {
   const plan = selectResponseShapePlan({
     outputShape: "coach_question",

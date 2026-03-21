@@ -9,6 +9,7 @@ import type {
   DraftFormatPreference,
   DraftPreference,
   FormatIntent,
+  SessionConstraint,
   StrategyPlan,
 } from "../contracts/chat";
 import type {
@@ -57,6 +58,9 @@ export async function generateDrafts(
     lastIdeationAngles?: string[];
     groundingPacket?: GroundingPacket | null;
     creatorProfileHints?: CreatorProfileHints | null;
+    userContextString?: string;
+    sessionConstraints?: SessionConstraint[];
+    activeTaskSummary?: string | null;
   },
 ): Promise<WriterOutput | null> {
   const requestPolicy = buildDraftRequestPolicy({
@@ -75,6 +79,8 @@ export async function generateDrafts(
     voiceTarget: options?.voiceTarget,
     groundingPacket: options?.groundingPacket,
     creatorProfileHints: options?.creatorProfileHints,
+    userContextString: options?.userContextString,
+    sessionConstraints: options?.sessionConstraints,
     options,
   });
 

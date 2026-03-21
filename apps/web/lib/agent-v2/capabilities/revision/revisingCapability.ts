@@ -12,6 +12,7 @@ import type { CriticOutput } from "../../agents/critic.ts";
 import type {
   DraftFormatPreference,
   DraftPreference,
+  SessionConstraint,
   V2ConversationMemory,
 } from "../../contracts/chat.ts";
 import type { VoiceStyleCard } from "../../core/styleProfile.ts";
@@ -49,6 +50,10 @@ import type {
   DraftRevisionDirective,
   DraftRevisionTargetSpan,
 } from "./draftRevision.ts";
+import {
+  buildSessionConstraints,
+  sessionConstraintsToLegacyStrings,
+} from "../../core/sessionConstraints.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -220,6 +225,7 @@ function buildThreadSpanMismatchAttempt(args: {
       approved: false,
       finalAngle: "same angle",
       finalDraft: args.originalDraft,
+      mechanicalDirective: "Preserve the target span shape and return the exact number of requested thread posts.",
       issues: [args.issue],
     },
     validation: buildSyntheticThreadValidation({
@@ -289,6 +295,72 @@ function resolveAttemptDraft(attempt: RevisionAttemptResult): string {
     attempt.reviserOutput?.revisedDraft ||
     ""
   );
+}
+
+function selectBestAvailableRevisionCandidate(args: {
+  firstAttempt: RevisionAttemptResult;
+  finalAttempt: RevisionAttemptResult;
+  originalDraft: string;
+}): {
+  draft: string;
+  supportAsset: string | null;
+  source:
+    | "second_attempt_validated"
+    | "second_attempt_critic"
+    | "second_attempt_reviser"
+    | "first_attempt_validated"
+    | "first_attempt_critic"
+    | "first_attempt_reviser"
+    | "original_draft";
+} {
+  const prioritizedAttempts =
+    args.finalAttempt === args.firstAttempt
+      ? [{ attempt: args.firstAttempt, label: "first" as const }]
+      : [
+          { attempt: args.finalAttempt, label: "second" as const },
+          { attempt: args.firstAttempt, label: "first" as const },
+        ];
+
+  for (const { attempt, label } of prioritizedAttempts) {
+    if (attempt.validation?.correctedDraft?.trim()) {
+      return {
+        draft: attempt.validation.correctedDraft,
+        supportAsset: attempt.reviserOutput?.supportAsset ?? null,
+        source:
+          label === "second"
+            ? "second_attempt_validated"
+            : "first_attempt_validated",
+      };
+    }
+
+    if (attempt.criticOutput?.finalDraft?.trim()) {
+      return {
+        draft: attempt.criticOutput.finalDraft,
+        supportAsset: attempt.reviserOutput?.supportAsset ?? null,
+        source:
+          label === "second"
+            ? "second_attempt_critic"
+            : "first_attempt_critic",
+      };
+    }
+
+    if (attempt.reviserOutput?.revisedDraft?.trim()) {
+      return {
+        draft: attempt.reviserOutput.revisedDraft,
+        supportAsset: attempt.reviserOutput.supportAsset ?? null,
+        source:
+          label === "second"
+            ? "second_attempt_reviser"
+            : "first_attempt_reviser",
+      };
+    }
+  }
+
+  return {
+    draft: args.originalDraft,
+    supportAsset: null,
+    source: "original_draft",
+  };
 }
 
 function hasMaterialRevisionChange(args: {
@@ -374,6 +446,9 @@ export interface RevisingCapabilityContext {
   activeDraft: string;
   revision: DraftRevisionDirective;
   revisionActiveConstraints: string[];
+  persistedActiveConstraints: string[];
+  inferredSessionConstraints: string[];
+  sessionConstraints: SessionConstraint[];
   effectiveContext: string;
   relevantTopicAnchors: string[];
   styleCard: VoiceStyleCard | null;
@@ -400,6 +475,7 @@ export interface RevisingCapabilityContext {
 export interface RevisingCapabilityMemoryPatch {
   conversationState: "editing";
   activeConstraints: string[];
+  inferredSessionConstraints: string[];
   pendingPlan: null;
   clarificationState: null;
   rollingSummary: string | null;
@@ -472,12 +548,19 @@ export async function executeRevisingCapability(
   const runRevisionAttempt = async (attempt: {
     extraConstraints?: string[];
     validationGroupId: string;
+    criticAnalysis?: string | null;
   }): Promise<RevisionAttemptResult> => {
-    const activeConstraints = Array.from(
-      new Set([
-        ...context.revisionActiveConstraints,
-        ...(attempt.extraConstraints ?? []),
-      ]),
+    const attemptSessionConstraints = buildSessionConstraints({
+      activeConstraints: Array.from(
+        new Set([
+          ...(context.persistedActiveConstraints || []),
+          ...(attempt.extraConstraints ?? []),
+        ]),
+      ),
+      inferredConstraints: context.inferredSessionConstraints || [],
+    });
+    const activeConstraints = sessionConstraintsToLegacyStrings(
+      attemptSessionConstraints,
     );
     const threadSpanPlan = resolveThreadSpanRevisionPlan({
       activeDraft: context.activeDraft,
@@ -501,6 +584,12 @@ export async function executeRevisingCapability(
         threadFramingStyle: context.turnThreadFramingStyle,
         sourceUserMessage: context.userMessage,
         groundingPacket: context.groundingPacket,
+        userCritique: context.userMessage,
+        criticAnalysis: attempt.criticAnalysis || null,
+        sessionConstraints: attemptSessionConstraints,
+        creatorProfileHints: context.creatorProfileHints,
+        activeTaskSummary: context.memory.rollingSummary,
+        activePlan: context.memory.pendingPlan,
         ...(threadSpanPlan
           ? {
               threadRevisionContext: {
@@ -572,7 +661,16 @@ export async function executeRevisingCapability(
         previousDraft: context.activeDraft,
         revisionChangeKind: context.revision.changeKind,
         sourceUserMessage: context.userMessage,
+        userCritique: context.userMessage,
         groundingPacket: context.groundingPacket,
+        goal: context.goal,
+        conversationState: "editing",
+        antiPatterns: context.antiPatterns,
+        sessionConstraints: attemptSessionConstraints,
+        creatorProfileHints: context.creatorProfileHints,
+        activeTaskSummary: context.memory.rollingSummary,
+        activePlan: context.memory.pendingPlan,
+        latestRefinementInstruction: context.latestRefinementInstruction,
       },
     );
 
@@ -781,6 +879,9 @@ export async function executeRevisingCapability(
     ? await runRevisionAttempt({
         extraConstraints: retryConstraints,
         validationGroupId: "revision_delivery_validation_retry",
+        criticAnalysis: !firstAttempt.criticOutput.approved
+          ? firstAttempt.criticOutput.mechanicalDirective
+          : null,
       })
     : firstAttempt;
 
@@ -876,6 +977,122 @@ export async function executeRevisingCapability(
     };
   }
 
+  const revisionWasRejectedByCritic = !finalAttempt.criticOutput.approved;
+  if (revisionWasRejectedByCritic && !finalAttempt.validation!.hasDeliveryFailures) {
+    const bestAvailableCandidate = selectBestAvailableRevisionCandidate({
+      firstAttempt,
+      finalAttempt,
+      originalDraft: context.activeDraft,
+    });
+    const outputShape = resolveDraftOutputShape(resolvedFormatPreference);
+    const issuesFixed = Array.from(
+      new Set([
+        ...(finalAttempt.reviserOutput.issuesFixed || []),
+        ...(finalAttempt.criticOutput.issues || []),
+        ...(firstAttempt.reviserOutput?.issuesFixed || []),
+        ...(firstAttempt.criticOutput?.issues || []),
+        `Critic rejected ${MAX_INTERNAL_ATTEMPTS} revision attempts. Returning the best available draft from ${bestAvailableCandidate.source.replaceAll("_", " ")}.`,
+      ]),
+    );
+
+    return {
+      workflow: args.workflow,
+      capability: args.capability,
+      output: {
+        kind: "revision_ready",
+        responseSeed: {
+          mode: "draft",
+          outputShape,
+          response: appendCoachNote({
+            response: prependFeedbackMemoryNotice(
+              buildDraftReply({
+                userMessage: context.userMessage,
+                draftPreference: context.turnDraftPreference,
+                isEdit: true,
+                issuesFixed,
+                styleCard: context.styleCard,
+                revisionChangeKind: context.revision.changeKind,
+                revisionTargetFormat: context.revision.targetFormat ?? null,
+                directReturn: true,
+              }),
+              context.feedbackMemoryNotice ?? null,
+            ),
+            userMessage: context.userMessage,
+            creatorProfileHints: context.creatorProfileHints,
+            requestPolicy,
+          }),
+          data: {
+            draft: bestAvailableCandidate.draft,
+            supportAsset:
+              bestAvailableCandidate.supportAsset ??
+              finalAttempt.reviserOutput.supportAsset ??
+              firstAttempt.reviserOutput?.supportAsset ??
+              null,
+            issuesFixed,
+            quickReplies: buildDraftResultQuickReplies({
+              outputShape,
+              styleCard: context.styleCard,
+              seedTopic: context.memory.topicSummary,
+              singlePostMaxCharacterLimit:
+                resolvedFormatPreference === "thread"
+                  ? context.threadPostMaxCharacterLimit ?? resolvedMaxCharacterLimit
+                  : resolvedMaxCharacterLimit,
+            }),
+            voiceTarget: resolveVoiceTarget({
+              styleCard: context.styleCard,
+              userMessage: context.userMessage,
+              draftPreference: context.turnDraftPreference,
+              formatPreference: resolvedFormatPreference,
+            }),
+            noveltyNotes: [],
+            threadFramingStyle: context.turnThreadFramingStyle,
+            groundingSources: context.groundingSources,
+            groundingMode: context.groundingMode,
+            groundingExplanation: context.groundingExplanation,
+          },
+        },
+        memoryPatch: {
+          conversationState: "editing",
+          activeConstraints: context.persistedActiveConstraints,
+          inferredSessionConstraints: context.inferredSessionConstraints,
+          pendingPlan: null,
+          clarificationState: null,
+          rollingSummary: context.refreshRollingSummary
+            ? buildRollingSummary({
+                currentSummary: context.memory.rollingSummary,
+                topicSummary: context.memory.topicSummary,
+                approvedPlan: context.memory.pendingPlan,
+                activeConstraints: context.persistedActiveConstraints,
+                inferredSessionConstraints: context.inferredSessionConstraints,
+                latestDraftStatus: "Draft revised",
+                formatPreference: resolvedFormatPreference,
+              })
+            : context.memory.rollingSummary,
+          assistantTurnCount: context.nextAssistantTurnCount,
+          formatPreference: resolvedFormatPreference,
+          latestRefinementInstruction: context.latestRefinementInstruction,
+          unresolvedQuestion: null,
+        },
+      },
+      workers: [
+        ...accumulatedWorkers,
+        {
+          worker: "revision_delivery",
+          capability: "revising",
+          phase: "execution",
+          mode: "sequential",
+          status: "completed",
+          groupId: null,
+          details: {
+            issueCount: issuesFixed.length,
+            circuitBreakerTriggered: true,
+          },
+        },
+      ],
+      validations: accumulatedValidations,
+    };
+  }
+
   if (finalAttempt.validation!.hasDeliveryFailures) {
     const escalatedExecution = await tryEscalateFormatConversion("delivery_failure");
     if (escalatedExecution) {
@@ -894,7 +1111,6 @@ export async function executeRevisingCapability(
     };
   }
 
-  const revisionWasRejectedByCritic = !finalAttempt.criticOutput.approved;
   const finalizedRevisionCandidate =
     finalAttempt.validation!.correctedDraft || finalAttempt.reviserOutput.revisedDraft;
   const revisionHasMaterialChange = hasMaterialRevisionChange({
@@ -931,11 +1147,12 @@ export async function executeRevisingCapability(
     formatPreference: resolvedFormatPreference,
   });
   const rollingSummary = context.refreshRollingSummary
-    ? buildRollingSummary({
+      ? buildRollingSummary({
         currentSummary: context.memory.rollingSummary,
         topicSummary: context.memory.topicSummary,
         approvedPlan: context.memory.pendingPlan,
-        activeConstraints: finalAttempt.activeConstraints,
+        activeConstraints: context.persistedActiveConstraints,
+        inferredSessionConstraints: context.inferredSessionConstraints,
         latestDraftStatus: "Draft revised",
         formatPreference: resolvedFormatPreference,
       })
@@ -1004,7 +1221,8 @@ export async function executeRevisingCapability(
       },
       memoryPatch: {
         conversationState: "editing",
-        activeConstraints: finalAttempt.activeConstraints,
+        activeConstraints: context.persistedActiveConstraints,
+        inferredSessionConstraints: context.inferredSessionConstraints,
         pendingPlan: null,
         clarificationState: null,
         rollingSummary,

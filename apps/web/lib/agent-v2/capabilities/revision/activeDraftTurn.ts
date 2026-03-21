@@ -11,7 +11,7 @@ import {
 } from "../../grounding/draftGrounding.ts";
 import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import type { OrchestratorResponse } from "../../runtime/types.ts";
-import type { V2ConversationMemory } from "../../contracts/chat.ts";
+import type { SessionConstraint, V2ConversationMemory } from "../../contracts/chat.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -35,6 +35,7 @@ interface ActiveDraftTurnBaseArgs {
   userMessage: string;
   activeDraft: string;
   memory: V2ConversationMemory;
+  sessionConstraints?: SessionConstraint[];
   feedbackMemoryNotice?: string | null;
   nextAssistantTurnCount: number;
   writeMemory: (patch: MemoryPatch) => Promise<void>;

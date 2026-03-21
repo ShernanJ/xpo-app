@@ -161,3 +161,26 @@ test("drafting capability skips coach notes for joke-mode personality posts", as
     false,
   );
 });
+
+test("drafting capability keeps inferred session constraints in the rolling summary without flattening them into active constraints", async () => {
+  const result = await executeDraftingCapability(
+    createArgs({
+      context: {
+        memory: {
+          ...createMemory(),
+          activeConstraints: ["keep all lowercase"],
+        },
+        activeConstraints: ["keep all lowercase", "no listicles"],
+        sessionConstraints: [
+          { source: "explicit", text: "keep all lowercase" },
+          { source: "inferred", text: "no listicles" },
+        ],
+        refreshRollingSummary: true,
+      },
+    }),
+  );
+
+  assert.equal(result.output.kind, "draft_ready");
+  assert.match(result.output.memoryPatch.rollingSummary, /Preferences discovered: keep all lowercase/);
+  assert.match(result.output.memoryPatch.rollingSummary, /Inferred turn constraints: no listicles/);
+});

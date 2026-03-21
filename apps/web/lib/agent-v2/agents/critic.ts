@@ -9,9 +9,18 @@ import {
 } from "./xPostPromptRules";
 import type { VoiceStyleCard } from "../core/styleProfile";
 import type { VoiceTarget } from "../core/voiceTarget";
-import type { DraftFormatPreference, DraftPreference } from "../contracts/chat";
+import type {
+  ConversationState,
+  DraftFormatPreference,
+  DraftPreference,
+  SessionConstraint,
+  StrategyPlan,
+} from "../contracts/chat";
 import type { ThreadFramingStyle } from "../../onboarding/draftArtifacts";
-import type { GroundingPacket } from "../grounding/groundingPacket";
+import type {
+  CreatorProfileHints,
+  GroundingPacket,
+} from "../grounding/groundingPacket";
 // TODO(v3): Import and populate DraftScore for multi-dimensional scoring.
 // import type { DraftScore } from "../contracts/chat";
 // The CriticOutputSchema could be extended with optional fields:
@@ -24,8 +33,10 @@ import {
 } from "../../onboarding/draftArtifacts";
 import { applyFinalDraftPolicyWithReport } from "../core/finalDraftPolicy";
 import {
+  buildConversationToneBlock,
   buildDraftPreferenceBlock,
   buildFormatPreferenceBlock,
+  buildPromptHydrationEnvelope,
 } from "../prompts/promptHydrator";
 import {
   assessConcreteSceneDrift,
@@ -36,6 +47,10 @@ export const CriticOutputSchema = z.object({
   approved: z.boolean().describe("Whether the draft passes the harsh review without major rewrites"),
   finalAngle: z.string().describe("The final underlying angle for the draft"),
   finalDraft: z.string().describe("The final, corrected draft ready for the user"),
+  mechanicalDirective: z
+    .string()
+    .default("")
+    .describe("Concrete, mechanical rewrite instruction for the reviser if another pass is needed"),
   issues: z.array(z.string()).describe("Any minor or major issues found during critique"),
 });
 
@@ -97,15 +112,29 @@ export async function critiqueDrafts(
     previousDraft?: string;
     revisionChangeKind?: DraftRevisionChangeKind;
     sourceUserMessage?: string;
+    userCritique?: string | null;
     voiceTarget?: VoiceTarget | null;
     threadFramingStyle?: ThreadFramingStyle | null;
     groundingPacket?: GroundingPacket | null;
+    goal?: string;
+    conversationState?: ConversationState;
+    antiPatterns?: string[];
+    sessionConstraints?: SessionConstraint[];
+    creatorProfileHints?: CreatorProfileHints | null;
+    userContextString?: string;
+    activeTaskSummary?: string | null;
+    activePlan?: StrategyPlan | null;
+    latestRefinementInstruction?: string | null;
   },
 ): Promise<CriticOutput | null> {
   const maxCharacterLimit = options?.maxCharacterLimit ?? 280;
   const threadPostMaxCharacterLimit = options?.threadPostMaxCharacterLimit ?? null;
   const draftPreference = options?.draftPreference || "balanced";
   const formatPreference = options?.formatPreference || "shortform";
+  const goal = options?.goal || "audience growth";
+  const conversationState =
+    options?.conversationState || (options?.previousDraft ? "editing" : "draft_ready");
+  const antiPatterns = options?.antiPatterns || [];
   const concreteSceneBlock = buildConcreteSceneCriticBlock(options?.sourceUserMessage);
   const groundingPromptBlock = buildGroundingPromptBlock({
     groundingPacket: options?.groundingPacket,
@@ -116,9 +145,28 @@ export async function critiqueDrafts(
       "If a factual detail is not supported here or in the current chat, remove it instead of polishing around it.",
     ],
   });
+  const hydrationEnvelope = buildPromptHydrationEnvelope({
+    mode: "critic",
+    goal,
+    conversationState,
+    styleCard,
+    antiPatterns,
+    voiceTarget: options?.voiceTarget,
+    activeConstraints,
+    sessionConstraints: options?.sessionConstraints,
+    creatorProfileHints: options?.creatorProfileHints,
+    userContextString: options?.userContextString,
+    activeTaskSummary: options?.activeTaskSummary,
+    activePlan: options?.activePlan || null,
+    activeDraft: writerOutput.draft,
+    latestRefinementInstruction: options?.latestRefinementInstruction || null,
+  });
   const instruction = `
 You are the final Quality Assurance editor for an elite X (Twitter) creator.
-Your job is to take a draft and ruthlessly enforce constraints.
+Your job is to take a draft and ruthlessly enforce constraints. If the draft misses, translate the problem into a concrete mechanical rewrite instruction the reviser can execute.
+
+${buildConversationToneBlock("critic")}
+${hydrationEnvelope}
 
 RULES:
 ${buildDraftPreferenceBlock(draftPreference, "critic")}
@@ -131,6 +179,8 @@ ${buildFormatPreferenceBlock(formatPreference, "critic")}
 6. HARD LENGTH CAP: The final draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters.${formatPreference === "thread" ? ` Keep every post under ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, but do not force verified-account threads into legacy 280-character brevity if a fuller beat reads better.` : ""}
 6a. If this is NOT a thread, the final draft must be exactly one standalone post. Do NOT use standalone --- separators, thread serialization, or multiple-post formatting.
 7. ${buildEngagementBaitRule("critic")}
+8. Return "mechanicalDirective" as a literal rewrite instruction, not a complaint. Example: "Tone is cheesy. Strip adjectives, remove exclamation marks, and lower the reading grade level."
+9. If the draft is approved, "mechanicalDirective" should briefly describe the exact cleanup already applied or say no further rewrite is needed.
 ${formatPreference === "thread" ? `
 THREAD-SPECIFIC QUALITY CHECKS (MANDATORY FOR THREADS):
 T1. A thread MUST contain at least 3 posts separated by ---. If fewer, add missing beats.
@@ -146,6 +196,9 @@ T7. Each post should be self-contained enough to make sense on its own in a time
 
 DRAFT TO REVIEW:
 ${writerOutput.draft}
+
+USER CRITIQUE:
+${options?.userCritique || options?.sourceUserMessage || "None provided"}
 
 ACTIVE CONSTRAINTS:
 ${activeConstraints.join(" | ") || "None"}

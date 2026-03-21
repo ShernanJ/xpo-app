@@ -5,6 +5,7 @@ import type {
   DraftFormatPreference,
   DraftPreference,
   FormatIntent,
+  SessionConstraint,
   StrategyPlan,
 } from "../contracts/chat";
 import type { VoiceTarget } from "../core/voiceTarget";
@@ -58,7 +59,8 @@ export const PlannerOutputSchema = z.object({
   mustInclude: z.array(z.string()),
   mustAvoid: z.array(z.string()),
   hookType: z.string(),
-  pitchResponse: z.string().describe("A short plain-language description of the direction itself. e.g. 'lead with the contradiction between the promise and what actually changed'")
+  pitchResponse: z.string().describe("A short plain-language description of the direction itself. e.g. 'lead with the contradiction between the promise and what actually changed'"),
+  extracted_constraints: z.array(z.string()).default([]),
 });
 
 /**
@@ -89,12 +91,16 @@ export const ThreadPlanSchema = z.object({
   mustAvoid: z.array(z.string()),
   hookType: z.string(),
   pitchResponse: z.string().describe("A short plain-language description of the thread direction itself."),
+  extracted_constraints: z.array(z.string()).default([]),
   posts: z.array(ThreadPostPlanSchema).min(3).max(8).describe("Per-post beat plan for the thread"),
 });
 
 export type ThreadPostPlan = z.infer<typeof ThreadPostPlanSchema>;
-export type ThreadPlan = z.infer<typeof ThreadPlanSchema>;
-export type PlannerOutput = (z.infer<typeof PlannerOutputSchema> | ThreadPlan) & StrategyPlan;
+export interface ThreadPlan extends StrategyPlan {
+  posts: ThreadPostPlan[];
+}
+type RawPlannerOutput = z.infer<typeof PlannerOutputSchema> | z.infer<typeof ThreadPlanSchema>;
+export type PlannerOutput = StrategyPlan | ThreadPlan;
 
 /**
  * High speed strategic planner. Defines exactly HOW a post will be structured
@@ -119,6 +125,9 @@ export async function generatePlan(
     voiceTarget?: VoiceTarget | null;
     groundingPacket?: GroundingPacket | null;
     creatorProfileHints?: CreatorProfileHints | null;
+    activeTaskSummary?: string | null;
+    sessionConstraints?: SessionConstraint[];
+    userContextString?: string;
     onFailureReason?: (reason: string) => void;
   },
 ): Promise<PlannerOutput | null> {
@@ -132,6 +141,9 @@ export async function generatePlan(
     voiceTarget: options?.voiceTarget,
     groundingPacket: options?.groundingPacket,
     creatorProfileHints: options?.creatorProfileHints,
+    activeTaskSummary: options?.activeTaskSummary,
+    sessionConstraints: options?.sessionConstraints,
+    userContextString: options?.userContextString,
     options,
   });
 
@@ -157,14 +169,14 @@ export async function generatePlan(
       ],
     });
 
-  const data =
+  const data: RawPlannerOutput | null =
     (isThread ? await loadPlan(ThreadPlanSchema) : null) ||
     (await loadPlan(PlannerOutputSchema));
 
   if (!data) return null;
 
   try {
-    return normalizePlannerOutput(data as PlannerOutput);
+    return normalizePlannerOutput(data) as PlannerOutput;
   } catch (err) {
     if (err instanceof z.ZodError) {
       options?.onFailureReason?.(summarizePlannerSchemaFailure(err));

@@ -4,15 +4,291 @@ import {
   inferPreferredListMarker,
   resolveDraftCasingPreference,
 } from "../core/voiceSignals.ts";
+import { buildXpoSparringPartnerPromptBlock } from "../core/sparringPartnerTone.ts";
 import type {
   ConversationState,
   DraftFormatPreference,
   DraftPreference,
+  SessionConstraint,
+  StrategyPlan,
 } from "../contracts/chat.ts";
+import type { CreatorProfileHints } from "../grounding/groundingPacket.ts";
 
 function normalizeList(values: string[], fallback: string): string {
   const filtered = values.map((value) => value.trim()).filter(Boolean);
   return filtered.length > 0 ? filtered.join(" | ") : fallback;
+}
+
+type PromptHydrationMode = "coach" | "ideate" | "plan" | "draft" | "critic";
+
+export interface PromptHydrationEnvelopeArgs {
+  mode: PromptHydrationMode;
+  goal: string;
+  conversationState: ConversationState;
+  styleCard: VoiceStyleCard | null;
+  antiPatterns: string[];
+  voiceTarget?: VoiceTarget | null;
+  activeConstraints?: string[];
+  sessionConstraints?: SessionConstraint[];
+  creatorProfileHints?: CreatorProfileHints | null;
+  userContextString?: string;
+  activeTaskSummary?: string | null;
+  activePlan?: StrategyPlan | null;
+  activeDraft?: string;
+  latestRefinementInstruction?: string | null;
+  lastIdeationAngles?: string[];
+}
+
+function stripSectionHeading(value: string): string {
+  const trimmed = value.trim();
+  const newlineIndex = trimmed.indexOf("\n");
+  if (newlineIndex === -1) {
+    return trimmed.replace(/^[^:]+:\s*/u, "").trim();
+  }
+
+  const firstLine = trimmed.slice(0, newlineIndex);
+  if (!firstLine.includes(":")) {
+    return trimmed;
+  }
+
+  return trimmed.slice(newlineIndex + 1).trim();
+}
+
+export function escapeXmlText(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+export function wrapXmlCdata(value: string): string {
+  return `<![CDATA[${value.replaceAll("]]>", "]]]]><![CDATA[>")}]]>`;
+}
+
+function buildXmlTag(name: string, value: string): string {
+  return `<${name}>${escapeXmlText(value)}</${name}>`;
+}
+
+function buildOptionalXmlTag(name: string, value: string | null): string | null {
+  if (!value?.trim()) {
+    return null;
+  }
+
+  return buildXmlTag(name, value.trim());
+}
+
+function buildResolvedStylePayload(args: {
+  styleCard: VoiceStyleCard | null;
+  voiceTarget?: VoiceTarget | null;
+}): Record<string, unknown> {
+  const payload: Record<string, unknown> = args.styleCard
+    ? JSON.parse(JSON.stringify(args.styleCard))
+    : {};
+
+  if (args.voiceTarget) {
+    payload.voice_target_override = {
+      summary: args.voiceTarget.summary,
+      rationale: args.voiceTarget.rationale,
+      casing: args.voiceTarget.casing,
+      compression: args.voiceTarget.compression,
+      formality: args.voiceTarget.formality,
+      hookStyle: args.voiceTarget.hookStyle,
+      emojiPolicy: args.voiceTarget.emojiPolicy,
+      ctaPolicy: args.voiceTarget.ctaPolicy,
+      risk: args.voiceTarget.risk,
+      lane: args.voiceTarget.lane,
+    };
+  }
+
+  return payload;
+}
+
+function buildTargetPersonaValue(args: {
+  creatorProfileHints?: CreatorProfileHints | null;
+  userContextString?: string;
+}): string {
+  const personaLines: string[] = [];
+
+  if (args.creatorProfileHints?.knownFor) {
+    personaLines.push(`Known for: ${args.creatorProfileHints.knownFor}`);
+  }
+
+  if (args.creatorProfileHints?.targetAudience) {
+    personaLines.push(`Target audience: ${args.creatorProfileHints.targetAudience}`);
+  }
+
+  if (args.creatorProfileHints?.contentPillars?.length) {
+    personaLines.push(
+      `Content pillars: ${args.creatorProfileHints.contentPillars.join(" | ")}`,
+    );
+  }
+
+  if (args.creatorProfileHints?.toneGuidelines?.length) {
+    personaLines.push(
+      `Tone guidelines: ${args.creatorProfileHints.toneGuidelines.join(" | ")}`,
+    );
+  }
+
+  if (args.userContextString?.trim()) {
+    personaLines.push(args.userContextString.trim());
+  }
+
+  return personaLines.join("\n") || "No target persona provided.";
+}
+
+function buildActiveTaskValue(args: {
+  activeTaskSummary?: string | null;
+  activePlan?: StrategyPlan | null;
+  activeDraft?: string;
+  latestRefinementInstruction?: string | null;
+  lastIdeationAngles?: string[];
+}): string {
+  const lines: string[] = [];
+
+  if (args.activeTaskSummary?.trim()) {
+    lines.push(args.activeTaskSummary.trim());
+  }
+
+  if (args.activePlan) {
+    lines.push(
+      `Current plan objective: ${args.activePlan.objective}`,
+      `Current plan angle: ${args.activePlan.angle}`,
+      `Current plan format: ${args.activePlan.formatPreference || "shortform"}`,
+    );
+  }
+
+  if (args.activeDraft?.trim()) {
+    lines.push("Current draft artifact: present");
+  }
+
+  if (args.latestRefinementInstruction?.trim()) {
+    lines.push(`Latest refinement instruction: ${args.latestRefinementInstruction.trim()}`);
+  }
+
+  if (args.lastIdeationAngles?.length) {
+    lines.push(`Current ideation options: ${args.lastIdeationAngles.slice(0, 3).join(" | ")}`);
+  }
+
+  return lines.join("\n") || "No active task summary provided.";
+}
+
+function buildSessionConstraintsXml(args: {
+  sessionConstraints?: SessionConstraint[];
+  activeConstraints?: string[];
+}): string {
+  const constraints =
+    args.sessionConstraints && args.sessionConstraints.length > 0
+      ? args.sessionConstraints
+      : (args.activeConstraints || []).map((text) => ({
+          source: "explicit" as const,
+          text,
+        }));
+
+  const entries = constraints
+    .map((constraint) => ({
+      source: constraint.source,
+      text: constraint.text.trim(),
+    }))
+    .filter((constraint) => constraint.text.length > 0);
+
+  if (entries.length === 0) {
+    return "<session_constraints></session_constraints>";
+  }
+
+  return [
+    "<session_constraints>",
+    ...entries.map(
+      (constraint) =>
+        `  <constraint source="${constraint.source}">${escapeXmlText(constraint.text)}</constraint>`,
+    ),
+    "</session_constraints>",
+  ].join("\n");
+}
+
+function buildGoldenExamplesXml(
+  creatorProfileHints?: CreatorProfileHints | null,
+): string {
+  const examples = creatorProfileHints?.topExampleSnippets
+    ?.map((example) => example.trim())
+    .filter(Boolean)
+    .slice(0, 3) || [];
+
+  if (examples.length === 0) {
+    return "<golden_examples></golden_examples>";
+  }
+
+  return [
+    "<golden_examples>",
+    ...examples.map(
+      (example, index) =>
+        `  <example index="${index}">${escapeXmlText(example)}</example>`,
+    ),
+    "</golden_examples>",
+  ].join("\n");
+}
+
+export function buildPromptHydrationEnvelope(
+  args: PromptHydrationEnvelopeArgs,
+): string {
+  const goalBias = stripSectionHeading(buildGoalHydrationBlock(args.goal, args.mode));
+  const stateBias = stripSectionHeading(
+    buildStateHydrationBlock(args.conversationState, args.mode),
+  );
+  const voiceBias = stripSectionHeading(
+    buildVoiceHydrationBlock(args.styleCard, args.voiceTarget),
+  );
+  const negativeGuidance = stripSectionHeading(
+    buildAntiPatternBlock(args.antiPatterns),
+  );
+  const targetPersona = buildTargetPersonaValue({
+    creatorProfileHints: args.creatorProfileHints,
+    userContextString: args.userContextString,
+  });
+  const activeTask = buildActiveTaskValue({
+    activeTaskSummary: args.activeTaskSummary,
+    activePlan: args.activePlan,
+    activeDraft: args.activeDraft,
+    latestRefinementInstruction: args.latestRefinementInstruction,
+    lastIdeationAngles: args.lastIdeationAngles,
+  });
+  const stylePayload = JSON.stringify(
+    buildResolvedStylePayload({
+      styleCard: args.styleCard,
+      voiceTarget: args.voiceTarget,
+    }),
+  );
+
+  return [
+    "<prompt_hydration>",
+    `  ${buildXmlTag("active_task", activeTask)}`,
+    `  ${buildXmlTag("target_persona", targetPersona)}`,
+    `  ${buildXmlTag("goal_bias", goalBias)}`,
+    `  ${buildXmlTag("state_bias", stateBias)}`,
+    `  ${buildXmlTag("voice_bias", voiceBias)}`,
+    `  ${buildXmlTag("negative_guidance", negativeGuidance)}`,
+    buildOptionalXmlTag("profile_context", args.userContextString?.trim() || null)
+      ? `  ${buildOptionalXmlTag("profile_context", args.userContextString?.trim() || null)}`
+      : null,
+    `  <mechanical_style_rules>${wrapXmlCdata(stylePayload)}</mechanical_style_rules>`,
+    buildSessionConstraintsXml({
+      sessionConstraints: args.sessionConstraints,
+      activeConstraints: args.activeConstraints,
+    })
+      .split("\n")
+      .map((line) => `  ${line}`)
+      .join("\n"),
+    buildGoldenExamplesXml(args.creatorProfileHints)
+      .split("\n")
+      .map((line) => `  ${line}`)
+      .join("\n"),
+    "</prompt_hydration>",
+    "If <session_constraints> conflicts with <mechanical_style_rules>, obey <session_constraints> for the current turn.",
+    "CRITICAL INSTRUCTION: You must internalize the <mechanical_style_rules> and format your output to match the structural cadence of the <golden_examples>.",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function buildConversationToneBlock(
@@ -20,6 +296,8 @@ export function buildConversationToneBlock(
 ): string {
   if (mode === "draft" || mode === "critic") {
     return [
+      buildXpoSparringPartnerPromptBlock(),
+      "",
       "WRITING NATURALNESS:",
       "- Write like the creator, not like the assistant.",
       "- Keep the language concrete, plainspoken, and human.",
@@ -32,6 +310,8 @@ export function buildConversationToneBlock(
 
   if (mode === "plan") {
     return [
+      buildXpoSparringPartnerPromptBlock(),
+      "",
       "HUMAN SPEECH POLICY:",
       "- Be concise, specific, and direct.",
       "- Do not use canned affirmations like 'great question' or 'absolutely.'",
@@ -43,6 +323,8 @@ export function buildConversationToneBlock(
   }
 
   return [
+    buildXpoSparringPartnerPromptBlock(),
+    "",
     "HUMAN SPEECH POLICY:",
     "- Be concise, specific, and clear.",
     "- Do not use canned affirmations like 'great question' or 'absolutely.'",
@@ -58,7 +340,7 @@ export function buildConversationToneBlock(
 
 export function buildGoalHydrationBlock(
   goal: string,
-  mode: "coach" | "ideate" | "plan" | "draft",
+  mode: "coach" | "ideate" | "plan" | "draft" | "critic",
 ): string {
   const normalizedGoal = goal.trim().toLowerCase();
 
@@ -79,7 +361,7 @@ export function buildGoalHydrationBlock(
 
 export function buildStateHydrationBlock(
   conversationState: ConversationState,
-  mode: "coach" | "ideate" | "plan" | "draft",
+  mode: "coach" | "ideate" | "plan" | "draft" | "critic",
 ): string {
   switch (conversationState) {
     case "plan_pending_approval":

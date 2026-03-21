@@ -18,6 +18,7 @@ import type {
 import type {
   DraftFormatPreference,
   DraftPreference,
+  SessionConstraint,
   StrategyPlan,
   V2ConversationMemory,
 } from "../../contracts/chat.ts";
@@ -54,6 +55,9 @@ export interface DraftBundleCapabilityContext {
   memory: V2ConversationMemory;
   plan: StrategyPlan;
   activeConstraints: string[];
+  persistedActiveConstraints: string[];
+  inferredSessionConstraints: string[];
+  sessionConstraints: SessionConstraint[];
   sourceMaterials: SourceMaterialAssetRecord[];
   draftPreference: DraftPreference;
   topicSummary?: string | null;
@@ -73,6 +77,7 @@ export interface DraftBundleCapabilityContext {
 export interface DraftBundleCapabilityMemoryPatch {
   topicSummary: string;
   activeConstraints: string[];
+  inferredSessionConstraints: string[];
   conversationState: "draft_ready";
   pendingPlan: null;
   clarificationState: null;
@@ -318,11 +323,12 @@ export async function executeDraftBundleCapability(
     options,
   };
   const rollingSummary = context.refreshRollingSummary
-    ? buildRollingSummary({
+      ? buildRollingSummary({
         currentSummary: context.memory.rollingSummary,
         topicSummary: context.plan.objective,
         approvedPlan: context.plan,
-        activeConstraints: context.activeConstraints,
+        activeConstraints: context.persistedActiveConstraints,
+        inferredSessionConstraints: context.inferredSessionConstraints,
         latestDraftStatus: "Draft bundle generated",
         formatPreference: context.plan.formatPreference || context.turnFormatPreference,
       })
@@ -369,7 +375,8 @@ export async function executeDraftBundleCapability(
       },
       memoryPatch: {
         topicSummary: context.plan.objective,
-        activeConstraints: context.activeConstraints,
+        activeConstraints: context.persistedActiveConstraints,
+        inferredSessionConstraints: context.inferredSessionConstraints,
         conversationState: "draft_ready",
         pendingPlan: null,
         clarificationState: null,

@@ -130,23 +130,6 @@ function formatNaturalList(values: string[]): string {
   return `${values.slice(0, -1).join(", ")}, and ${values[values.length - 1]}`;
 }
 
-function deterministicIndex(seed: string, modulo: number): number {
-  if (modulo <= 1) {
-    return 0;
-  }
-
-  let hash = 0;
-  for (let index = 0; index < seed.length; index += 1) {
-    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0;
-  }
-
-  return hash % modulo;
-}
-
-function pickDeterministic(options: string[], seed: string): string {
-  return options[deterministicIndex(seed, options.length)];
-}
-
 function getLastAssistantTurn(recentHistory: string): string {
   const assistantTurns = recentHistory
     .split("\n")
@@ -378,14 +361,8 @@ function buildSimpleSocialReply(userMessage: string): DeterministicChatReplySpec
     return null;
   }
 
-  const seed = normalizeMessage(userMessage);
-  const opener =
-    turnKind === "follow_up"
-      ? pickDeterministic(["Sounds good.", "Nice.", "Good."], `${seed}|follow`)
-      : pickDeterministic(["Hi.", "Hey.", "Hey there."], `${seed}|greet`);
-
   return buildPlainParagraphReply(
-    `${opener} What are we working on today: a post, a thread, or a quick profile audit?`,
+    "post, thread, or quick profile audit?",
   );
 }
 

@@ -1,13 +1,14 @@
 import { fetchStructuredJsonFromGroq } from "./llm.ts";
 import { z } from "zod";
 import type { VoiceStyleCard } from "../core/styleProfile";
-import type { ConversationState } from "../contracts/chat";
+import type {
+  ConversationState,
+  SessionConstraint,
+  StrategyPlan,
+} from "../contracts/chat";
 import {
-  buildAntiPatternBlock,
   buildConversationToneBlock,
-  buildGoalHydrationBlock,
-  buildStateHydrationBlock,
-  buildVoiceHydrationBlock,
+  buildPromptHydrationEnvelope,
 } from "../prompts/promptHydrator";
 import {
   buildWelcomeFallbackMessage,
@@ -15,6 +16,7 @@ import {
 } from "../welcomeMessage";
 import { buildCoachFallbackResponse as buildNormalizedCoachFallbackResponse } from "../responses/assistantReplyStyle";
 import { finalizeCoachReplyForSurface } from "./coachReplyNormalizer";
+import type { CreatorProfileHints } from "../grounding/groundingPacket";
 
 export const CoachReplySchema = z.object({
   response: z.string().describe("The natural conversational reply to the user"),
@@ -159,12 +161,12 @@ function normalizeCoachReply(
 function buildCapabilityIdentity(capability: GuidanceCapability): string {
   switch (capability) {
     case "reply":
-      return "You are an X reply strategist and writing advisor.";
+      return "You are the Xpo Sparring Partner for X replies and writing strategy.";
     case "analysis":
-      return "You are an X post analyst and writing strategist.";
+      return "You are the Xpo Sparring Partner for X post analysis and writing strategy.";
     case "coach":
     default:
-      return "You are an X growth strategist and writing partner.";
+      return "You are the Xpo Sparring Partner for X growth and writing.";
   }
 }
 
@@ -261,12 +263,39 @@ async function generateGuidanceReply(
     conversationState?: ConversationState;
     antiPatterns?: string[];
     retryConstraints?: string[];
+    activeConstraints?: string[];
+    sessionConstraints?: SessionConstraint[];
+    creatorProfileHints?: CreatorProfileHints | null;
+    activeTaskSummary?: string | null;
+    activePlan?: StrategyPlan | null;
+    activeDraft?: string;
+    latestRefinementInstruction?: string | null;
+    lastIdeationAngles?: string[];
   },
 ): Promise<CoachReply | null> {
   const goal = options?.goal || "audience growth";
   const conversationState = options?.conversationState || "collecting_context";
   const antiPatterns = options?.antiPatterns || [];
   const retryConstraints = options?.retryConstraints || [];
+  const hydrationEnvelope = buildPromptHydrationEnvelope({
+    mode: "coach",
+    goal,
+    conversationState,
+    styleCard,
+    antiPatterns,
+    activeConstraints:
+      options?.sessionConstraints?.map((constraint) => constraint.text) ||
+      options?.activeConstraints ||
+      [],
+    sessionConstraints: options?.sessionConstraints,
+    creatorProfileHints: options?.creatorProfileHints,
+    userContextString,
+    activeTaskSummary: options?.activeTaskSummary,
+    activePlan: options?.activePlan || null,
+    activeDraft: options?.activeDraft,
+    latestRefinementInstruction: options?.latestRefinementInstruction || null,
+    lastIdeationAngles: options?.lastIdeationAngles || [],
+  });
 
   const toningCues = styleCard
     ? [
@@ -310,10 +339,7 @@ ${buildCapabilityJob(capability)}
 Sound like a crisp analytical collaborator in a live chat, not a workflow bot and not a hypey internet friend.
 
 ${buildConversationToneBlock()}
-${buildGoalHydrationBlock(goal, "coach")}
-${buildStateHydrationBlock(conversationState, "coach")}
-${buildVoiceHydrationBlock(styleCard)}
-${buildAntiPatternBlock(antiPatterns)}
+${hydrationEnvelope}
 
 BEHAVIOR:
 - Sound human, direct, and precise.
@@ -405,6 +431,14 @@ export async function generateCoachReply(
     conversationState?: ConversationState;
     antiPatterns?: string[];
     retryConstraints?: string[];
+    activeConstraints?: string[];
+    sessionConstraints?: SessionConstraint[];
+    creatorProfileHints?: CreatorProfileHints | null;
+    activeTaskSummary?: string | null;
+    activePlan?: StrategyPlan | null;
+    activeDraft?: string;
+    latestRefinementInstruction?: string | null;
+    lastIdeationAngles?: string[];
   },
 ): Promise<CoachReply | null> {
   return generateGuidanceReply(
@@ -431,6 +465,14 @@ export async function generateReplyGuidance(
     conversationState?: ConversationState;
     antiPatterns?: string[];
     retryConstraints?: string[];
+    activeConstraints?: string[];
+    sessionConstraints?: SessionConstraint[];
+    creatorProfileHints?: CreatorProfileHints | null;
+    activeTaskSummary?: string | null;
+    activePlan?: StrategyPlan | null;
+    activeDraft?: string;
+    latestRefinementInstruction?: string | null;
+    lastIdeationAngles?: string[];
   },
 ): Promise<CoachReply | null> {
   return generateGuidanceReply(
@@ -457,6 +499,14 @@ export async function generatePostAnalysis(
     conversationState?: ConversationState;
     antiPatterns?: string[];
     retryConstraints?: string[];
+    activeConstraints?: string[];
+    sessionConstraints?: SessionConstraint[];
+    creatorProfileHints?: CreatorProfileHints | null;
+    activeTaskSummary?: string | null;
+    activePlan?: StrategyPlan | null;
+    activeDraft?: string;
+    latestRefinementInstruction?: string | null;
+    lastIdeationAngles?: string[];
   },
 ): Promise<CoachReply | null> {
   return generateGuidanceReply(

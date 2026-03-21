@@ -225,6 +225,11 @@ export async function executeIdeationCapability(
       goal: context.goal,
       conversationState: context.memory.conversationState,
       antiPatterns: context.antiPatterns,
+      activeConstraints: context.effectiveActiveConstraints,
+      activeTaskSummary: context.memory.rollingSummary,
+      activePlan: context.memory.pendingPlan,
+      latestRefinementInstruction: context.memory.latestRefinementInstruction,
+      lastIdeationAngles: context.memory.lastIdeationAngles,
     },
   );
 

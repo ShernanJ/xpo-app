@@ -42,13 +42,13 @@ test("deterministic chat replies greet back on simple social turns", async () =>
 
   assert.equal(
     greetingReply,
-    "Hi. What are we working on today: a post, a thread, or a quick profile audit?",
+    "post, thread, or quick profile audit?",
   );
   assert.equal(
     vibeReply,
-    "Sounds good. What are we working on today: a post, a thread, or a quick profile audit?",
+    "post, thread, or quick profile audit?",
   );
-  assert.equal(greetingReply === greetingReply?.toLowerCase(), false);
+  assert.equal(greetingReply, greetingReply?.toLowerCase());
   assert.equal(capabilityReply, null);
 });
 

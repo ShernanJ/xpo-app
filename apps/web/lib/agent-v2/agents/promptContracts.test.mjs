@@ -128,11 +128,21 @@ test("planner and writer prompts surface hard factual grounding for product asks
     fileURLToPath(new URL("./jsonPromptContracts.ts", import.meta.url)),
     "utf8",
   );
+  const promptHydratorSource = readFileSync(
+    fileURLToPath(new URL("../prompts/promptHydrator.ts", import.meta.url)),
+    "utf8",
+  );
+  const sparringPartnerToneSource = readFileSync(
+    fileURLToPath(new URL("../core/sparringPartnerTone.ts", import.meta.url)),
+    "utf8",
+  );
   const promptSource = [
     promptBuildersSource,
     groundingPromptBlockSource,
     xPostPromptRulesSource,
     jsonPromptContractsSource,
+    promptHydratorSource,
+    sparringPartnerToneSource,
   ].join("\n");
 
   assert.equal(promptSource.includes("FACTUAL GROUNDING:"), true);
@@ -211,6 +221,48 @@ test("planner and writer prompts surface hard factual grounding for product asks
     promptSource.includes(
       'Do NOT include speaker labels, chat transcript lines, quoted prompt text, UI chrome, usernames/handles from a mock composer, timestamps, character counters, button labels',
     ),
+    true,
+  );
+  assert.equal(promptSource.includes('"extracted_constraints"'), true);
+  assert.equal(promptSource.includes("ACTIVE TASK:"), true);
+  assert.equal(
+    promptSource.includes(
+      "NO PLEASANTRIES: Never use phrases like 'Here is your draft', 'Sure!', 'I can help with that', 'Let's dive in', or 'Let me know what you think'. Output the requested result immediately.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptSource.includes(
+      "COACHING TONE: You are an elite, high-signal ghostwriter. Speak in direct, punchy sentences. If explaining an edit, explain the mechanical reasoning (e.g., 'Removed emojis to increase authority.').",
+    ),
+    true,
+  );
+  assert.equal(
+    promptSource.includes(
+      "NO PREACHING: Do not give generic social media advice like 'Consistency is key.' Only comment on the structural mechanics of the text provided.",
+    ),
+    true,
+  );
+  assert.equal(promptSource.includes('buildXmlTag("active_task"'), true);
+  assert.equal(promptSource.includes('buildXmlTag("target_persona"'), true);
+  assert.equal(promptSource.includes("<mechanical_style_rules>"), true);
+  assert.equal(promptSource.includes("<session_constraints>"), true);
+  assert.equal(promptSource.includes('constraint source="${constraint.source}"'), true);
+  assert.equal(promptSource.includes("<golden_examples>"), true);
+  assert.equal(
+    promptSource.includes(
+      "If <session_constraints> conflicts with <mechanical_style_rules>, obey <session_constraints> for the current turn.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptSource.includes(
+      "CRITICAL INSTRUCTION: You must internalize the <mechanical_style_rules> and format your output to match the structural cadence of the <golden_examples>.",
+    ),
+    true,
+  );
+  assert.equal(
+    promptSource.includes("extract hidden or implied turn-level rules into"),
     true,
   );
   assert.equal(
@@ -443,7 +495,9 @@ test("reviser prompt keeps grounded revision boundaries for edit requests", () =
     jsonPromptContractsSource,
   ].join("\n");
 
-  assert.equal(reviserSource.includes("CURRENT USER NOTE:"), true);
+  assert.equal(reviserSource.includes("<previous_draft>"), true);
+  assert.equal(reviserSource.includes("<user_critique>"), true);
+  assert.equal(reviserSource.includes("<critic_analysis>"), true);
   assert.equal(
     reviserPromptSource.includes('args.title || "GROUNDING PACKET"') ||
       reviserPromptSource.includes("GROUNDING PACKET:"),

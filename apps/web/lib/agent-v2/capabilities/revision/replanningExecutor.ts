@@ -14,6 +14,7 @@ import type { OrchestratorResponse, RoutingTracePatch } from "../../runtime/type
 import type {
   DraftFormatPreference,
   DraftPreference,
+  SessionConstraint,
   StrategyPlan,
   V2ConversationMemory,
 } from "../../contracts/chat.ts";
@@ -37,6 +38,9 @@ import type {
   ThreadFramingStyle,
 } from "../../../onboarding/draftArtifacts.ts";
 import { mergeRuntimeExecutionMeta } from "../../runtime/workerPlane.ts";
+import {
+  buildSessionConstraints,
+} from "../../core/sessionConstraints.ts";
 
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
@@ -50,6 +54,9 @@ export interface ReplanningCapabilityContext {
   userMessage: string;
   draftInstruction: string;
   revisionActiveConstraints: string[];
+  persistedActiveConstraints: string[];
+  inferredSessionConstraints: string[];
+  sessionConstraints: SessionConstraint[];
   effectiveContext: string;
   activeDraft?: string;
   historicalTexts: string[];
@@ -76,6 +83,7 @@ export interface ReplanningCapabilityContext {
 export interface ReplanningCapabilityMemoryPatch {
   topicSummary: string;
   activeConstraints: string[];
+  inferredSessionConstraints: string[];
   conversationState: "draft_ready";
   pendingPlan: null;
   clarificationState: null;
@@ -131,6 +139,7 @@ export async function executeReplanningCapability(
     context: {
       planInputMessage: context.draftInstruction,
       planActiveConstraints: context.revisionActiveConstraints,
+      sessionConstraints: context.sessionConstraints,
       planGroundingPacket: context.groundingPacket,
       memory: context.memory,
       effectiveContext: context.effectiveContext,
@@ -171,6 +180,16 @@ export async function executeReplanningCapability(
         guardedPlan.formatIntent,
       )
     : context.revisionActiveConstraints;
+  const draftPersistedActiveConstraints = hasNoFabricationPlanGuardrail(guardedPlan)
+    ? appendNoFabricationConstraint(
+        context.persistedActiveConstraints,
+        guardedPlan.formatIntent,
+      )
+    : context.persistedActiveConstraints;
+  const draftSessionConstraints = buildSessionConstraints({
+    activeConstraints: draftPersistedActiveConstraints,
+    inferredConstraints: guardedPlan.extractedConstraints,
+  });
   const draftGroundingPacket = services.buildGroundingPacketForContext(
     draftActiveConstraints,
     context.draftInstruction,
@@ -187,6 +206,7 @@ export async function executeReplanningCapability(
       memory: context.memory,
       plan: guardedPlan,
       activeConstraints: draftActiveConstraints,
+      sessionConstraints: draftSessionConstraints,
       historicalTexts: context.historicalTexts,
       userMessage: context.userMessage,
       draftPreference: guardedPlan.deliveryPreference || context.turnDraftPreference,
@@ -245,7 +265,8 @@ export async function executeReplanningCapability(
       responseSeed: draftingExecution.output.responseSeed,
       memoryPatch: {
         ...draftingExecution.output.memoryPatch,
-        activeConstraints: draftActiveConstraints,
+        activeConstraints: draftPersistedActiveConstraints,
+        inferredSessionConstraints: guardedPlan.extractedConstraints,
       },
     },
     workers,

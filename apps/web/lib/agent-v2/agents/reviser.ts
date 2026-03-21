@@ -5,15 +5,15 @@ import type {
   ConversationState,
   DraftFormatPreference,
   DraftPreference,
+  SessionConstraint,
+  StrategyPlan,
 } from "../contracts/chat";
 import {
-  buildAntiPatternBlock,
   buildConversationToneBlock,
   buildDraftPreferenceBlock,
   buildFormatPreferenceBlock,
-  buildGoalHydrationBlock,
-  buildStateHydrationBlock,
-  buildVoiceHydrationBlock,
+  buildPromptHydrationEnvelope,
+  escapeXmlText,
 } from "../prompts/promptHydrator";
 import type {
   DraftRevisionDirective,
@@ -21,6 +21,7 @@ import type {
   DraftRevisionThreadIntent,
 } from "../capabilities/revision/draftRevision";
 import {
+  type CreatorProfileHints,
   type GroundingPacket,
 } from "../grounding/groundingPacket";
 import { buildGroundingPromptBlock } from "./groundingPromptBlock";
@@ -293,6 +294,19 @@ ${intentLines}
   `.trim();
 }
 
+function buildRevisionInputBlock(args: {
+  previousDraft: string;
+  userCritique: string | null;
+  criticAnalysis: string | null;
+}): string {
+  return [
+    "REVISION INPUTS:",
+    `<previous_draft>${escapeXmlText(args.previousDraft)}</previous_draft>`,
+    `<user_critique>${escapeXmlText(args.userCritique?.trim() || "None provided.")}</user_critique>`,
+    `<critic_analysis>${escapeXmlText(args.criticAnalysis?.trim() || "")}</critic_analysis>`,
+  ].join("\n");
+}
+
 export async function generateRevisionDraft(args: {
   activeDraft: string;
   revision: DraftRevisionDirective;
@@ -311,6 +325,13 @@ export async function generateRevisionDraft(args: {
     threadFramingStyle?: ThreadFramingStyle | null;
     sourceUserMessage?: string;
     groundingPacket?: GroundingPacket | null;
+    userCritique?: string | null;
+    criticAnalysis?: string | null;
+    sessionConstraints?: SessionConstraint[];
+    creatorProfileHints?: CreatorProfileHints | null;
+    userContextString?: string;
+    activeTaskSummary?: string | null;
+    activePlan?: StrategyPlan | null;
     threadRevisionContext?: {
       totalPostCount: number;
       targetSpan: DraftRevisionTargetSpan;
@@ -330,6 +351,8 @@ export async function generateRevisionDraft(args: {
   const formatPreference = args.options?.formatPreference || "shortform";
   const threadFramingStyle = args.options?.threadFramingStyle || null;
   const sourceUserMessage = args.options?.sourceUserMessage?.trim() || "";
+  const userCritique = args.options?.userCritique?.trim() || sourceUserMessage || args.revision.instruction;
+  const criticAnalysis = args.options?.criticAnalysis?.trim() || "";
   const revisionChangeGuidance = buildRevisionChangeGuidance(
     args.revision,
     maxCharacterLimit,
@@ -338,6 +361,26 @@ export async function generateRevisionDraft(args: {
   const threadLocalRevisionBlock = args.options?.threadRevisionContext
     ? buildThreadLocalRevisionBlock(args.options.threadRevisionContext)
     : "";
+  const hydrationEnvelope = buildPromptHydrationEnvelope({
+    mode: "draft",
+    goal,
+    conversationState,
+    styleCard: args.styleCard,
+    antiPatterns,
+    activeConstraints: args.activeConstraints,
+    sessionConstraints: args.options?.sessionConstraints,
+    creatorProfileHints: args.options?.creatorProfileHints,
+    userContextString: args.options?.userContextString,
+    activeTaskSummary: args.options?.activeTaskSummary,
+    activePlan: args.options?.activePlan || null,
+    activeDraft: args.activeDraft,
+    latestRefinementInstruction: args.revision.instruction,
+  });
+  const revisionInputBlock = buildRevisionInputBlock({
+    previousDraft: args.activeDraft,
+    userCritique,
+    criticAnalysis,
+  });
 
   if (args.revision.changeKind === "local_phrase_edit") {
     const deterministic = tryDeterministicPhraseRemoval({
@@ -378,18 +421,10 @@ You are an elite X (Twitter) revision editor.
 Your job is to revise an existing draft with minimal drift.
 
 ${buildConversationToneBlock("draft")}
-${buildGoalHydrationBlock(goal, "draft")}
-${buildStateHydrationBlock(conversationState, "draft")}
+${hydrationEnvelope}
 ${buildDraftPreferenceBlock(draftPreference, "draft")}
 ${buildFormatPreferenceBlock(formatPreference, "draft")}
-${buildVoiceHydrationBlock(args.styleCard)}
-${buildAntiPatternBlock(antiPatterns)}
-
-CURRENT DRAFT (THIS IS THE CANONICAL BASE TEXT):
-${args.activeDraft}
-
-CURRENT USER NOTE:
-${sourceUserMessage || args.revision.instruction}
+${revisionInputBlock}
 
 REVISION REQUEST:
 ${args.revision.instruction}
@@ -410,21 +445,22 @@ ${threadLocalRevisionBlock ? `${threadLocalRevisionBlock}\n` : ""}
 REQUIREMENTS:
 1. Preserve the subject, core meaning, and overall structure unless the revision request explicitly asks for a deeper rewrite.
 2. Apply only the requested change. Prefer local edits over fresh reframing.
-3. Never invent a new angle, new premise, or random new hook unless the user explicitly asks for one.
-4. If the user is removing or questioning a specific phrase, remove or replace that phrase and keep the rest as intact as possible.
-5. If this is a local phrase edit or line-level edit, preserve all non-targeted lines.
-6. If this is a hook-only edit, rewrite only the opening beat and preserve the body.
-7. If this is a tone shift, you may rewrite wording but keep the same structure unless the flow truly breaks.
-8. Only a full rewrite may substantially restructure the post. If the revision request converts a single post into a thread, you may rebuild the flow across posts instead of mechanically chopping the original draft into fragments.
-9. Keep the draft sounding like the user. Match their casing and pacing.
-10. If the user uses list markers like "-" or ">", preserve that formatting style when the revised draft uses lists.
-11. ${buildVerificationProfessionalismRule("revision")}
-12. HARD LENGTH CAP: the revised draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. If this is a thread, keep every post under ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, and do not over-compress verified-account thread posts toward legacy 280-character brevity when a fuller beat would read better.${buildThreadFramingRequirement({ threadFramingStyle, mode: "revision" })}
-13. If any Active Session Constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding.
-14. ${buildMarkdownStylingRule("revision")}
-15. ${buildEngagementBaitRule("revision")}
-16. Do NOT add new metrics, results, follower spikes, experiments, timelines, named customers, product mechanics, or autobiographical usage claims unless they already exist in the current draft, current user note, or grounding packet.
-17. If THREAD-LOCAL REVISION MODE is active, return only the revised target span and preserve the exact number of posts in that span.
+3. If <critic_analysis> is present, treat it as an executable mechanical directive for this retry. Apply it directly unless it conflicts with <user_critique> or hard factual grounding.
+4. Never invent a new angle, new premise, or random new hook unless the user explicitly asks for one.
+5. If the user is removing or questioning a specific phrase, remove or replace that phrase and keep the rest as intact as possible.
+6. If this is a local phrase edit or line-level edit, preserve all non-targeted lines.
+7. If this is a hook-only edit, rewrite only the opening beat and preserve the body.
+8. If this is a tone shift, you may rewrite wording but keep the same structure unless the flow truly breaks.
+9. Only a full rewrite may substantially restructure the post. If the revision request converts a single post into a thread, you may rebuild the flow across posts instead of mechanically chopping the original draft into fragments.
+10. Keep the draft sounding like the user. Match their casing and pacing.
+11. If the user uses list markers like "-" or ">", preserve that formatting style when the revised draft uses lists.
+12. ${buildVerificationProfessionalismRule("revision")}
+13. HARD LENGTH CAP: the revised draft must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. If this is a thread, keep every post under ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, and do not over-compress verified-account thread posts toward legacy 280-character brevity when a fuller beat would read better.${buildThreadFramingRequirement({ threadFramingStyle, mode: "revision" })}
+14. If any Active Session Constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding.
+15. ${buildMarkdownStylingRule("revision")}
+16. ${buildEngagementBaitRule("revision")}
+17. Do NOT add new metrics, results, follower spikes, experiments, timelines, named customers, product mechanics, or autobiographical usage claims unless they already exist in the <previous_draft>, <user_critique>, or grounding packet.
+18. If THREAD-LOCAL REVISION MODE is active, return only the revised target span and preserve the exact number of posts in that span.
 
 ${buildReviserJsonContract()}
   `.trim();

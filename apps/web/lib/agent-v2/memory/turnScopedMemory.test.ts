@@ -11,6 +11,7 @@ function buildMemory(overrides: Partial<V2ConversationMemory> = {}): V2Conversat
       "Correction lock: handle a is not the 30M ARR company.",
       "keep all lowercase",
     ],
+    inferredSessionConstraints: ["no listicles"],
     topicSummary: "xpo launch thread",
     lastIdeationAngles: ["ship the ugly first version", "why launch momentum compounds"],
     concreteAnswerCount: 3,
@@ -29,6 +30,7 @@ function buildMemory(overrides: Partial<V2ConversationMemory> = {}): V2Conversat
       mustAvoid: [],
       hookType: "direct",
       pitchResponse: "lead with the ugly first version",
+      extractedConstraints: [],
     },
     clarificationState: null,
     assistantTurnCount: 4,
@@ -60,6 +62,10 @@ test("scopeMemoryForCurrentTurn preserves draft-scoped memory for local edit fol
   assert.equal(result.pendingPlan?.angle, memory.pendingPlan?.angle);
   assert.equal(result.currentDraftArtifactId, memory.currentDraftArtifactId);
   assert.deepEqual(result.activeConstraints, memory.activeConstraints);
+  assert.deepEqual(
+    result.inferredSessionConstraints,
+    memory.inferredSessionConstraints,
+  );
 });
 
 test("scopeMemoryForCurrentTurn clears topic-bound residue on a strong topic shift", () => {
@@ -79,6 +85,7 @@ test("scopeMemoryForCurrentTurn clears topic-bound residue on a strong topic shi
   assert.deepEqual(result.lastIdeationAngles, []);
   assert.equal(result.currentDraftArtifactId, null);
   assert.deepEqual(result.activeConstraints, memory.activeConstraints);
+  assert.deepEqual(result.inferredSessionConstraints, []);
   assert.equal(result.formatPreference, memory.formatPreference);
 });
 
@@ -93,6 +100,7 @@ test("scopeMemoryForCurrentTurn keeps same-topic memory when the user stays in l
       mustAvoid: [],
       hookType: "counter",
       pitchResponse: "focus on the emotional shift after the interview lands",
+      extractedConstraints: [],
     },
   });
 
