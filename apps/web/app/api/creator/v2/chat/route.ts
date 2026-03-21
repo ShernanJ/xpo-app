@@ -9,6 +9,7 @@ import {
   saveStyleProfile,
   type UserPreferences,
 } from "@/lib/agent-v2/core/styleProfile";
+import { syncGhostwriterProfileFromCreatorProfile } from "@/lib/agent-v2/core/ghostwriterProfile";
 import type {
   CreatorChatQuickReply,
   V2ConversationMemory,
@@ -1315,6 +1316,22 @@ async function handleChatRouteRequest(args: {
           generateNarrative: generateProfileAnalysisNarrative,
           leadIn: followUp.leadIn,
         });
+
+        if (
+          args.userId !== "anonymous" &&
+          activeHandle &&
+          profileAnalysisContext?.creatorProfile
+        ) {
+          profileAnalysisStyleCard = await syncGhostwriterProfileFromCreatorProfile({
+            userId: args.userId,
+            xHandle: activeHandle,
+            creatorProfile: profileAnalysisContext.creatorProfile,
+            styleCard: profileAnalysisStyleCard,
+          }).catch((error) => {
+            console.error("Failed to persist ghostwriter profile snapshot:", error);
+            return profileAnalysisStyleCard;
+          });
+        }
       }
 
       const preparedTurn = await prepareManagedMainTurn({
@@ -1441,21 +1458,40 @@ async function handleChatRouteRequest(args: {
         }),
       );
 
-      const preparedTurn = await prepareManagedMainTurn({
-        rawResponse: await buildInlineProfileAnalysisResponse({
+      const rawResponse = await buildInlineProfileAnalysisResponse({
           onboarding: onboardingResult,
           audit: growthOsPayload.profileConversionAudit,
           memory: storedMemory,
           creatorAgentContext,
           profileReplyContext,
           generateNarrative: generateProfileAnalysisNarrative,
-        }),
+        });
+      let profileAnalysisStyleCard = styleCard;
+
+      if (
+        args.userId !== "anonymous" &&
+        activeHandle &&
+        creatorAgentContext?.creatorProfile
+      ) {
+        profileAnalysisStyleCard = await syncGhostwriterProfileFromCreatorProfile({
+          userId: args.userId,
+          xHandle: activeHandle,
+          creatorProfile: creatorAgentContext.creatorProfile,
+          styleCard,
+        }).catch((error) => {
+          console.error("Failed to persist ghostwriter profile snapshot:", error);
+          return styleCard;
+        });
+      }
+
+      const preparedTurn = await prepareManagedMainTurn({
+        rawResponse,
         recentHistory: recentHistoryStr || "None",
         selectedDraftContext,
         formatPreference: effectiveFormatPreference,
         isVerifiedAccount,
         userPreferences: effectiveUserPreferences,
-        styleCard,
+        styleCard: profileAnalysisStyleCard,
         creatorProfileHints,
         routingDiagnostics: normalizedTurn.diagnostics,
         clientTurnId,

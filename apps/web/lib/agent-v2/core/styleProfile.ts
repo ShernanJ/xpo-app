@@ -1,6 +1,7 @@
 import { prisma } from "../../db";
 import { Prisma } from "../../generated/prisma/client";
 import { z } from "zod";
+import type { GhostwriterStyleCard } from "../contracts/types";
 import { filterProfileContextLeaks } from "./profileContextLeak.ts";
 import { FeedbackContextSchema } from "../../feedback/feedbackSchemas";
 
@@ -99,6 +100,25 @@ export const FeedbackSubmissionSchema = z.object({
   attachments: z.array(FeedbackAttachmentSchema).default([]),
 });
 
+const GhostwriterStyleCardSchema: z.ZodType<GhostwriterStyleCard> = z.object({
+  lexicon: z.object({
+    topAdjectives: z.array(z.string()),
+    transitionPhrases: z.array(z.string()),
+    greetings: z.array(z.string()),
+  }),
+  formatting: z.object({
+    casingPreference: z.enum(["lowercase", "sentence", "title", "mixed"]),
+    avgParagraphLengthWords: z.number().int(),
+    lineBreakFrequency: z.enum(["high", "medium", "low"]),
+  }),
+  punctuationAndSyntax: z.object({
+    usesEmDashes: z.boolean(),
+    usesEllipses: z.boolean(),
+    rhetoricalQuestionFrequency: z.enum(["high", "medium", "low"]),
+    topEmojis: z.array(z.string()),
+  }),
+});
+
 export const StyleCardSchema = z.object({
   sentenceOpenings: z.array(z.string()).describe("Typical ways the user starts sentences or posts (e.g. 'Hot take:', 'Unpopular opinion:', 'Here is why...')"),
   sentenceClosers: z.array(z.string()).describe("Typical ways the user ends sentences or posts (e.g. 'Thoughts?', 'Let that sink in.', 'Do you agree?')"),
@@ -132,6 +152,9 @@ export const StyleCardSchema = z.object({
     .array(FeedbackSubmissionSchema)
     .optional()
     .describe("Recent product feedback submissions from this profile"),
+  ghostwriterStyleCard: GhostwriterStyleCardSchema
+    .optional()
+    .describe("Derived semantic ghostwriter profile captured during profile analysis"),
 });
 
 export type VoiceStyleCard = z.infer<typeof StyleCardSchema>;

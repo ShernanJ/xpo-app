@@ -974,7 +974,7 @@ export function createReplayServiceOverrides(
         primaryPersona: null,
         secondaryPersona: null,
         styleCard: nextStyleCard,
-      } as Awaited<ReturnType<ConversationServices["saveStyleProfile"]>>;
+      } as unknown as Awaited<ReturnType<ConversationServices["saveStyleProfile"]>>;
     },
     async extractStyleRules() {
       return null;
