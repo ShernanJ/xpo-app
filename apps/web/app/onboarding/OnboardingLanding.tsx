@@ -8,6 +8,7 @@ import { PenLine, Search, Sparkles, Target } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { XShell } from "@/components/x-shell";
+import { TextShimmer } from "@/components/ui/text-shimmer";
 import { isMonetizationEnabled } from "@/lib/billing/monetization";
 import type { BillingStatePayload } from "@/lib/billing/types";
 import {
@@ -1314,19 +1315,31 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
                   </motion.div>
 
                   <motion.div variants={LANDING_LOADING_ITEM_REVEAL}>
-                    <div className="relative mt-7 h-6 overflow-hidden">
-                      <AnimatePresence mode="wait" initial={false}>
-                        <motion.p
-                          key={loadingStepIndex}
-                          initial={{ opacity: 0, y: 8, filter: "blur(2px)" }}
-                          animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                          exit={{ opacity: 0, y: -8, filter: "blur(2px)" }}
-                          transition={{ duration: 0.34, ease: "easeOut" }}
-                          className="absolute inset-x-0 text-sm font-medium tracking-[0.1em] text-white"
+                    <div className="landing-cta-input-shell is-focused mx-auto mt-7 max-w-xl rounded-[1.1rem] border border-white/15 bg-black/40 text-left">
+                      <div className="px-5 py-4 sm:px-6">
+                        <TextShimmer
+                          as="p"
+                          duration={1.6}
+                          className="truncate text-[15px] font-medium leading-6 tracking-[0.01em] text-left [--base-color:#71717a] [--base-gradient-color:#fafafa] sm:text-[14px]"
                         >
-                          {LOADING_STEPS[loadingStepIndex]}
-                        </motion.p>
-                      </AnimatePresence>
+                          Agent is thinking...
+                        </TextShimmer>
+
+                        <div className="relative mt-2 h-5 overflow-hidden">
+                          <AnimatePresence mode="wait" initial={false}>
+                            <motion.p
+                              key={loadingStepIndex}
+                              initial={{ opacity: 0, y: 8, filter: "blur(2px)" }}
+                              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                              exit={{ opacity: 0, y: -8, filter: "blur(2px)" }}
+                              transition={{ duration: 0.34, ease: "easeOut" }}
+                              className="absolute inset-x-0 text-xs font-medium tracking-[0.12em] text-zinc-400"
+                            >
+                              {LOADING_STEPS[loadingStepIndex]}
+                            </motion.p>
+                          </AnimatePresence>
+                        </div>
+                      </div>
                     </div>
 
                     <div className="relative mt-4 h-1.5 w-full overflow-hidden rounded-full bg-white/10">

@@ -85,6 +85,18 @@ vi.mock("framer-motion", () => ({
   }),
 }));
 
+vi.mock("@/components/ui/text-shimmer", () => ({
+  TextShimmer: ({
+    as: Component = "span",
+    children,
+    className,
+  }: {
+    as?: ElementType;
+    children: ReactNode;
+    className?: string;
+  }) => <Component className={className}>{children}</Component>,
+}));
+
 import OnboardingLanding from "./OnboardingLanding";
 
 beforeEach(() => {

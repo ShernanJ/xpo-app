@@ -72,6 +72,18 @@ vi.mock("framer-motion", () => ({
   }),
 }));
 
+vi.mock("@/components/ui/text-shimmer", () => ({
+  TextShimmer: ({
+    as: Component = "span",
+    children,
+    className,
+  }: {
+    as?: ElementType;
+    children: ReactNode;
+    className?: string;
+  }) => <Component className={className}>{children}</Component>,
+}));
+
 beforeEach(() => {
   window.HTMLElement.prototype.scrollIntoView = vi.fn();
   vi.spyOn(console, "error").mockImplementation((message) => {
