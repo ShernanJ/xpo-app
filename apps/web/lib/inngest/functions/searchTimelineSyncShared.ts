@@ -20,6 +20,28 @@ export interface BackgroundSyncProgress
   nextJobId?: string | null;
 }
 
+export function shouldTreatEmptyPageAsSoftLimit(args: {
+  originalPostCount: number;
+  nextCursor: string | null;
+  currentCursor: string | null;
+  previousCursor: string | null;
+  yearSeenPostCount: number;
+}) {
+  if (args.originalPostCount !== 0 || args.yearSeenPostCount <= 0) {
+    return false;
+  }
+
+  if (!args.nextCursor) {
+    return false;
+  }
+
+  if (args.nextCursor === args.currentCursor || args.nextCursor === args.previousCursor) {
+    return false;
+  }
+
+  return true;
+}
+
 export function getOldestObservedPostYear(posts: XPublicPost[]): number | null {
   let oldestYear: number | null = null;
 

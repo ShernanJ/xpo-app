@@ -5,12 +5,14 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client"
-  output   = "../lib/generated/prisma"
+  provider        = "prisma-client"
+  output          = "../lib/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
+  provider   = "postgresql"
+  extensions = [vector]
 }
 
 enum BillingPlan {
@@ -128,6 +130,15 @@ enum UserHandleStatus {
   active
 }
 
+enum Persona {
+  EDUCATOR
+  CURATOR
+  ENTERTAINER
+  DOCUMENTARIAN
+  PROVOCATEUR
+  CASUAL
+}
+
 model User {
   // Mirrors Supabase auth.users.id
   id            String   @id
@@ -191,20 +202,20 @@ model OnboardingRun {
 }
 
 model ScrapeCaptureCache {
-  id        String   @id @default(cuid())
-  captureId String   @unique
-  account   String   @unique
-  capturedAt DateTime
-  expiresAt DateTime
-  profile   Json
-  posts     Json
-  replyPosts Json
-  quotePosts Json
+  id           String   @id @default(cuid())
+  captureId    String   @unique
+  account      String   @unique
+  capturedAt   DateTime
+  expiresAt    DateTime
+  profile      Json
+  posts        Json
+  replyPosts   Json
+  quotePosts   Json
   captureState Json?
-  source    String
-  userAgent String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  source       String
+  userAgent    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([expiresAt])
   @@index([capturedAt])
@@ -218,23 +229,23 @@ model ChatThread {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  memories        ConversationMemory[]
-  messages        ChatMessage[]
-  mediaAssets     ChatMediaAsset[]
-  draftCandidates DraftCandidate[]
+  user             User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  memories         ConversationMemory[]
+  messages         ChatMessage[]
+  mediaAssets      ChatMediaAsset[]
+  draftCandidates  DraftCandidate[]
   messageFeedbacks ChatMessageFeedback[]
 }
 
 model ChatMessage {
   id        String   @id @default(cuid())
   threadId  String
-  role      String   // "user" | "assistant"
+  role      String // "user" | "assistant"
   content   String   @db.Text
-  data      Json?    // Optional JSON data for stored chat payload fields
+  data      Json? // Optional JSON data for stored chat payload fields
   createdAt DateTime @default(now())
 
-  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  thread   ChatThread            @relation(fields: [threadId], references: [id], onDelete: Cascade)
   feedback ChatMessageFeedback[]
 }
 
@@ -264,31 +275,31 @@ model ChatMediaAsset {
 }
 
 model ChatTurnControl {
-  id                  String         @id @default(cuid())
-  userId              String
-  runId               String
-  threadId            String?
-  clientTurnId        String
-  userMessageId       String?
-  status              ChatTurnStatus @default(queued)
-  progressStepId      String?
-  progressLabel       String?
-  progressExplanation String?
+  id                    String         @id @default(cuid())
+  userId                String
+  runId                 String
+  threadId              String?
+  clientTurnId          String
+  userMessageId         String?
+  status                ChatTurnStatus @default(queued)
+  progressStepId        String?
+  progressLabel         String?
+  progressExplanation   String?
   billingIdempotencyKey String?
-  creditCost          Int?
-  requestPayload      Json?
-  errorCode           String?
-  errorMessage        String?
-  cancelRequestedAt   DateTime?
-  startedAt           DateTime?
-  heartbeatAt         DateTime?
-  leaseOwner          String?
-  leaseExpiresAt      DateTime?
-  failedAt            DateTime?
-  completedAt         DateTime?
-  assistantMessageId  String?
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
+  creditCost            Int?
+  requestPayload        Json?
+  errorCode             String?
+  errorMessage          String?
+  cancelRequestedAt     DateTime?
+  startedAt             DateTime?
+  heartbeatAt           DateTime?
+  leaseOwner            String?
+  leaseExpiresAt        DateTime?
+  failedAt              DateTime?
+  completedAt           DateTime?
+  assistantMessageId    String?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -308,8 +319,8 @@ model ChatMessageFeedback {
   createdAt DateTime                 @default(now())
   updatedAt DateTime                 @updatedAt
 
-  user    User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  thread  ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  thread  ChatThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
   message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@unique([userId, messageId])
@@ -333,7 +344,7 @@ model Post {
 model ConversationMemory {
   id                  String   @id @default(uuid())
   userId              String?
-  runId               String?  // Made optional for legacy compatibility
+  runId               String? // Made optional for legacy compatibility
   threadId            String?
   version             Int      @default(1)
   topicSummary        String?
@@ -352,23 +363,23 @@ model ConversationMemory {
 }
 
 model OnboardingBackfillJob {
-  id             String                     @id @default(cuid())
-  dedupeKey      String                     @unique
-  account        String
-  sourceRunId    String
-  status         OnboardingBackfillJobStatus @default(pending)
+  id              String                      @id @default(cuid())
+  dedupeKey       String                      @unique
+  account         String
+  sourceRunId     String
+  status          OnboardingBackfillJobStatus @default(pending)
   targetPostCount Int
-  attempts       Int                        @default(0)
-  leaseOwner     String?
-  leaseExpiresAt DateTime?
-  heartbeatAt    DateTime?
-  startedAt      DateTime?
-  completedAt    DateTime?
-  failedAt       DateTime?
-  lastError      String?
-  lastCaptureId  String?
-  createdAt      DateTime                   @default(now())
-  updatedAt      DateTime                   @updatedAt
+  attempts        Int                         @default(0)
+  leaseOwner      String?
+  leaseExpiresAt  DateTime?
+  heartbeatAt     DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  failedAt        DateTime?
+  lastError       String?
+  lastCaptureId   String?
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
 
   @@index([status, updatedAt])
   @@index([account, status, updatedAt])
@@ -376,27 +387,27 @@ model OnboardingBackfillJob {
 }
 
 model OnboardingScrapeJob {
-  id               String                   @id @default(cuid())
-  dedupeKey        String                   @unique
-  userId           String
-  account          String
-  kind             OnboardingScrapeJobKind
-  status           OnboardingScrapeJobStatus @default(pending)
-  sourceRunId      String?
-  requestInput     Json?
-  progressPayload  Json?
-  attempts         Int                      @default(0)
-  leaseOwner       String?
-  leaseExpiresAt   DateTime?
-  heartbeatAt      DateTime?
-  startedAt        DateTime?
-  completedAt      DateTime?
-  failedAt         DateTime?
-  lastError        String?
-  resultPayload    Json?
-  completedRunId   String?
-  createdAt        DateTime                 @default(now())
-  updatedAt        DateTime                 @updatedAt
+  id              String                    @id @default(cuid())
+  dedupeKey       String                    @unique
+  userId          String
+  account         String
+  kind            OnboardingScrapeJobKind
+  status          OnboardingScrapeJobStatus @default(pending)
+  sourceRunId     String?
+  requestInput    Json?
+  progressPayload Json?
+  attempts        Int                       @default(0)
+  leaseOwner      String?
+  leaseExpiresAt  DateTime?
+  heartbeatAt     DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  failedAt        DateTime?
+  lastError       String?
+  resultPayload   Json?
+  completedRunId  String?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -407,13 +418,13 @@ model OnboardingScrapeJob {
 }
 
 model ScraperProxyAccount {
-  id          String   @id @default(cuid())
-  sessionId   String   @unique
+  id          String    @id @default(cuid())
+  sessionId   String    @unique
   fleet       String
-  enabled     Boolean  @default(true)
+  enabled     Boolean   @default(true)
   lockedUntil DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([fleet, enabled, lockedUntil])
 }
@@ -429,15 +440,45 @@ model RequestRateLimitBucket {
 }
 
 model VoiceProfile {
+  id               String   @id @default(uuid())
+  userId           String
+  xHandle          String?
+  niche            String? // Legacy niche field; semanticClusters are the forward path.
+  primaryPersona   Persona?
+  secondaryPersona Persona?
+  styleCard        Json // Parsed CreatorStyleCard / GhostwriterStyleCard payloads
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  semanticClusters SemanticCluster[]
+  goldenExamples   GoldenExample[]
+}
+
+model SemanticCluster {
   id        String   @id @default(uuid())
-  userId    String
-  xHandle   String?
-  niche     String?
-  styleCard Json // Parsed CreatorStyleCard
+  profileId String
+  name      String
+  weight    Float    @default(1.0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile VoiceProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+}
+
+model GoldenExample {
+  id        String                       @id @default(uuid())
+  profileId String
+  content   String
+  intent    String?
+  embedding Unsupported("vector(1536)")?
+  createdAt DateTime                     @default(now())
+
+  profile VoiceProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
 }
 
 model SourceMaterialAsset {
@@ -476,36 +517,36 @@ model Folder {
 }
 
 model DraftCandidate {
-  id               String               @id @default(cuid())
-  userId           String
-  xHandle          String?
+  id                String               @id @default(cuid())
+  userId            String
+  xHandle           String?
   replySourcePostId String?
-  threadId         String?
-  messageId        String?
-  runId            String?
-  title            String
-  sourcePrompt     String
-  sourcePlaybook   String?
-  outputShape      String
-  reviewStatus     DraftCandidateStatus @default(pending)
-  status           PostStatus           @default(DRAFT)
-  folderId         String?
-  publishedTweetId String?
-  draftVersionId   String?
-  basedOnVersionId String?
-  revisionChainId  String?
-  isLatestVersion  Boolean              @default(true)
-  artifact         Json
-  voiceTarget      Json?
-  noveltyNotes     Json?
-  rejectionReason  String?
-  approvedAt       DateTime?
-  editedAt         DateTime?
-  postedAt         DateTime?
-  observedAt       DateTime?
-  observedMetrics  Json?
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
+  threadId          String?
+  messageId         String?
+  runId             String?
+  title             String
+  sourcePrompt      String
+  sourcePlaybook    String?
+  outputShape       String
+  reviewStatus      DraftCandidateStatus @default(pending)
+  status            PostStatus           @default(DRAFT)
+  folderId          String?
+  publishedTweetId  String?
+  draftVersionId    String?
+  basedOnVersionId  String?
+  revisionChainId   String?
+  isLatestVersion   Boolean              @default(true)
+  artifact          Json
+  voiceTarget       Json?
+  noveltyNotes      Json?
+  rejectionReason   String?
+  approvedAt        DateTime?
+  editedAt          DateTime?
+  postedAt          DateTime?
+  observedAt        DateTime?
+  observedMetrics   Json?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
   user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   thread ChatThread?    @relation(fields: [threadId], references: [id], onDelete: SetNull)
@@ -523,15 +564,15 @@ model DraftCandidate {
 }
 
 model ProductEvent {
-  id         String   @id @default(cuid())
-  userId     String
-  xHandle    String?
-  threadId   String?
-  messageId  String?
+  id          String   @id @default(cuid())
+  userId      String
+  xHandle     String?
+  threadId    String?
+  messageId   String?
   candidateId String?
-  eventType  String
-  properties Json
-  createdAt  DateTime @default(now())
+  eventType   String
+  properties  Json
+  createdAt   DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -559,37 +600,37 @@ model ExtensionApiToken {
 }
 
 model ReplyOpportunity {
-  id                 String                @id @default(cuid())
-  userId             String
-  xHandle            String?
-  tweetId            String
-  authorHandle       String
-  tweetText          String                @db.Text
-  tweetUrl           String
-  tweetSnapshot      Json
-  heuristicScore     Int?
-  heuristicTier      String?
-  stage              String
-  tone               String
-  goal               String
-  strategyPillar     String?
+  id                  String                @id @default(cuid())
+  userId              String
+  xHandle             String?
+  tweetId             String
+  authorHandle        String
+  tweetText           String                @db.Text
+  tweetUrl            String
+  tweetSnapshot       Json
+  heuristicScore      Int?
+  heuristicTier       String?
+  stage               String
+  tone                String
+  goal                String
+  strategyPillar      String?
   generatedAngleLabel String?
-  state              ReplyOpportunityState @default(opened)
-  openedAt           DateTime?
-  generatedAt        DateTime?
-  selectedAt         DateTime?
-  copiedAt           DateTime?
-  postedAt           DateTime?
-  dismissedAt        DateTime?
-  observedAt         DateTime?
-  generatedOptions   Json?
-  notes              Json?
-  selectedOptionId   String?
-  selectedOptionText String?               @db.Text
-  selectedAngleLabel String?
-  observedMetrics    Json?
-  createdAt          DateTime              @default(now())
-  updatedAt          DateTime              @updatedAt
+  state               ReplyOpportunityState @default(opened)
+  openedAt            DateTime?
+  generatedAt         DateTime?
+  selectedAt          DateTime?
+  copiedAt            DateTime?
+  postedAt            DateTime?
+  dismissedAt         DateTime?
+  observedAt          DateTime?
+  generatedOptions    Json?
+  notes               Json?
+  selectedOptionId    String?
+  selectedOptionText  String?               @db.Text
+  selectedAngleLabel  String?
+  observedMetrics     Json?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -617,13 +658,13 @@ model ReplyGoldenExample {
 }
 
 model FeedbackSubmission {
-  id                    String   @id @default(uuid())
+  id                    String    @id @default(uuid())
   userId                String
   xHandle               String
   category              String
-  status                String   @default("open")
+  status                String    @default("open")
   title                 String?
-  message               String   @db.Text
+  message               String    @db.Text
   fields                Json
   context               Json
   attachments           Json
@@ -631,8 +672,8 @@ model FeedbackSubmission {
   submittedByXHandle    String?
   statusUpdatedAt       DateTime?
   statusUpdatedByUserId String?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -641,26 +682,26 @@ model FeedbackSubmission {
 }
 
 model BillingEntitlement {
-  id                     String       @id @default(cuid())
-  userId                 String       @unique
-  plan                   BillingPlan  @default(free)
-  status                 BillingStatus @default(active)
-  billingCycle           BillingCycle @default(monthly)
-  stripeCustomerId       String?      @unique
-  stripeSubscriptionId   String?
-  stripePriceId          String?
-  creditsRemaining       Int          @default(100)
-  creditLimit            Int          @default(100)
-  creditCycleResetsAt    DateTime
-  showFirstPricingModal  Boolean      @default(true)
-  lifetimeGrantedAt      DateTime?
-  fairUseSoftWarningAt   DateTime?
-  fairUseReviewAt        DateTime?
-  fairUseBlockedAt       DateTime?
-  createdAt              DateTime     @default(now())
-  updatedAt              DateTime     @updatedAt
+  id                    String        @id @default(cuid())
+  userId                String        @unique
+  plan                  BillingPlan   @default(free)
+  status                BillingStatus @default(active)
+  billingCycle          BillingCycle  @default(monthly)
+  stripeCustomerId      String?       @unique
+  stripeSubscriptionId  String?
+  stripePriceId         String?
+  creditsRemaining      Int           @default(100)
+  creditLimit           Int           @default(100)
+  creditCycleResetsAt   DateTime
+  showFirstPricingModal Boolean       @default(true)
+  lifetimeGrantedAt     DateTime?
+  fairUseSoftWarningAt  DateTime?
+  fairUseReviewAt       DateTime?
+  fairUseBlockedAt      DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
 
-  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   creditLedgerEntries CreditLedgerEntry[]
 
   @@index([plan, status])
@@ -679,7 +720,7 @@ model CreditLedgerEntry {
   metadata             Json?
   createdAt            DateTime         @default(now())
 
-  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   entitlement BillingEntitlement? @relation(fields: [billingEntitlementId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
@@ -687,13 +728,13 @@ model CreditLedgerEntry {
 }
 
 model StripeWebhookEvent {
-  id          String   @id
-  eventType   String
-  payload     Json
-  status      String   @default("processing")
+  id           String    @id
+  eventType    String
+  payload      Json
+  status       String    @default("processing")
   errorMessage String?
-  receivedAt  DateTime @default(now())
-  processedAt DateTime?
+  receivedAt   DateTime  @default(now())
+  processedAt  DateTime?
 }
 
 model LifetimeSlotReservation {

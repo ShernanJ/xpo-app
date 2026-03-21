@@ -23,6 +23,7 @@ import {
   getOldestObservedPostYear,
   normalizeBackgroundSyncProgress,
   refreshOnboardingRunFromCapture,
+  shouldTreatEmptyPageAsSoftLimit,
 } from "./searchTimelineSyncShared";
 
 const CONTEXT_PRIMER_TARGET_POSTS = 200;
@@ -158,7 +159,15 @@ export async function processContextPrimerHandler({
         }
       });
 
-      if (page.originalPostCount === 0 && progress.yearSeenPostCount > 0) {
+      if (
+        shouldTreatEmptyPageAsSoftLimit({
+          originalPostCount: page.originalPostCount,
+          nextCursor: page.nextCursor,
+          currentCursor: progress.cursor,
+          previousCursor: progress.previousCursor,
+          yearSeenPostCount: progress.yearSeenPostCount,
+        })
+      ) {
         await lockSearchTimelineSession(page.sessionId, PROXY_LOCK_MS);
         throw new RetryAfterError("SEARCH_TIMELINE_SOFT_LIMIT", "6h");
       }

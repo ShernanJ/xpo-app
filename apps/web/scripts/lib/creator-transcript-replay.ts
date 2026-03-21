@@ -971,6 +971,8 @@ export function createReplayServiceOverrides(
         userId: userIdArg,
         xHandle: xHandleArg,
         niche: null,
+        primaryPersona: null,
+        secondaryPersona: null,
         styleCard: nextStyleCard,
       } as Awaited<ReturnType<ConversationServices["saveStyleProfile"]>>;
     },
