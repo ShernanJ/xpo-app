@@ -16,32 +16,41 @@ interface BootstrapHookProps {
   activeToneInputs: ToneInputs | null;
 }
 
-function createSuccessfulResponse(payload: unknown): Response {
+function createSuccessfulBootstrapResponse(args: {
+  context: unknown;
+  contract: unknown;
+}): Response {
   return {
     ok: true,
     status: 200,
     json: async () => ({
       ok: true,
-      data: payload,
+      data: {
+        context: args.context,
+        contract: args.contract,
+      },
     }),
   } as Response;
 }
 
-function createSuccessfulBootstrapResponse(args: {
-  context: unknown;
-  contract: unknown;
-}): Response {
-  return createSuccessfulResponse({
-    context: args.context,
-    contract: args.contract,
-  });
+function createSetupPendingResponse(pollAfterMs = 1200): Response {
+  return {
+    ok: false,
+    status: 202,
+    json: async () => ({
+      ok: false,
+      code: "SETUP_PENDING",
+      retryable: true,
+      pollAfterMs,
+      errors: [{ message: "Setup is still finishing for this account." }],
+    }),
+  } as Response;
 }
 
 function createFailureResponse(args: {
   status: number;
-  code?: "MISSING_ONBOARDING_RUN" | "ONBOARDING_SOURCE_INVALID" | "PLAN_REQUIRED";
+  code?: "MISSING_ONBOARDING_RUN" | "ONBOARDING_SOURCE_INVALID";
   message: string;
-  data?: unknown;
 }): Response {
   return {
     ok: false,
@@ -50,7 +59,6 @@ function createFailureResponse(args: {
       ok: false,
       code: args.code,
       errors: [{ message: args.message }],
-      data: args.data,
     }),
   } as Response;
 }
@@ -72,9 +80,6 @@ test("keeps loadWorkspace stable while reading the latest strategy and tone inpu
   const setErrorMessage = vi.fn();
   const setContext = vi.fn();
   const setContract = vi.fn();
-  const applyBillingSnapshot = vi.fn();
-  const onPlanRequired = vi.fn();
-  const normalizeAccountHandle = (value: string) => value.trim().toLowerCase();
 
   const { result, rerender } = renderHook<
     ReturnType<
@@ -95,6 +100,7 @@ test("keeps loadWorkspace stable while reading the latest strategy and tone inpu
         ToneInputs
       >({
         accountName: "stanley",
+        isWorkspaceHandleValidating: false,
         requiresXAccountGate: false,
         activeStrategyInputs,
         activeToneInputs,
@@ -104,9 +110,6 @@ test("keeps loadWorkspace stable while reading the latest strategy and tone inpu
         setErrorMessage,
         setContext,
         setContract,
-        applyBillingSnapshot,
-        onPlanRequired,
-        normalizeAccountHandle,
       }),
     {
       initialProps: {
@@ -156,103 +159,18 @@ test("keeps loadWorkspace stable while reading the latest strategy and tone inpu
   });
 });
 
-test("keeps loadWorkspace stable when bootstrap callbacks change identity", () => {
-  const fetchWorkspace = vi.fn(async () =>
-    createSuccessfulBootstrapResponse({
-      context: { ok: true },
-      contract: { ok: true },
-    }),
-  );
+test("does not bootstrap while the workspace handle is still validating", async () => {
+  const fetchWorkspace = vi.fn<UseChatWorkspaceBootstrapFetch>();
   const setIsLoading = vi.fn();
   const setIsWorkspaceInitializing = vi.fn();
   const setErrorMessage = vi.fn();
   const setContext = vi.fn();
   const setContract = vi.fn();
-
-  const { result, rerender } = renderHook(
-    ({
-      applyBillingSnapshot,
-      onPlanRequired,
-      normalizeAccountHandle,
-    }: {
-      applyBillingSnapshot: (billing: unknown) => void;
-      onPlanRequired: () => void;
-      normalizeAccountHandle: (value: string) => string;
-    }) =>
-      useChatWorkspaceBootstrap<{ ok: boolean }, { ok: boolean }, StrategyInputs, ToneInputs>({
-        accountName: "stanley",
-        requiresXAccountGate: false,
-        activeStrategyInputs: null,
-        activeToneInputs: null,
-        fetchWorkspace,
-        setIsLoading,
-        setIsWorkspaceInitializing,
-        setErrorMessage,
-        setContext,
-        setContract,
-        applyBillingSnapshot,
-        onPlanRequired,
-        normalizeAccountHandle,
-      }),
-    {
-      initialProps: {
-        applyBillingSnapshot: () => undefined,
-        onPlanRequired: () => undefined,
-        normalizeAccountHandle: (value: string) => value.trim().toLowerCase(),
-      },
-    },
-  );
-
-  const initialLoadWorkspace = result.current.loadWorkspace;
-
-  rerender({
-    applyBillingSnapshot: () => undefined,
-    onPlanRequired: () => undefined,
-    normalizeAccountHandle: (value: string) => value.trim().toLowerCase(),
-  });
-
-  expect(result.current.loadWorkspace).toBe(initialLoadWorkspace);
-});
-
-test("retries workspace bootstrap once after onboarding setup succeeds", async () => {
-  const fetchWorkspace = vi
-    .fn<UseChatWorkspaceBootstrapFetch>()
-    .mockImplementationOnce(async () =>
-      createFailureResponse({
-        status: 404,
-        code: "MISSING_ONBOARDING_RUN",
-        message: "No onboarding run found.",
-      }),
-    )
-    .mockImplementationOnce(async () =>
-      createSuccessfulBootstrapResponse({
-        context: { id: "context-1" },
-        contract: { id: "contract-1" },
-      }),
-    );
-  const onboardingFetch = vi.fn(async () =>
-    ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        ok: true,
-        runId: "run-1",
-      }),
-    }) as Response,
-  );
-  const setIsLoading = vi.fn();
-  const setIsWorkspaceInitializing = vi.fn();
-  const setErrorMessage = vi.fn();
-  const setContext = vi.fn();
-  const setContract = vi.fn();
-  const applyBillingSnapshot = vi.fn();
-  const onPlanRequired = vi.fn();
-
-  vi.stubGlobal("fetch", onboardingFetch);
 
   const { result } = renderHook(() =>
     useChatWorkspaceBootstrap<{ id: string }, { id: string }, StrategyInputs, ToneInputs>({
-      accountName: "stanley",
+      accountName: null,
+      isWorkspaceHandleValidating: true,
       requiresXAccountGate: false,
       activeStrategyInputs: null,
       activeToneInputs: null,
@@ -262,9 +180,6 @@ test("retries workspace bootstrap once after onboarding setup succeeds", async (
       setErrorMessage,
       setContext,
       setContract,
-      applyBillingSnapshot,
-      onPlanRequired,
-      normalizeAccountHandle: (value) => value.trim().toLowerCase(),
     }),
   );
 
@@ -272,68 +187,35 @@ test("retries workspace bootstrap once after onboarding setup succeeds", async (
     await result.current.loadWorkspace();
   });
 
-  expect(fetchWorkspace).toHaveBeenCalledTimes(2);
-  expect(onboardingFetch).toHaveBeenCalledTimes(1);
-  expect(setContext).toHaveBeenCalledWith({ id: "context-1" });
-  expect(setContract).toHaveBeenCalledWith({ id: "contract-1" });
-
-  vi.unstubAllGlobals();
+  expect(fetchWorkspace).not.toHaveBeenCalled();
+  expect(setContext).not.toHaveBeenCalled();
+  expect(setContract).not.toHaveBeenCalled();
 });
 
-test("waits for a queued onboarding job before retrying workspace bootstrap", async () => {
+test("retries workspace bootstrap while setup is pending and never calls onboarding directly", async () => {
   const fetchWorkspace = vi
     .fn<UseChatWorkspaceBootstrapFetch>()
-    .mockImplementationOnce(async () =>
-      createFailureResponse({
-        status: 404,
-        code: "MISSING_ONBOARDING_RUN",
-        message: "No onboarding run found.",
-      }),
-    )
+    .mockImplementationOnce(async () => createSetupPendingResponse(900))
     .mockImplementationOnce(async () =>
       createSuccessfulBootstrapResponse({
         context: { id: "context-queued" },
         contract: { id: "contract-queued" },
       }),
     );
-  const onboardingFetch = vi
-    .fn()
-    .mockImplementationOnce(async () =>
-      ({
-        ok: true,
-        status: 202,
-        json: async () => ({
-          ok: true,
-          status: "queued",
-          jobId: "job-1",
-        }),
-      }) as Response,
-    )
-    .mockImplementationOnce(async () =>
-      ({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          ok: true,
-          status: "completed",
-          jobId: "job-1",
-          runId: "run-queued",
-        }),
-      }) as Response,
-    );
   const setIsLoading = vi.fn();
   const setIsWorkspaceInitializing = vi.fn();
   const setErrorMessage = vi.fn();
   const setContext = vi.fn();
   const setContract = vi.fn();
-  const applyBillingSnapshot = vi.fn();
-  const onPlanRequired = vi.fn();
+  const globalFetch = vi.fn();
 
-  vi.stubGlobal("fetch", onboardingFetch);
+  vi.useFakeTimers();
+  vi.stubGlobal("fetch", globalFetch);
 
   const { result } = renderHook(() =>
     useChatWorkspaceBootstrap<{ id: string }, { id: string }, StrategyInputs, ToneInputs>({
       accountName: "stanley",
+      isWorkspaceHandleValidating: false,
       requiresXAccountGate: false,
       activeStrategyInputs: null,
       activeToneInputs: null,
@@ -343,124 +225,36 @@ test("waits for a queued onboarding job before retrying workspace bootstrap", as
       setErrorMessage,
       setContext,
       setContract,
-      applyBillingSnapshot,
-      onPlanRequired,
-      normalizeAccountHandle: (value) => value.trim().toLowerCase(),
     }),
   );
 
   await act(async () => {
-    await result.current.loadWorkspace();
+    const loadPromise = result.current.loadWorkspace();
+    await vi.runAllTimersAsync();
+    await loadPromise;
   });
 
   expect(fetchWorkspace).toHaveBeenCalledTimes(2);
-  expect(onboardingFetch).toHaveBeenCalledTimes(2);
-  expect(onboardingFetch).toHaveBeenNthCalledWith(
-    2,
-    "/api/onboarding/jobs/job-1",
-    expect.objectContaining({
-      method: "GET",
-    }),
-  );
+  expect(globalFetch).not.toHaveBeenCalled();
   expect(setContext).toHaveBeenCalledWith({ id: "context-queued" });
   expect(setContract).toHaveBeenCalledWith({ id: "contract-queued" });
 
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
-test("does not keep retrying onboarding setup after a plan-required failure", async () => {
-  const billingSnapshot = { plan: "free" };
-  const fetchWorkspace = vi
-    .fn<UseChatWorkspaceBootstrapFetch>()
-    .mockImplementation(async () =>
-      createFailureResponse({
-        status: 404,
-        code: "MISSING_ONBOARDING_RUN",
-        message: "No onboarding run found.",
-      }),
-    );
-  const onboardingFetch = vi.fn(async () =>
-    ({
-      ok: false,
-      status: 403,
-      json: async () => ({
-        ok: false,
-        code: "PLAN_REQUIRED",
-        errors: [{ message: "Upgrade required." }],
-        data: {
-          billing: billingSnapshot,
-        },
-      }),
-    }) as Response,
-  );
-  const setIsLoading = vi.fn();
-  const setIsWorkspaceInitializing = vi.fn();
-  const setErrorMessage = vi.fn();
-  const setContext = vi.fn();
-  const setContract = vi.fn();
-  const applyBillingSnapshot = vi.fn();
-  const onPlanRequired = vi.fn();
-
-  vi.stubGlobal("fetch", onboardingFetch);
-
-  const { result } = renderHook(() =>
-    useChatWorkspaceBootstrap<{ id: string }, { id: string }, StrategyInputs, ToneInputs>({
-      accountName: "stanley",
-      requiresXAccountGate: false,
-      activeStrategyInputs: null,
-      activeToneInputs: null,
-      fetchWorkspace,
-      setIsLoading,
-      setIsWorkspaceInitializing,
-      setErrorMessage,
-      setContext,
-      setContract,
-      applyBillingSnapshot,
-      onPlanRequired,
-      normalizeAccountHandle: (value) => value.trim().toLowerCase(),
-    }),
-  );
-
-  await act(async () => {
-    await result.current.loadWorkspace();
-    await result.current.loadWorkspace();
-  });
-
-  expect(onboardingFetch).toHaveBeenCalledTimes(1);
-  expect(applyBillingSnapshot).toHaveBeenCalledWith(billingSnapshot);
-  expect(onPlanRequired).toHaveBeenCalledTimes(1);
-  expect(setContext).not.toHaveBeenCalled();
-  expect(setContract).not.toHaveBeenCalled();
-
-  vi.unstubAllGlobals();
-});
-
-test("clears workspace initializing when a newer load overtakes onboarding setup", async () => {
+test("clears workspace initializing when a newer load overtakes setup pending polling", async () => {
   let currentWorkspaceInitializing = false;
-  const onboardingFetchDeferred = Promise.withResolvers<Response>();
+  const firstResponseDeferred = Promise.withResolvers<Response>();
   const fetchWorkspace = vi
     .fn<UseChatWorkspaceBootstrapFetch>()
-    .mockImplementationOnce(async () =>
-      createFailureResponse({
-        status: 404,
-        code: "MISSING_ONBOARDING_RUN",
-        message: "No onboarding run found.",
-      }),
-    )
-    .mockImplementationOnce(async () =>
-      createFailureResponse({
-        status: 404,
-        code: "MISSING_ONBOARDING_RUN",
-        message: "No onboarding run found.",
-      }),
-    )
+    .mockImplementationOnce(async () => firstResponseDeferred.promise)
     .mockImplementationOnce(async () =>
       createSuccessfulBootstrapResponse({
         context: { id: "context-2" },
         contract: { id: "contract-2" },
       }),
     );
-  const onboardingFetch = vi.fn(async () => onboardingFetchDeferred.promise);
   const setIsLoading = vi.fn();
   const setIsWorkspaceInitializing = vi.fn((value: boolean) => {
     currentWorkspaceInitializing = value;
@@ -468,14 +262,11 @@ test("clears workspace initializing when a newer load overtakes onboarding setup
   const setErrorMessage = vi.fn();
   const setContext = vi.fn();
   const setContract = vi.fn();
-  const applyBillingSnapshot = vi.fn();
-  const onPlanRequired = vi.fn();
-
-  vi.stubGlobal("fetch", onboardingFetch);
 
   const { result } = renderHook(() =>
     useChatWorkspaceBootstrap<{ id: string }, { id: string }, StrategyInputs, ToneInputs>({
       accountName: "stanley",
+      isWorkspaceHandleValidating: false,
       requiresXAccountGate: false,
       activeStrategyInputs: null,
       activeToneInputs: null,
@@ -485,9 +276,6 @@ test("clears workspace initializing when a newer load overtakes onboarding setup
       setErrorMessage,
       setContext,
       setContract,
-      applyBillingSnapshot,
-      onPlanRequired,
-      normalizeAccountHandle: (value) => value.trim().toLowerCase(),
     }),
   );
 
@@ -495,11 +283,9 @@ test("clears workspace initializing when a newer load overtakes onboarding setup
   await act(async () => {
     firstLoadPromise = result.current.loadWorkspace();
     await Promise.resolve();
-    await Promise.resolve();
   });
 
-  expect(onboardingFetch).toHaveBeenCalledTimes(1);
-  expect(currentWorkspaceInitializing).toBe(true);
+  firstResponseDeferred.resolve(createSetupPendingResponse(900));
 
   await act(async () => {
     await result.current.loadWorkspace();
@@ -509,20 +295,54 @@ test("clears workspace initializing when a newer load overtakes onboarding setup
   expect(setContract).toHaveBeenCalledWith({ id: "contract-2" });
   expect(currentWorkspaceInitializing).toBe(false);
 
-  onboardingFetchDeferred.resolve({
-    ok: true,
-    status: 200,
-    json: async () => ({
-      ok: true,
-      runId: "run-1",
-    }),
-  } as Response);
-
   await act(async () => {
     await firstLoadPromise;
   });
 
   expect(currentWorkspaceInitializing).toBe(false);
+});
+
+test("surfaces bootstrap errors without attempting onboarding recovery", async () => {
+  const fetchWorkspace = vi.fn<UseChatWorkspaceBootstrapFetch>(async () =>
+    createFailureResponse({
+      status: 409,
+      code: "ONBOARDING_SOURCE_INVALID",
+      message: "Workspace bootstrap failed.",
+    }),
+  );
+  const setIsLoading = vi.fn();
+  const setIsWorkspaceInitializing = vi.fn();
+  const setErrorMessage = vi.fn();
+  const setContext = vi.fn();
+  const setContract = vi.fn();
+  const globalFetch = vi.fn();
+
+  vi.stubGlobal("fetch", globalFetch);
+
+  const { result } = renderHook(() =>
+    useChatWorkspaceBootstrap<{ id: string }, { id: string }, StrategyInputs, ToneInputs>({
+      accountName: "stanley",
+      isWorkspaceHandleValidating: false,
+      requiresXAccountGate: false,
+      activeStrategyInputs: null,
+      activeToneInputs: null,
+      fetchWorkspace,
+      setIsLoading,
+      setIsWorkspaceInitializing,
+      setErrorMessage,
+      setContext,
+      setContract,
+    }),
+  );
+
+  await act(async () => {
+    await result.current.loadWorkspace();
+  });
+
+  expect(globalFetch).not.toHaveBeenCalled();
+  expect(setErrorMessage).toHaveBeenCalledWith("Workspace bootstrap failed.");
+  expect(setContext).not.toHaveBeenCalled();
+  expect(setContract).not.toHaveBeenCalled();
 
   vi.unstubAllGlobals();
 });

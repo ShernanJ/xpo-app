@@ -42,9 +42,23 @@ test("marks a newly analyzed account as just onboarded before switching into it"
     if (url === "/api/onboarding/run") {
       return {
         ok: true,
+        status: 202,
+        json: async () => ({
+          ok: true,
+          status: "queued",
+          jobId: "job-1",
+        }),
+      } as Response;
+    }
+
+    if (url === "/api/onboarding/jobs/job-1") {
+      return {
+        ok: true,
         status: 200,
         json: async () => ({
           ok: true,
+          status: "completed",
+          jobId: "job-1",
           runId: "run-1",
         }),
       } as Response;
@@ -89,7 +103,7 @@ test("marks a newly analyzed account as just onboarded before switching into it"
     const submitPromise = result.current.handleAddAccountSubmit({
       preventDefault() {},
     } as FormEvent<HTMLFormElement>);
-    await vi.advanceTimersByTimeAsync(2600);
+    await vi.advanceTimersByTimeAsync(4100);
     await submitPromise;
   });
 

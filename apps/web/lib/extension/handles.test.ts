@@ -19,16 +19,15 @@ test("resolveExtensionHandleForRequest returns 400 when no explicit handle is pr
 });
 
 test("resolveExtensionHandleForRequest rejects handles that are not attached to the user", async () => {
-  const voiceProfileDelegate = prisma.voiceProfile as { findMany: typeof prisma.voiceProfile.findMany };
-  const onboardingRunDelegate = prisma.onboardingRun as { findMany: typeof prisma.onboardingRun.findMany };
-  const chatThreadDelegate = prisma.chatThread as { findMany: typeof prisma.chatThread.findMany };
-  const originalVoiceProfiles = voiceProfileDelegate.findMany;
-  const originalOnboardingRuns = onboardingRunDelegate.findMany;
-  const originalChatThreads = chatThreadDelegate.findMany;
+  const userHandleDelegate = prisma.userHandle as { findMany: typeof prisma.userHandle.findMany };
+  const userDelegate = prisma.user as { findUnique: typeof prisma.user.findUnique };
+  const originalUserHandles = userHandleDelegate.findMany;
+  const originalUserFindUnique = userDelegate.findUnique;
 
-  voiceProfileDelegate.findMany = (async () => [{ xHandle: "handle_a" }]) as typeof prisma.voiceProfile.findMany;
-  onboardingRunDelegate.findMany = (async () => []) as typeof prisma.onboardingRun.findMany;
-  chatThreadDelegate.findMany = (async () => []) as typeof prisma.chatThread.findMany;
+  userHandleDelegate.findMany = (async () => [{ xHandle: "handle_a" }]) as unknown as typeof prisma.userHandle.findMany;
+  userDelegate.findUnique = (async () => ({
+    activeXHandle: "handle_a",
+  })) as unknown as typeof prisma.user.findUnique;
 
   try {
     const result = await resolveExtensionHandleForRequest({
@@ -46,23 +45,24 @@ test("resolveExtensionHandleForRequest rejects handles that are not attached to 
       assert.equal(result.message, "That X handle is not attached to this Xpo profile.");
     }
   } finally {
-    voiceProfileDelegate.findMany = originalVoiceProfiles;
-    onboardingRunDelegate.findMany = originalOnboardingRuns;
-    chatThreadDelegate.findMany = originalChatThreads;
+    userHandleDelegate.findMany = originalUserHandles;
+    userDelegate.findUnique = originalUserFindUnique;
   }
 });
 
 test("resolveExtensionHandleForRequest accepts attached handles from the extension header", async () => {
-  const voiceProfileDelegate = prisma.voiceProfile as { findMany: typeof prisma.voiceProfile.findMany };
-  const onboardingRunDelegate = prisma.onboardingRun as { findMany: typeof prisma.onboardingRun.findMany };
-  const chatThreadDelegate = prisma.chatThread as { findMany: typeof prisma.chatThread.findMany };
-  const originalVoiceProfiles = voiceProfileDelegate.findMany;
-  const originalOnboardingRuns = onboardingRunDelegate.findMany;
-  const originalChatThreads = chatThreadDelegate.findMany;
+  const userHandleDelegate = prisma.userHandle as { findMany: typeof prisma.userHandle.findMany };
+  const userDelegate = prisma.user as { findUnique: typeof prisma.user.findUnique };
+  const originalUserHandles = userHandleDelegate.findMany;
+  const originalUserFindUnique = userDelegate.findUnique;
 
-  voiceProfileDelegate.findMany = (async () => [{ xHandle: "handle_a" }]) as typeof prisma.voiceProfile.findMany;
-  onboardingRunDelegate.findMany = (async () => [{ input: { account: "@handle_b" } }]) as typeof prisma.onboardingRun.findMany;
-  chatThreadDelegate.findMany = (async () => []) as typeof prisma.chatThread.findMany;
+  userHandleDelegate.findMany = (async () => [
+    { xHandle: "handle_a" },
+    { xHandle: "@handle_b" },
+  ]) as unknown as typeof prisma.userHandle.findMany;
+  userDelegate.findUnique = (async () => ({
+    activeXHandle: "handle_c",
+  })) as unknown as typeof prisma.user.findUnique;
 
   try {
     const result = await resolveExtensionHandleForRequest({
@@ -78,15 +78,10 @@ test("resolveExtensionHandleForRequest accepts attached handles from the extensi
     assert.equal(result.ok, true);
     if (result.ok) {
       assert.equal(result.xHandle, "handle_b");
-      assert.deepEqual(result.attachedHandles.sort(), [
-        "handle_a",
-        "handle_b",
-        "handle_c",
-      ]);
+      assert.deepEqual(result.attachedHandles.sort(), ["handle_a", "handle_b"]);
     }
   } finally {
-    voiceProfileDelegate.findMany = originalVoiceProfiles;
-    onboardingRunDelegate.findMany = originalOnboardingRuns;
-    chatThreadDelegate.findMany = originalChatThreads;
+    userHandleDelegate.findMany = originalUserHandles;
+    userDelegate.findUnique = originalUserFindUnique;
   }
 });

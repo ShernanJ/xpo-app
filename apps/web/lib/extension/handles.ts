@@ -2,7 +2,7 @@ import { NextResponse } from "next/server.js";
 
 import { prisma } from "../db.ts";
 import type { OnboardingResult } from "../onboarding/contracts/types.ts";
-import { listWorkspaceHandlesForUser } from "../workspaceHandle.server.ts";
+import { listWorkspaceHandlesForUser } from "../userHandles.server.ts";
 import {
   getWorkspaceHandleFromRequest,
   normalizeWorkspaceHandle,

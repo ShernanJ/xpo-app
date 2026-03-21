@@ -19,19 +19,19 @@ function createSession(activeXHandle = "handle_a") {
 }
 
 test("listWorkspaceHandlesForUser keeps same-profile handles isolated and normalized", async () => {
-  const voiceProfileDelegate = prisma.voiceProfile as { findMany: typeof prisma.voiceProfile.findMany };
-  const onboardingRunDelegate = prisma.onboardingRun as { findMany: typeof prisma.onboardingRun.findMany };
-  const chatThreadDelegate = prisma.chatThread as { findMany: typeof prisma.chatThread.findMany };
-  const originalVoiceProfiles = voiceProfileDelegate.findMany;
-  const originalOnboardingRuns = onboardingRunDelegate.findMany;
-  const originalChatThreads = chatThreadDelegate.findMany;
+  const userHandleDelegate = prisma.userHandle as { findMany: typeof prisma.userHandle.findMany };
+  const userDelegate = prisma.user as { findUnique: typeof prisma.user.findUnique };
+  const originalUserHandles = userHandleDelegate.findMany;
+  const originalUserFindUnique = userDelegate.findUnique;
 
-  voiceProfileDelegate.findMany = (async () => [{ xHandle: "@Handle_A" }, { xHandle: "Handle_B" }]) as typeof prisma.voiceProfile.findMany;
-  onboardingRunDelegate.findMany = (async () => [
-    { input: { account: "@Handle_B" } },
-    { input: { account: "@Handle_C" } },
-  ]) as typeof prisma.onboardingRun.findMany;
-  chatThreadDelegate.findMany = (async () => [{ xHandle: "handle_a" }, { xHandle: "handle_b" }]) as typeof prisma.chatThread.findMany;
+  userHandleDelegate.findMany = (async () => [
+    { xHandle: "@Handle_A" },
+    { xHandle: "Handle_B" },
+    { xHandle: "@handle_a" },
+  ]) as unknown as typeof prisma.userHandle.findMany;
+  userDelegate.findUnique = (async () => ({
+    activeXHandle: "@Handle_B",
+  })) as unknown as typeof prisma.user.findUnique;
 
   try {
     const handles = await listWorkspaceHandlesForUser({
@@ -39,25 +39,26 @@ test("listWorkspaceHandlesForUser keeps same-profile handles isolated and normal
       sessionActiveHandle: "@Handle_B",
     });
 
-    assert.deepEqual(handles.sort(), ["handle_a", "handle_b", "handle_c"]);
+    assert.deepEqual(handles.sort(), ["handle_a", "handle_b"]);
   } finally {
-    voiceProfileDelegate.findMany = originalVoiceProfiles;
-    onboardingRunDelegate.findMany = originalOnboardingRuns;
-    chatThreadDelegate.findMany = originalChatThreads;
+    userHandleDelegate.findMany = originalUserHandles;
+    userDelegate.findUnique = originalUserFindUnique;
   }
 });
 
 test("resolveWorkspaceHandleForRequest resolves each attached workspace independently", async () => {
-  const voiceProfileDelegate = prisma.voiceProfile as { findMany: typeof prisma.voiceProfile.findMany };
-  const onboardingRunDelegate = prisma.onboardingRun as { findMany: typeof prisma.onboardingRun.findMany };
-  const chatThreadDelegate = prisma.chatThread as { findMany: typeof prisma.chatThread.findMany };
-  const originalVoiceProfiles = voiceProfileDelegate.findMany;
-  const originalOnboardingRuns = onboardingRunDelegate.findMany;
-  const originalChatThreads = chatThreadDelegate.findMany;
+  const userHandleDelegate = prisma.userHandle as { findMany: typeof prisma.userHandle.findMany };
+  const userDelegate = prisma.user as { findUnique: typeof prisma.user.findUnique };
+  const originalUserHandles = userHandleDelegate.findMany;
+  const originalUserFindUnique = userDelegate.findUnique;
 
-  voiceProfileDelegate.findMany = (async () => [{ xHandle: "handle_a" }, { xHandle: "handle_b" }]) as typeof prisma.voiceProfile.findMany;
-  onboardingRunDelegate.findMany = (async () => []) as typeof prisma.onboardingRun.findMany;
-  chatThreadDelegate.findMany = (async () => []) as typeof prisma.chatThread.findMany;
+  userHandleDelegate.findMany = (async () => [
+    { xHandle: "handle_a" },
+    { xHandle: "handle_b" },
+  ]) as unknown as typeof prisma.userHandle.findMany;
+  userDelegate.findUnique = (async () => ({
+    activeXHandle: "handle_a",
+  })) as unknown as typeof prisma.user.findUnique;
 
   try {
     const handleA = await resolveWorkspaceHandleForRequest({
@@ -74,9 +75,8 @@ test("resolveWorkspaceHandleForRequest resolves each attached workspace independ
     assert.equal(handleA.ok && handleA.xHandle, "handle_a");
     assert.equal(handleB.ok && handleB.xHandle, "handle_b");
   } finally {
-    voiceProfileDelegate.findMany = originalVoiceProfiles;
-    onboardingRunDelegate.findMany = originalOnboardingRuns;
-    chatThreadDelegate.findMany = originalChatThreads;
+    userHandleDelegate.findMany = originalUserHandles;
+    userDelegate.findUnique = originalUserFindUnique;
   }
 });
 
@@ -88,7 +88,7 @@ test("resolveOwnedThreadForWorkspace rejects a thread opened under a different h
     id: "thread_1",
     userId: "user_1",
     xHandle: "handle_a",
-  })) as typeof prisma.chatThread.findUnique;
+  })) as unknown as typeof prisma.chatThread.findUnique;
 
   try {
     const result = await resolveOwnedThreadForWorkspace({
@@ -107,16 +107,18 @@ test("resolveOwnedThreadForWorkspace rejects a thread opened under a different h
 });
 
 test("resolveWorkspaceHandleForRequest does not fall back across handles when a thread is already scoped", async () => {
-  const voiceProfileDelegate = prisma.voiceProfile as { findMany: typeof prisma.voiceProfile.findMany };
-  const onboardingRunDelegate = prisma.onboardingRun as { findMany: typeof prisma.onboardingRun.findMany };
-  const chatThreadDelegate = prisma.chatThread as { findMany: typeof prisma.chatThread.findMany };
-  const originalVoiceProfiles = voiceProfileDelegate.findMany;
-  const originalOnboardingRuns = onboardingRunDelegate.findMany;
-  const originalChatThreads = chatThreadDelegate.findMany;
+  const userHandleDelegate = prisma.userHandle as { findMany: typeof prisma.userHandle.findMany };
+  const userDelegate = prisma.user as { findUnique: typeof prisma.user.findUnique };
+  const originalUserHandles = userHandleDelegate.findMany;
+  const originalUserFindUnique = userDelegate.findUnique;
 
-  voiceProfileDelegate.findMany = (async () => [{ xHandle: "handle_a" }, { xHandle: "handle_b" }]) as typeof prisma.voiceProfile.findMany;
-  onboardingRunDelegate.findMany = (async () => []) as typeof prisma.onboardingRun.findMany;
-  chatThreadDelegate.findMany = (async () => []) as typeof prisma.chatThread.findMany;
+  userHandleDelegate.findMany = (async () => [
+    { xHandle: "handle_a" },
+    { xHandle: "handle_b" },
+  ]) as unknown as typeof prisma.userHandle.findMany;
+  userDelegate.findUnique = (async () => ({
+    activeXHandle: "handle_a",
+  })) as unknown as typeof prisma.user.findUnique;
 
   try {
     const result = await resolveWorkspaceHandleForRequest({
@@ -132,8 +134,34 @@ test("resolveWorkspaceHandleForRequest does not fall back across handles when a 
     assert.equal(result.ok, true);
     assert.equal(result.ok && result.xHandle, "handle_b");
   } finally {
-    voiceProfileDelegate.findMany = originalVoiceProfiles;
-    onboardingRunDelegate.findMany = originalOnboardingRuns;
-    chatThreadDelegate.findMany = originalChatThreads;
+    userHandleDelegate.findMany = originalUserHandles;
+    userDelegate.findUnique = originalUserFindUnique;
+  }
+});
+
+test("pending handles are not treated as attached workspace handles", async () => {
+  const userHandleDelegate = prisma.userHandle as { findMany: typeof prisma.userHandle.findMany };
+  const userDelegate = prisma.user as { findUnique: typeof prisma.user.findUnique };
+  const originalUserHandles = userHandleDelegate.findMany;
+  const originalUserFindUnique = userDelegate.findUnique;
+
+  userHandleDelegate.findMany = (async () => [{ xHandle: "handle_a" }]) as unknown as typeof prisma.userHandle.findMany;
+  userDelegate.findUnique = (async () => ({
+    activeXHandle: "handle_a",
+  })) as unknown as typeof prisma.user.findUnique;
+
+  try {
+    const result = await resolveWorkspaceHandleForRequest({
+      request: new Request("https://example.com/chat?xHandle=handle_pending"),
+      session: createSession("handle_a"),
+    });
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.response.status, 404);
+    }
+  } finally {
+    userHandleDelegate.findMany = originalUserHandles;
+    userDelegate.findUnique = originalUserFindUnique;
   }
 });

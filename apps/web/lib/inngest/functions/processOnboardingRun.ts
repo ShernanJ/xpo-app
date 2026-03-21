@@ -164,7 +164,7 @@ export async function processOnboardingRunHandler({
       result.source === "scrape"
         ? await step.run("queue-context-primer", async () => {
             const currentYear = new Date().getUTCFullYear();
-            const queued = await enqueueContextPrimerJob({
+            return enqueueContextPrimerJob({
               account: input.account,
               userId: claimedJob.userId,
               sourceRunId: queuedRunId,
@@ -181,24 +181,23 @@ export async function processOnboardingRunHandler({
                 statusesCount: result.syncState?.statusesCount ?? null,
               },
             });
-
-            await step.sendEvent("dispatch-context-primer", {
-              name: "onboarding/context.primer.requested",
-              data: {
-                account: input.account,
-                jobId: queued.jobId,
-                sourceRunId: queuedRunId,
-                userId: claimedJob.userId,
-              },
-            });
-
-            return queued;
           })
         : {
             queued: false,
             jobId: null,
             deduped: false,
           };
+    if (result.source === "scrape" && backgroundSync.jobId) {
+      await step.sendEvent("dispatch-context-primer", {
+        name: "onboarding/context.primer.requested",
+        data: {
+          account: input.account,
+          jobId: backgroundSync.jobId,
+          sourceRunId: queuedRunId,
+          userId: claimedJob.userId,
+        },
+      });
+    }
     const finalized = await step.run("finalize-onboarding", async () =>
       finalizeOnboardingRunForUser({
         input,

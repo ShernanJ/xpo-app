@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getServerSession } from "@/lib/auth/serverSession";
-import { listWorkspaceHandlesForUser } from "@/lib/workspaceHandle.server";
 import { normalizeWorkspaceHandle } from "@/lib/workspaceHandle";
+import { readWorkspaceHandleStateForUser } from "@/lib/userHandles.server";
 import {
   enforceSessionMutationRateLimit,
   parseJsonBody,
@@ -16,12 +16,18 @@ export async function GET() {
   }
 
   try {
-    const handles = await listWorkspaceHandlesForUser({
+    const handleState = await readWorkspaceHandleStateForUser({
       userId: session.user.id,
       sessionActiveHandle: session.user.activeXHandle,
     });
 
-    return NextResponse.json({ ok: true, data: { handles } });
+    return NextResponse.json({
+      ok: true,
+      data: {
+        activeHandle: handleState.activeHandle,
+        handles: handleState.handles,
+      },
+    });
   } catch (error) {
     console.error("Failed to fetch user handles:", error);
     return NextResponse.json({ ok: false, error: "Internal Server Error" }, { status: 500 });
@@ -64,18 +70,35 @@ export async function POST(req: NextRequest) {
     if (!bodyResult.ok) {
       return bodyResult.response;
     }
-    const { handle } = bodyResult.value;
+    const normalizedHandle =
+      typeof bodyResult.value.handle === "string"
+        ? normalizeWorkspaceHandle(bodyResult.value.handle)
+        : null;
 
-    if (!handle || typeof handle !== "string") {
+    if (!normalizedHandle) {
       return NextResponse.json({ ok: false, error: "Handle is required" }, { status: 400 });
+    }
+
+    const handleState = await readWorkspaceHandleStateForUser({
+      userId: session.user.id,
+      sessionActiveHandle: session.user.activeXHandle,
+    });
+    if (!handleState.handles.includes(normalizedHandle)) {
+      return NextResponse.json({ ok: false, error: "Handle not found." }, { status: 404 });
     }
 
     await prisma.user.update({
       where: { id: session.user.id },
-      data: { activeXHandle: handle },
+      data: { activeXHandle: normalizedHandle },
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      data: {
+        activeHandle: normalizedHandle,
+        handles: handleState.handles,
+      },
+    });
   } catch (error) {
     console.error("Failed to update active handle:", error);
     return NextResponse.json({ ok: false, error: "Internal Server Error" }, { status: 500 });
@@ -136,11 +159,11 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const attachedHandles = await listWorkspaceHandlesForUser({
+    const handleState = await readWorkspaceHandleStateForUser({
       userId: session.user.id,
       sessionActiveHandle: session.user.activeXHandle,
     });
-    if (!attachedHandles.includes(normalizedHandle)) {
+    if (!handleState.handles.includes(normalizedHandle)) {
       return NextResponse.json({ ok: false, error: "Handle not found." }, { status: 404 });
     }
 
@@ -193,14 +216,27 @@ export async function DELETE(req: NextRequest) {
           },
         });
       }
+
+      await tx.userHandle.deleteMany({
+        where: {
+          userId: session.user.id,
+          xHandle: normalizedHandle,
+        },
+      });
     });
 
-    const handles = await listWorkspaceHandlesForUser({
+    const nextHandleState = await readWorkspaceHandleStateForUser({
       userId: session.user.id,
       sessionActiveHandle: session.user.activeXHandle,
     });
 
-    return NextResponse.json({ ok: true, data: { handles } });
+    return NextResponse.json({
+      ok: true,
+      data: {
+        activeHandle: nextHandleState.activeHandle,
+        handles: nextHandleState.handles,
+      },
+    });
   } catch (error) {
     console.error("Failed to remove handle:", error);
     return NextResponse.json({ ok: false, error: "Internal Server Error" }, { status: 500 });

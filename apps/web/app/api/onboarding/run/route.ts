@@ -7,6 +7,7 @@ import { markOnboardingScrapeJobFailed } from "@/lib/onboarding/store/onboarding
 import { parseOnboardingInput } from "@/lib/onboarding/contracts/validation";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
 import { validateHandleLimit } from "@/lib/billing/handleLimits";
+import { persistPendingWorkspaceHandleForUser } from "@/lib/userHandles.server";
 import {
   capturePostHogServerEvent,
   capturePostHogServerException,
@@ -85,6 +86,11 @@ export async function POST(request: Request) {
       { status: 403 },
     );
   }
+
+  await persistPendingWorkspaceHandleForUser({
+    userId,
+    xHandle: effectiveInput.account,
+  });
 
   const queued = await enqueueOnboardingRunJob({
     account: effectiveInput.account,

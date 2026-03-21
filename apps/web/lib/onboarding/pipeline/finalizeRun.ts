@@ -6,6 +6,7 @@ import {
   persistOnboardingRun,
   syncOnboardingPostsToDb,
 } from "@/lib/onboarding/store/onboardingRunStore";
+import { activateWorkspaceHandleForUser } from "@/lib/userHandles.server";
 
 export interface FinalizedOnboardingRunPayload {
   ok: true;
@@ -69,21 +70,27 @@ export async function finalizeOnboardingRunForUser(params: {
         result: params.result,
       });
 
-  await prisma.user.update({
-    where: { id: params.userId },
-    data: { activeXHandle: normalizedHandle },
+  await activateWorkspaceHandleForUser({
+    userId: params.userId,
+    xHandle: normalizedHandle,
   });
 
-  await prisma.voiceProfile.createMany({
-    data: [
-      {
-        userId: params.userId,
-        xHandle: normalizedHandle,
-        styleCard: {},
-      },
-    ],
-    skipDuplicates: true,
-  });
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: params.userId },
+      data: { activeXHandle: normalizedHandle },
+    }),
+    prisma.voiceProfile.createMany({
+      data: [
+        {
+          userId: params.userId,
+          xHandle: normalizedHandle,
+          styleCard: {},
+        },
+      ],
+      skipDuplicates: true,
+    }),
+  ]);
 
   return {
     normalizedHandle,

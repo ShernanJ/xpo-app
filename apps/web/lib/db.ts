@@ -9,6 +9,7 @@ const globalForPrisma = global as unknown as { prisma: PrismaClient };
 function hasDelegate<
   Key extends
     | "user"
+    | "userHandle"
     | "draftCandidate"
     | "sourceMaterialAsset"
     | "productEvent"
@@ -30,6 +31,7 @@ function hasDelegate<
 function hasRequiredDelegates(client: PrismaClient | undefined): client is PrismaClient {
   return (
     hasDelegate(client, "user") &&
+    hasDelegate(client, "userHandle") &&
     hasDelegate(client, "draftCandidate") &&
     hasDelegate(client, "sourceMaterialAsset") &&
     hasDelegate(client, "productEvent") &&
@@ -52,6 +54,6 @@ if (globalForPrisma.prisma && !cachedPrisma) {
   void globalForPrisma.prisma.$disconnect().catch(() => undefined);
 }
 
-export const prisma = cachedPrisma || createPrismaClient();
+export const prisma: PrismaClient = cachedPrisma || createPrismaClient();
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;

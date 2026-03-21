@@ -2,6 +2,7 @@ import { NextResponse } from "next/server.js";
 
 import type { AppSession } from "./auth/types.ts";
 import { prisma } from "./db.ts";
+import { readWorkspaceHandleStateForUser } from "./userHandles.server.ts";
 
 import {
   getWorkspaceHandleFromRequest,
@@ -15,6 +16,7 @@ type WorkspaceHandleFailureCode =
 
 function buildWorkspaceHandleErrorResponse(args: {
   code: WorkspaceHandleFailureCode;
+  data?: Record<string, unknown>;
   field: string;
   message: string;
   status: number;
@@ -23,6 +25,7 @@ function buildWorkspaceHandleErrorResponse(args: {
     {
       ok: false,
       code: args.code,
+      ...(args.data ? { data: args.data } : {}),
       errors: [{ field: args.field, message: args.message }],
     },
     { status: args.status },
@@ -33,48 +36,8 @@ export async function listWorkspaceHandlesForUser(args: {
   userId: string;
   sessionActiveHandle?: string | null;
 }): Promise<string[]> {
-  const [userProfiles, onboardingRuns, chatThreads] = await Promise.all([
-    prisma.voiceProfile.findMany({
-      where: { userId: args.userId },
-      select: { xHandle: true },
-    }),
-    prisma.onboardingRun.findMany({
-      where: { userId: args.userId },
-      select: { input: true },
-    }),
-    prisma.chatThread.findMany({
-      where: {
-        userId: args.userId,
-        xHandle: {
-          not: null,
-        },
-      },
-      select: { xHandle: true },
-    }),
-  ]);
-
-  const onboardingHandles = onboardingRuns
-    .map((run) => {
-      const input = run.input as { account?: string } | null;
-      return normalizeWorkspaceHandle(input?.account ?? null);
-    })
-    .filter((value): value is string => Boolean(value));
-  const profileHandles = userProfiles
-    .map((profile) => normalizeWorkspaceHandle(profile.xHandle))
-    .filter((value): value is string => Boolean(value));
-  const threadHandles = chatThreads
-    .map((thread) => normalizeWorkspaceHandle(thread.xHandle))
-    .filter((value): value is string => Boolean(value));
-  const sessionHandle = normalizeWorkspaceHandle(args.sessionActiveHandle ?? null);
-
-  return Array.from(
-    new Set([
-      ...profileHandles,
-      ...onboardingHandles,
-      ...threadHandles,
-      ...(sessionHandle ? [sessionHandle] : []),
-    ]),
-  );
+  const state = await readWorkspaceHandleStateForUser(args);
+  return state.handles;
 }
 
 export async function resolveWorkspaceHandleForRequest(args: {
@@ -102,16 +65,21 @@ export async function resolveWorkspaceHandleForRequest(args: {
     };
   }
 
-  const attachedHandles = await listWorkspaceHandlesForUser({
+  const handleState = await readWorkspaceHandleStateForUser({
     userId: args.session.user.id,
     sessionActiveHandle: args.session.user.activeXHandle,
   });
+  const attachedHandles = handleState.handles;
 
   if (!attachedHandles.includes(requestHandle)) {
     return {
       ok: false as const,
       response: buildWorkspaceHandleErrorResponse({
         code: "HANDLE_NOT_ATTACHED",
+        data: {
+          fallbackHandle: handleState.activeHandle,
+          requestedHandle: requestHandle,
+        },
         field: "xHandle",
         message: "That X handle is not attached to this Xpo profile.",
         status: 404,
@@ -121,6 +89,7 @@ export async function resolveWorkspaceHandleForRequest(args: {
 
   return {
     ok: true as const,
+    activeHandle: handleState.activeHandle,
     xHandle: requestHandle,
     attachedHandles,
   };

@@ -50,10 +50,11 @@ interface OnboardingPreviewFailure {
 
 type OnboardingPreviewResponse = OnboardingPreviewSuccess | OnboardingPreviewFailure;
 
-interface OnboardingRunSuccess {
+interface OnboardingRunQueued {
   ok: true;
-  runId: string;
-  persistedAt?: string;
+  status: "queued";
+  jobId: string;
+  account?: string;
 }
 
 interface OnboardingRunFailure {
@@ -65,7 +66,33 @@ interface OnboardingRunFailure {
   };
 }
 
-type OnboardingRunResponse = OnboardingRunSuccess | OnboardingRunFailure;
+interface OnboardingJobRunning {
+  ok: true;
+  status: "queued" | "running";
+  jobId: string;
+  account?: string;
+}
+
+interface OnboardingJobCompleted {
+  ok: true;
+  status: "completed";
+  jobId: string;
+  account?: string;
+  runId: string;
+  persistedAt?: string;
+}
+
+interface OnboardingJobFailed {
+  ok: false;
+  status?: "failed";
+  errors: ValidationError[];
+}
+
+type OnboardingRunResponse = OnboardingRunQueued | OnboardingRunFailure;
+type OnboardingJobStatusResponse =
+  | OnboardingJobRunning
+  | OnboardingJobCompleted
+  | OnboardingJobFailed;
 
 interface ScrapeCaptureDebugSuccess {
   ok: true;
@@ -183,6 +210,40 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
   const hasValidAddAccountPreview =
     Boolean(addAccountPreview) &&
     normalizeAccountHandle(addAccountPreview?.username ?? "") === normalizedAddAccount;
+
+  const pollOnboardingCompletion = useCallback(async (jobId: string) => {
+    for (let attempt = 0; attempt < 90; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 700 : 1500));
+
+      const jobResponse = await fetch(`/api/onboarding/jobs/${jobId}`, {
+        method: "GET",
+      });
+      const jobData = (await jobResponse.json().catch(() => null)) as
+        | OnboardingJobStatusResponse
+        | null;
+
+      if (jobData?.ok && jobData.status === "completed") {
+        return jobData;
+      }
+
+      if (!jobData?.ok) {
+        throw new Error(
+          getValidationErrorMessage(
+            jobData && "ok" in jobData && !jobData.ok ? jobData : null,
+            "Failed to add account.",
+          ),
+        );
+      }
+
+      if (!jobResponse.ok && jobData.status !== "running" && jobData.status !== "queued") {
+        throw new Error("Failed to add account.");
+      }
+    }
+
+    throw new Error(
+      "We queued your onboarding job, but it is taking longer than expected. Please try again shortly.",
+    );
+  }, []);
 
   useEffect(() => {
     if (!accountName) {
@@ -447,14 +508,14 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
       );
       const payload = (await response.json().catch(() => null)) as ScrapeCaptureDebugResponse | null;
 
-      if (!response.ok || !payload?.ok) {
-        throw new Error(
-          getValidationErrorMessage(
-            payload && !payload.ok ? payload : null,
-            `Could not load scrape capture for @${scrapeDebugHandle}.`,
-          ),
-        );
-      }
+        if (!response.ok || !payload?.ok) {
+          throw new Error(
+            getValidationErrorMessage(
+              payload && "ok" in payload && !payload.ok ? payload : null,
+              `Could not load scrape capture for @${scrapeDebugHandle}.`,
+            ),
+          );
+        }
 
       setScrapeDebugCapture(payload.capture);
     } catch (error) {
@@ -535,7 +596,7 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
         if (!response.ok || !payload?.ok) {
           throw new Error(
             getValidationErrorMessage(
-              payload && !payload.ok ? payload : null,
+              payload && "ok" in payload && !payload.ok ? payload : null,
               `Could not run ${action} for @${scrapeDebugHandle}.`,
             ),
           );
@@ -614,7 +675,7 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
 
         const data = (await response.json()) as OnboardingRunResponse;
 
-        if (!response.ok || !data.ok) {
+        if (!response.ok || !data.ok || !("status" in data) || data.status !== "queued") {
           if (!data.ok && data.data?.billing) {
             applyBillingSnapshot(data.data.billing);
           }
@@ -622,9 +683,11 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
             onOpenPricing();
           }
           throw new Error(
-            data.ok ? "Failed to add account." : (data.errors[0]?.message ?? "Failed to add account."),
+            !data.ok ? (data.errors[0]?.message ?? "Failed to add account.") : "Failed to add account.",
           );
         }
+
+        await pollOnboardingCompletion(data.jobId);
 
         const remainingDelay = Math.max(0, 2600 - (Date.now() - startedAt));
         if (remainingDelay > 0) {
@@ -653,6 +716,7 @@ export function useWorkspaceAccountState(options: UseWorkspaceAccountStateOption
       isAddAccountPreviewLoading,
       normalizedAddAccount,
       onOpenPricing,
+      pollOnboardingCompletion,
       readyAccountHandle,
       setAvailableHandles,
     ],

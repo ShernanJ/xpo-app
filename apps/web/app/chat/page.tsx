@@ -146,6 +146,7 @@ function ChatPageContent() {
     billingQueryStatus,
     buildWorkspaceChatHref,
     fetchWorkspace,
+    isWorkspaceHandleValidating,
     messageIdParam,
     requiresXAccountGate,
     requestedModal,
@@ -441,9 +442,6 @@ function ChatPageContent() {
   const [activeToneInputs, setActiveToneInputs] = useState<ChatToneInputs | null>(
     null,
   );
-  const applyWorkspaceBillingSnapshot = useCallback((billing: unknown) => {
-    applyBillingSnapshot(billing as BillingSnapshotPayload | null | undefined);
-  }, [applyBillingSnapshot]);
   const openContentHub = useCallback(() => {
     setContentHubOpen(true);
   }, []);
@@ -489,9 +487,6 @@ function ChatPageContent() {
     searchParams,
   ]);
 
-  const handleWorkspacePlanRequired = useCallback(() => {
-    setPricingModalOpen(true);
-  }, [setPricingModalOpen]);
   const {
     backgroundSync,
     loadWorkspace,
@@ -505,6 +500,7 @@ function ChatPageContent() {
     ChatToneInputs
   >({
     accountName,
+    isWorkspaceHandleValidating,
     requiresXAccountGate,
     activeStrategyInputs,
     activeToneInputs,
@@ -514,9 +510,6 @@ function ChatPageContent() {
     setErrorMessage,
     setContext,
     setContract,
-    applyBillingSnapshot: applyWorkspaceBillingSnapshot,
-    onPlanRequired: handleWorkspacePlanRequired,
-    normalizeAccountHandle,
   });
   useEffect(() => {
     return () => {
