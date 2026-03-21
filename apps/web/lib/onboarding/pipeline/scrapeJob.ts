@@ -1,20 +1,15 @@
 import { randomUUID } from "crypto";
 
 import type { OnboardingInput } from "@/lib/onboarding/contracts/types";
-import { parseOnboardingInput } from "@/lib/onboarding/contracts/validation";
 import { bootstrapScrapeCaptureWithOptions } from "@/lib/onboarding/sources/scrapeBootstrap";
 import { readLatestScrapeCaptureByAccount } from "@/lib/onboarding/store/scrapeCaptureStore";
 import {
   claimNextOnboardingScrapeJob,
   enqueueOnboardingScrapeJob,
-  heartbeatOnboardingScrapeJob,
   markOnboardingScrapeJobCompleted,
   markOnboardingScrapeJobFailed,
   type OnboardingScrapeJobKind,
 } from "@/lib/onboarding/store/onboardingScrapeJobStore";
-
-import { finalizeOnboardingRunForUser } from "./finalizeRun";
-import { runOnboarding } from "./service";
 
 function getProfileRefreshPages(): number {
   return 2;
@@ -69,44 +64,6 @@ export async function enqueueProfileRefreshJobIfNeeded(params: {
   };
 }
 
-async function processOnboardingRunJob(job: {
-  jobId: string;
-  account: string;
-  requestInput: Record<string, unknown> | null;
-  userId: string;
-  kind: OnboardingScrapeJobKind;
-}, workerId: string) {
-  const parsedInput = parseOnboardingInput(job.requestInput);
-  if (!parsedInput.ok) {
-    throw new Error(parsedInput.errors.map((error) => error.message).join(" "));
-  }
-
-  const result = await runOnboarding(parsedInput.data);
-  await heartbeatOnboardingScrapeJob({
-    jobId: job.jobId,
-    workerId,
-  });
-
-  const finalized = await finalizeOnboardingRunForUser({
-    input: parsedInput.data,
-    result,
-    userAgent: null,
-    userId: job.userId,
-  });
-  await markOnboardingScrapeJobCompleted({
-    jobId: job.jobId,
-    resultPayload: finalized.payload,
-    completedRunId: finalized.payload.runId,
-    workerId,
-  });
-
-  return {
-    status: "completed" as const,
-    jobId: job.jobId,
-    kind: job.kind,
-  };
-}
-
 async function processProfileRefreshJob(job: {
   jobId: string;
   account: string;
@@ -141,16 +98,15 @@ export async function processNextOnboardingScrapeJob(): Promise<
   | { status: "failed"; jobId: string; kind: OnboardingScrapeJobKind; error: string }
 > {
   const workerId = `onboarding-scrape-worker-${randomUUID().slice(0, 8)}`;
-  const job = await claimNextOnboardingScrapeJob({ workerId });
+  const job = await claimNextOnboardingScrapeJob({
+    kinds: ["profile_refresh"],
+    workerId,
+  });
   if (!job) {
     return { status: "idle" };
   }
 
   try {
-    if (job.kind === "onboarding_run") {
-      return await processOnboardingRunJob(job, workerId);
-    }
-
     return await processProfileRefreshJob(job, workerId);
   } catch (error) {
     const message =

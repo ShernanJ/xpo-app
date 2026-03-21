@@ -22,12 +22,14 @@ export interface FinalizedOnboardingRunResult {
 
 export async function finalizeOnboardingRunForUser(params: {
   input: OnboardingInput;
+  runId?: string;
   result: OnboardingResult;
   userAgent: string | null;
   userId: string;
 }): Promise<FinalizedOnboardingRunResult> {
   const persisted = await persistOnboardingRun({
     input: params.input,
+    runId: params.runId,
     result: params.result,
     userAgent: params.userAgent,
     userId: params.userId,
@@ -57,11 +59,13 @@ export async function finalizeOnboardingRunForUser(params: {
   });
 
   await prisma.voiceProfile.createMany({
-    data: [{
-      userId: params.userId,
-      xHandle: normalizedHandle,
-      styleCard: {},
-    }],
+    data: [
+      {
+        userId: params.userId,
+        xHandle: normalizedHandle,
+        styleCard: {},
+      },
+    ],
     skipDuplicates: true,
   });
 

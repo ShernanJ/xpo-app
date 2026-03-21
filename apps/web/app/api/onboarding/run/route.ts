@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth/serverSession";
 
-import { finalizeOnboardingRunForUser } from "@/lib/onboarding/pipeline/finalizeRun";
-import { shouldQueueOnboardingLiveScrape } from "@/lib/onboarding/pipeline/liveScrapePolicy";
+import { inngest } from "@/lib/inngest/client";
 import { enqueueOnboardingRunJob } from "@/lib/onboarding/pipeline/scrapeJob";
-import { runOnboarding } from "@/lib/onboarding/pipeline/service";
+import { markOnboardingScrapeJobFailed } from "@/lib/onboarding/store/onboardingScrapeJobStore";
 import { parseOnboardingInput } from "@/lib/onboarding/contracts/validation";
 import { getBillingStateForUser } from "@/lib/billing/entitlements";
 import { validateHandleLimit } from "@/lib/billing/handleLimits";
@@ -87,99 +86,71 @@ export async function POST(request: Request) {
     );
   }
 
-  if (await shouldQueueOnboardingLiveScrape(effectiveInput)) {
-    const queued = await enqueueOnboardingRunJob({
-      account: effectiveInput.account,
-      input: effectiveInput,
-      userId,
-    });
-    const normalizedHandle = effectiveInput.account.replace(/^@/, "").toLowerCase();
+  const queued = await enqueueOnboardingRunJob({
+    account: effectiveInput.account,
+    input: effectiveInput,
+    userId,
+  });
+  const normalizedHandle = effectiveInput.account.replace(/^@/, "").toLowerCase();
 
-    await capturePostHogServerEvent({
-      request,
-      distinctId: userId,
-      event: "xpo_onboarding_run_queued",
-      properties: {
-        account: normalizedHandle,
-        deduped: queued.deduped,
-        job_id: queued.jobId,
-        route: "/api/onboarding/run",
-      },
-    });
-
-    return NextResponse.json(
-      {
-        ok: true,
-        status: "queued",
-        jobId: queued.jobId,
-        account: normalizedHandle,
-      },
-      { status: 202 },
-    );
-  }
-
-  let result: Awaited<ReturnType<typeof runOnboarding>>;
   try {
-    result = await runOnboarding(effectiveInput);
+    if (!queued.deduped) {
+      await inngest.send({
+        id: queued.jobId,
+        name: "onboarding/run.requested",
+        data: {
+          effectiveInput,
+          jobId: queued.jobId,
+          userAgent: request.headers.get("user-agent"),
+          userId,
+        },
+      });
+    }
   } catch (error) {
+    await markOnboardingScrapeJobFailed({
+      jobId: queued.jobId,
+      error:
+        error instanceof Error ? error.message : "Failed to queue onboarding scrape job.",
+    });
     await capturePostHogServerException({
       request,
       distinctId: userId,
       error,
       properties: {
-        account: effectiveInput.account,
+        account: normalizedHandle,
+        job_id: queued.jobId,
         route: "/api/onboarding/run",
       },
     });
-    const message =
-      error instanceof Error ? error.message : "Failed to run onboarding scrape.";
     return NextResponse.json(
       {
         ok: false,
-        code: "SCRAPE_UNAVAILABLE",
-        errors: [{ field: "account", message }],
+        code: "QUEUE_UNAVAILABLE",
+        errors: [{ field: "account", message: "Failed to start onboarding. Please try again." }],
       },
       { status: 502 },
     );
   }
 
-  if (result.source === "mock") {
-    const warningDetail = result.warnings?.[0] ?? null;
-    return NextResponse.json(
-      {
-        ok: false,
-        code: "SCRAPE_UNAVAILABLE",
-        errors: [
-          {
-            field: "account",
-            message:
-              warningDetail ??
-              "Onboarding scrape could not fetch real profile data. Mock fallback is disabled; fix the scrape path and retry.",
-          },
-        ],
-      },
-      { status: 502 },
-    );
-  }
-
-  const finalized = await finalizeOnboardingRunForUser({
-    input: effectiveInput,
-    result,
-    userAgent: request.headers.get("user-agent"),
-    userId,
-  });
   await capturePostHogServerEvent({
     request,
     distinctId: userId,
-    event: "xpo_onboarding_run_completed",
+    event: "xpo_onboarding_run_queued",
     properties: {
-      account: finalized.normalizedHandle,
-      backfill_queued: Boolean(finalized.payload.backfill.queued),
+      account: normalizedHandle,
+      deduped: queued.deduped,
+      job_id: queued.jobId,
       route: "/api/onboarding/run",
-      source: result.source,
-      warnings_count: result.warnings?.length ?? 0,
     },
   });
 
-  return NextResponse.json(finalized.payload, { status: 200 });
+  return NextResponse.json(
+    {
+      ok: true,
+      status: "queued",
+      jobId: queued.jobId,
+      account: normalizedHandle,
+    },
+    { status: 202 },
+  );
 }

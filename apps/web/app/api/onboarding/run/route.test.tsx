@@ -8,10 +8,9 @@ const mocks = vi.hoisted(() => ({
   parseOnboardingInput: vi.fn(),
   validateHandleLimit: vi.fn(),
   getBillingStateForUser: vi.fn(),
-  shouldQueueOnboardingLiveScrape: vi.fn(),
   enqueueOnboardingRunJob: vi.fn(),
-  runOnboarding: vi.fn(),
-  finalizeOnboardingRunForUser: vi.fn(),
+  inngestSend: vi.fn(),
+  markOnboardingScrapeJobFailed: vi.fn(),
   capturePostHogServerEvent: vi.fn(),
   capturePostHogServerException: vi.fn(),
 }));
@@ -38,20 +37,18 @@ vi.mock("@/lib/billing/entitlements", () => ({
   getBillingStateForUser: mocks.getBillingStateForUser,
 }));
 
-vi.mock("@/lib/onboarding/pipeline/liveScrapePolicy", () => ({
-  shouldQueueOnboardingLiveScrape: mocks.shouldQueueOnboardingLiveScrape,
+vi.mock("@/lib/inngest/client", () => ({
+  inngest: {
+    send: mocks.inngestSend,
+  },
 }));
 
 vi.mock("@/lib/onboarding/pipeline/scrapeJob", () => ({
   enqueueOnboardingRunJob: mocks.enqueueOnboardingRunJob,
 }));
 
-vi.mock("@/lib/onboarding/pipeline/service", () => ({
-  runOnboarding: mocks.runOnboarding,
-}));
-
-vi.mock("@/lib/onboarding/pipeline/finalizeRun", () => ({
-  finalizeOnboardingRunForUser: mocks.finalizeOnboardingRunForUser,
+vi.mock("@/lib/onboarding/store/onboardingScrapeJobStore", () => ({
+  markOnboardingScrapeJobFailed: mocks.markOnboardingScrapeJobFailed,
 }));
 
 vi.mock("@/lib/posthog/server", () => ({
@@ -70,74 +67,6 @@ function createParsedInput() {
       casing: "lowercase" as const,
       risk: "safe" as const,
     },
-  };
-}
-
-function createOnboardingResult() {
-  return {
-    account: "stan",
-    source: "scrape" as const,
-    generatedAt: "2026-03-19T00:00:00.000Z",
-    profile: {
-      username: "stan",
-      name: "Stan",
-      bio: "builder",
-      avatarUrl: null,
-      headerImageUrl: null,
-      isVerified: false,
-      followersCount: 1200,
-      followingCount: 140,
-      createdAt: "2020-01-01T00:00:00.000Z",
-    },
-    pinnedPost: null,
-    recentPosts: [],
-    recentReplyPosts: [],
-    recentQuotePosts: [],
-    recentPostSampleCount: 0,
-    replyPostSampleCount: 0,
-    quotePostSampleCount: 0,
-    capturedPostCount: 0,
-    capturedReplyPostCount: 0,
-    capturedQuotePostCount: 0,
-    totalCapturedActivityCount: 0,
-    analysisConfidence: {
-      sampleSize: 0,
-      score: 20,
-      band: "very_low" as const,
-      minimumViableReached: false,
-      recommendedDepthReached: false,
-      backgroundBackfillRecommended: true,
-      targetPostCount: 80,
-      message: "thin sample",
-    },
-    baseline: {
-      averageEngagement: 0,
-      medianEngagement: 0,
-      engagementRate: 0,
-      postingCadencePerWeek: 0,
-      averagePostLength: 0,
-    },
-    growthStage: "1k-10k" as const,
-    contentDistribution: [],
-    hookPatterns: [],
-    bestFormats: [],
-    underperformingFormats: [],
-    strategyState: {
-      growthStage: "1k-10k" as const,
-      goal: "followers" as const,
-      postingCadenceCapacity: "1_per_day" as const,
-      replyBudgetPerDay: "5_15" as const,
-      transformationMode: "preserve" as const,
-      transformationModeSource: "default" as const,
-      recommendedPostsPerWeek: 5,
-      weights: {
-        distribution: 0.35,
-        authority: 0.55,
-        leverage: 0.1,
-      },
-      rationale: "keep compounding",
-    },
-    warnings: [],
   };
 }
 
@@ -166,13 +95,16 @@ beforeEach(() => {
   mocks.getBillingStateForUser.mockResolvedValue({
     billing: null,
   });
+  mocks.inngestSend.mockResolvedValue({
+    ids: ["job_123"],
+  });
+  mocks.markOnboardingScrapeJobFailed.mockResolvedValue(undefined);
   mocks.capturePostHogServerEvent.mockResolvedValue(undefined);
   mocks.capturePostHogServerException.mockResolvedValue(undefined);
 });
 
 describe("POST /api/onboarding/run", () => {
-  test("returns 202 and a job ticket when production needs a live scrape", async () => {
-    mocks.shouldQueueOnboardingLiveScrape.mockResolvedValue(true);
+  test("returns 202 and sends an Inngest event for a fresh onboarding job", async () => {
     mocks.enqueueOnboardingRunJob.mockResolvedValue({
       jobId: "job_123",
       account: "stan",
@@ -193,26 +125,26 @@ describe("POST /api/onboarding/run", () => {
       jobId: "job_123",
       account: "stan",
     });
-    expect(mocks.runOnboarding).not.toHaveBeenCalled();
+    expect(mocks.inngestSend).toHaveBeenCalledWith({
+      id: "job_123",
+      name: "onboarding/run.requested",
+      data: {
+        effectiveInput: {
+          ...createParsedInput(),
+          scrapeFreshness: "if_stale",
+        },
+        jobId: "job_123",
+        userAgent: null,
+        userId: "user_1",
+      },
+    });
   });
 
-  test("returns the finalized onboarding payload when a cached path can run inline", async () => {
-    const result = createOnboardingResult();
-    mocks.shouldQueueOnboardingLiveScrape.mockResolvedValue(false);
-    mocks.runOnboarding.mockResolvedValue(result);
-    mocks.finalizeOnboardingRunForUser.mockResolvedValue({
-      normalizedHandle: "stan",
-      payload: {
-        ok: true,
-        runId: "or_123",
-        persistedAt: "2026-03-19T00:00:00.000Z",
-        backfill: {
-          queued: false,
-          jobId: null,
-          deduped: false,
-        },
-        data: result,
-      },
+  test("reuses an active queued job without sending a duplicate Inngest event", async () => {
+    mocks.enqueueOnboardingRunJob.mockResolvedValue({
+      jobId: "job_existing",
+      account: "stan",
+      deduped: true,
     });
 
     const response = await POST(
@@ -222,20 +154,23 @@ describe("POST /api/onboarding/run", () => {
     );
     const payload = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(payload.ok).toBe(true);
-    expect(payload.runId).toBe("or_123");
-    expect(payload.data.account).toBe("stan");
+    expect(response.status).toBe(202);
+    expect(payload).toEqual({
+      ok: true,
+      status: "queued",
+      jobId: "job_existing",
+      account: "stan",
+    });
+    expect(mocks.inngestSend).not.toHaveBeenCalled();
   });
 
-  test("rejects mock onboarding results instead of finalizing them", async () => {
-    const result = {
-      ...createOnboardingResult(),
-      source: "mock" as const,
-      warnings: ["Live scrape bootstrap failed for @stan: timeline parse failed"],
-    };
-    mocks.shouldQueueOnboardingLiveScrape.mockResolvedValue(false);
-    mocks.runOnboarding.mockResolvedValue(result);
+  test("marks the job failed when Inngest event submission fails", async () => {
+    mocks.enqueueOnboardingRunJob.mockResolvedValue({
+      jobId: "job_500",
+      account: "stan",
+      deduped: false,
+    });
+    mocks.inngestSend.mockRejectedValue(new Error("inngest unavailable"));
 
     const response = await POST(
       new Request("http://localhost/api/onboarding/run", {
@@ -247,14 +182,17 @@ describe("POST /api/onboarding/run", () => {
     expect(response.status).toBe(502);
     expect(payload).toEqual({
       ok: false,
-      code: "SCRAPE_UNAVAILABLE",
+      code: "QUEUE_UNAVAILABLE",
       errors: [
         {
           field: "account",
-          message: "Live scrape bootstrap failed for @stan: timeline parse failed",
+          message: "Failed to start onboarding. Please try again.",
         },
       ],
     });
-    expect(mocks.finalizeOnboardingRunForUser).not.toHaveBeenCalled();
+    expect(mocks.markOnboardingScrapeJobFailed).toHaveBeenCalledWith({
+      jobId: "job_500",
+      error: "inngest unavailable",
+    });
   });
 });

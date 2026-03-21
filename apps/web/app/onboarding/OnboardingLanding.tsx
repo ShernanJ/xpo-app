@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useSession } from "@/lib/auth/client";
 import { PenLine, Search, Sparkles, Target } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -411,6 +411,8 @@ function getFirstErrorMessage(payload: unknown): string {
 export default function OnboardingLanding({ pricingOffers }: OnboardingLandingProps) {
   const { status, update } = useSession();
   const monetizationEnabled = isMonetizationEnabled();
+  const isMountedRef = useRef(true);
+  const pollTokenRef = useRef(0);
   const [account, setAccount] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isLaunchingLoading, setIsLaunchingLoading] = useState(false);
@@ -870,6 +872,15 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
   );
 
   useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+      pollTokenRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isLoading) {
       setLoadingStepIndex(0);
       return;
@@ -979,6 +990,10 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
     }, 120);
   }
 
+  function isActivePollToken(token: number): boolean {
+    return isMountedRef.current && pollTokenRef.current === token;
+  }
+
   const landingFooterLinks = (
     <nav className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-center gap-x-5 gap-y-3 text-center text-xs text-zinc-500">
       {monetizationEnabled ? (
@@ -1034,6 +1049,9 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
 
     if (status === "authenticated") {
       // Authenticated users run the scrape natively and skip login
+      const pollToken = pollTokenRef.current + 1;
+      pollTokenRef.current = pollToken;
+
       try {
         capturePostHogEvent("xpo_onboarding_run_requested", {
           account: trimmedAccount,
@@ -1053,50 +1071,66 @@ export default function OnboardingLanding({ pricingOffers }: OnboardingLandingPr
         });
         const payload = (await resp.json()) as OnboardingRunResponse;
 
-        if (resp.status === 202 && payload.ok && "status" in payload && payload.status === "queued") {
-          let completedPayload: OnboardingJobCompleted | null = null;
-
-          for (let attempt = 0; attempt < 90; attempt += 1) {
-            await sleep(attempt === 0 ? 700 : 1500);
-
-            const jobResponse = await fetch(`/api/onboarding/jobs/${payload.jobId}`, {
-              headers: buildPostHogHeaders(),
-              method: "GET",
-            });
-            const jobPayload = (await jobResponse.json()) as OnboardingJobStatusResponse;
-
-            if (jobPayload.ok && jobPayload.status === "completed") {
-              completedPayload = jobPayload;
-              break;
-            }
-
-            if (!jobPayload.ok && jobPayload.status === "failed") {
-              throw new Error(getFirstErrorMessage(jobPayload));
-            }
-
-            if (!jobResponse.ok && (!("status" in jobPayload) || jobPayload.status !== "running")) {
-              throw new Error(getFirstErrorMessage(jobPayload));
-            }
-          }
-
-          if (!completedPayload) {
-            throw new Error("We queued your onboarding job, but it is taking longer than expected. Please try again shortly.");
-          }
-        } else if (!resp.ok || !payload.ok) {
+        if (resp.status !== 202 || !payload.ok || !("status" in payload) || payload.status !== "queued") {
           throw new Error(getFirstErrorMessage(payload));
+        }
+
+        let completedPayload: OnboardingJobCompleted | null = null;
+
+        for (let attempt = 0; attempt < 90; attempt += 1) {
+          await sleep(attempt === 0 ? 700 : 1500);
+          if (!isActivePollToken(pollToken)) {
+            return;
+          }
+
+          const jobResponse = await fetch(`/api/onboarding/jobs/${payload.jobId}`, {
+            headers: buildPostHogHeaders(),
+            method: "GET",
+          });
+          const jobPayload = (await jobResponse.json()) as OnboardingJobStatusResponse;
+
+          if (jobPayload.ok && jobPayload.status === "completed") {
+            completedPayload = jobPayload;
+            break;
+          }
+
+          if (!jobPayload.ok && jobPayload.status === "failed") {
+            throw new Error(getFirstErrorMessage(jobPayload));
+          }
+
+          if (!jobResponse.ok && (!("status" in jobPayload) || jobPayload.status !== "running")) {
+            throw new Error(getFirstErrorMessage(jobPayload));
+          }
+        }
+
+        if (!isActivePollToken(pollToken)) {
+          return;
+        }
+
+        if (!completedPayload) {
+          throw new Error("We queued your onboarding job, but it is taking longer than expected. Please try again shortly.");
         }
 
         const elapsed = Date.now() - analysisStartedAt;
         if (elapsed < LANDING_MIN_ANALYSIS_LOADING_MS) {
           await sleep(LANDING_MIN_ANALYSIS_LOADING_MS - elapsed);
         }
+        if (!isActivePollToken(pollToken)) {
+          return;
+        }
 
         // Force a session refresh so the next page load has the new JWT activeXHandle,
         // then hard reload to /chat
         markHandleJustOnboarded(trimmedAccount);
         await update();
+        if (!isActivePollToken(pollToken)) {
+          return;
+        }
         window.location.href = "/chat";
       } catch (err) {
+        if (!isActivePollToken(pollToken)) {
+          return;
+        }
         console.error(err);
         capturePostHogException(err, {
           account: trimmedAccount,

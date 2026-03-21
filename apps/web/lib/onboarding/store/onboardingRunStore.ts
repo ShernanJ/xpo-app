@@ -164,20 +164,26 @@ export async function syncPostsToDb(params: {
 
 export async function persistOnboardingRun(params: {
   input: OnboardingInput;
+  runId?: string;
   result: OnboardingResult;
   userAgent: string | null;
   userId: string;
 }): Promise<OnboardingRunPersistedRecord> {
-  const persistedAt = new Date().toISOString();
-  const runId = `or_${randomUUID()}`;
-
-  await prisma.onboardingRun.create({
-    data: {
+  const runId = params.runId?.trim() || `or_${randomUUID()}`;
+  const createdAt = new Date();
+  const persisted = await prisma.onboardingRun.upsert({
+    where: { id: runId },
+    create: {
       id: runId,
       userId: params.userId,
       input: params.input as unknown as Prisma.InputJsonObject,
       result: params.result as unknown as Prisma.InputJsonObject,
-      createdAt: new Date(persistedAt),
+      createdAt,
+    },
+    update: {
+      userId: params.userId,
+      input: params.input as unknown as Prisma.InputJsonObject,
+      result: params.result as unknown as Prisma.InputJsonObject,
     },
   });
 
@@ -185,7 +191,7 @@ export async function persistOnboardingRun(params: {
 
   return {
     runId,
-    persistedAt,
+    persistedAt: persisted.createdAt.toISOString(),
     userId: params.userId,
   };
 }

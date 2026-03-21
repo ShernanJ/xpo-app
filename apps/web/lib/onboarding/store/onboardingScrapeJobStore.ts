@@ -2,10 +2,6 @@ import { randomUUID } from "crypto";
 
 import { prisma } from "@/lib/db";
 import type { FinalizedOnboardingRunPayload } from "@/lib/onboarding/pipeline/finalizeRun";
-import type {
-  OnboardingScrapeJobKind as PrismaOnboardingScrapeJobKind,
-  OnboardingScrapeJobStatus as PrismaOnboardingScrapeJobStatus,
-} from "@/lib/generated/prisma/client";
 import { Prisma } from "@/lib/generated/prisma/client";
 
 export type OnboardingScrapeJobKind =
@@ -101,6 +97,10 @@ function buildDedupeKey(kind: OnboardingScrapeJobKind, userId: string, account: 
   return `${kind}:${userId.trim()}:${account.trim().toLowerCase()}`;
 }
 
+function buildArchivedDedupeKey(dedupeKey: string): string {
+  return `${dedupeKey}:archived:${Date.now()}:${randomUUID().slice(0, 8)}`;
+}
+
 function buildWorkerId(workerId?: string): string {
   return workerId?.trim() || `onboarding-scrape-worker-${randomUUID().slice(0, 8)}`;
 }
@@ -137,55 +137,96 @@ export async function enqueueOnboardingScrapeJob(params: {
 }): Promise<{ job: StoredOnboardingScrapeJob; deduped: boolean }> {
   const normalizedAccount = params.account.trim().toLowerCase();
   const dedupeKey = buildDedupeKey(params.kind, params.userId, normalizedAccount);
-  const existing = await prisma.onboardingScrapeJob.findUnique({
-    where: { dedupeKey },
-  });
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.onboardingScrapeJob.findUnique({
+      where: { dedupeKey },
+    });
 
-  if (existing && (existing.status === "pending" || existing.status === "processing")) {
-    return {
-      job: mapJob(existing)!,
-      deduped: true,
-    };
-  }
+    if (existing && (existing.status === "pending" || existing.status === "processing")) {
+      return {
+        job: mapJob(existing)!,
+        deduped: true,
+      };
+    }
 
-  const nextJob = existing
-    ? await prisma.onboardingScrapeJob.update({
-        where: { dedupeKey },
+    if (existing) {
+      await tx.onboardingScrapeJob.update({
+        where: { id: existing.id },
         data: {
-          userId: params.userId,
-          account: normalizedAccount,
-          kind: params.kind,
-          status: "pending",
-          requestInput: toNullableJsonValue(params.requestInput ?? null),
-          attempts: 0,
-          leaseOwner: null,
-          leaseExpiresAt: null,
-          heartbeatAt: null,
-          startedAt: null,
-          completedAt: null,
-          failedAt: null,
-          lastError: null,
-          resultPayload: Prisma.JsonNull,
-          completedRunId: null,
-        },
-      })
-    : await prisma.onboardingScrapeJob.create({
-        data: {
-          dedupeKey,
-          userId: params.userId,
-          account: normalizedAccount,
-          kind: params.kind,
-          requestInput: toNullableJsonValue(params.requestInput ?? null),
+          dedupeKey: buildArchivedDedupeKey(dedupeKey),
         },
       });
+    }
 
-  return {
-    job: mapJob(nextJob)!,
-    deduped: false,
-  };
+    const nextJob = await tx.onboardingScrapeJob.create({
+      data: {
+        dedupeKey,
+        userId: params.userId,
+        account: normalizedAccount,
+        kind: params.kind,
+        requestInput: toNullableJsonValue(params.requestInput ?? null),
+      },
+    });
+
+    return {
+      job: mapJob(nextJob)!,
+      deduped: false,
+    };
+  });
+}
+
+export async function claimOnboardingScrapeJobById(args: {
+  jobId: string;
+  kind?: OnboardingScrapeJobKind;
+  workerId?: string;
+}): Promise<StoredOnboardingScrapeJob | null> {
+  const now = new Date();
+  const leaseExpiresAt = new Date(now.getTime() + getLeaseMs());
+  const workerId = buildWorkerId(args.workerId);
+
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.onboardingScrapeJob.findUnique({
+      where: { id: args.jobId },
+    });
+
+    if (!existing || (args.kind && existing.kind !== args.kind)) {
+      return null;
+    }
+
+    const canClaim =
+      existing.status === "pending" ||
+      (existing.status === "processing" &&
+        (existing.leaseOwner === workerId ||
+          !existing.leaseExpiresAt ||
+          existing.leaseExpiresAt <= now));
+
+    if (!canClaim) {
+      return mapJob(existing);
+    }
+
+    const claimed = await tx.onboardingScrapeJob.update({
+      where: { id: existing.id },
+      data: {
+        status: "processing",
+        attempts:
+          existing.status === "processing" && existing.leaseOwner === workerId
+            ? existing.attempts
+            : { increment: 1 },
+        leaseOwner: workerId,
+        leaseExpiresAt,
+        heartbeatAt: now,
+        startedAt: existing.startedAt ?? now,
+        failedAt: null,
+        lastError: null,
+      },
+    });
+
+    return mapJob(claimed);
+  });
 }
 
 export async function claimNextOnboardingScrapeJob(args?: {
+  kinds?: OnboardingScrapeJobKind[];
   workerId?: string;
 }): Promise<StoredOnboardingScrapeJob | null> {
   const now = new Date();
@@ -195,6 +236,7 @@ export async function claimNextOnboardingScrapeJob(args?: {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const candidate = await prisma.onboardingScrapeJob.findFirst({
       where: {
+        ...(args?.kinds?.length ? { kind: { in: args.kinds } } : {}),
         OR: [
           { status: "pending" },
           {
@@ -287,6 +329,7 @@ export async function markOnboardingScrapeJobCompleted(args: {
     data: {
       status: "completed",
       completedAt: now,
+      failedAt: null,
       heartbeatAt: now,
       leaseOwner: null,
       leaseExpiresAt: null,
