@@ -22,6 +22,11 @@ export interface LlmCompletionOptions {
   temperature?: number;
   max_tokens?: number;
   top_p?: number;
+  /**
+   * Force the Groq-compatible chat completion to return a JSON object payload,
+   * even when the routed model id uses an openai/ prefix.
+   */
+  forceJsonObject?: boolean;
   /** Only used for openai/ reasoning models. "low" | "medium" | "high" */
   reasoning_effort?: "low" | "medium" | "high";
   jsonRepairInstruction?: string;
@@ -52,6 +57,13 @@ export interface StructuredLlmCompletionOptions<TSchema extends z.ZodTypeAny>
   onSchemaFailure?: (error: z.ZodError<z.infer<TSchema>>) => void;
 }
 
+export interface RawLlmCompletionOptions
+  extends Omit<LlmCompletionOptions, "model"> {
+  model?: string;
+  modelTier?: AgentV2ModelTier;
+  fallbackModel?: string;
+}
+
 type ChatMessage = {
   role: "system" | "user" | "assistant";
   content?: string | null | Array<{ type?: string; text?: string }>;
@@ -80,6 +92,9 @@ function buildParams(
     params.reasoning_effort = overrides?.reasoningEffort || options.reasoning_effort || "medium";
   } else {
     params.max_tokens = options.max_tokens ?? 1024;
+  }
+
+  if (!isOpenAiModel || options.forceJsonObject) {
     params.response_format = { type: "json_object" };
   }
 
@@ -231,6 +246,86 @@ async function retryEmptyContentOpenAiJson<T>(
   return parseJsonContent<T>(retryContent);
 }
 
+async function retryEmptyContentOpenAiContent(
+  options: LlmCompletionOptions,
+): Promise<string | null> {
+  const requestId = randomUUID().slice(0, 8);
+  const retryMessages: ChatCompletionMessageParam[] = [
+    ...options.messages,
+    {
+      role: "user",
+      content:
+        "Return ONLY the final valid JSON in message content. Do not leave content empty. Do not place the answer in reasoning.",
+    },
+  ];
+  const retryParams = buildParams(options, true, {
+    messages: retryMessages,
+    reasoningEffort: "low",
+  });
+
+  console.warn(`[LLM][${requestId}] Empty content from ${options.model}; retrying once with forced content-only JSON.`);
+  const retryCompletion = await getGroqClient().chat.completions.create(retryParams);
+  const retryChoice = retryCompletion.choices?.[0];
+  const retryContent = extractMessageContent((retryChoice?.message || null) as ChatMessage | null);
+
+  if (!retryContent) {
+    console.error(`[LLM][${requestId}] Retry also returned no content.`);
+    return null;
+  }
+
+  console.log(`[LLM][${requestId}] Retry got ${retryContent.length} chars back from ${options.model}`);
+  return retryContent;
+}
+
+async function fetchRawContentFromGroq(
+  options: LlmCompletionOptions,
+): Promise<string | null> {
+  const requestId = randomUUID().slice(0, 8);
+  const reportFailure = (reason: string) => {
+    options.onFailure?.(reason);
+  };
+
+  try {
+    const isOpenAiModel = options.model.startsWith("openai/");
+    const params = buildParams(options, isOpenAiModel);
+
+    console.log(`[LLM][${requestId}] Calling ${options.model} (${isOpenAiModel ? `openai, effort=${String(params.reasoning_effort)}` : "groq-native"})`);
+
+    const chatCompletion = await getGroqClient().chat.completions.create(params);
+    const choice = chatCompletion.choices?.[0];
+    if (!choice) {
+      reportFailure("returned no choices");
+      console.error(`[LLM][${requestId}] No choices returned from provider.`);
+      return null;
+    }
+
+    const content = extractMessageContent((choice.message || null) as ChatMessage | null);
+    if (!content) {
+      if (isOpenAiModel) {
+        try {
+          const retryContent = await retryEmptyContentOpenAiContent(options);
+          if (retryContent) {
+            return retryContent;
+          }
+        } catch (retryError) {
+          console.error(`[LLM][${requestId}] Retry after empty content failed:`, retryError);
+        }
+      }
+
+      reportFailure("returned no content");
+      console.error(`[LLM][${requestId}] No content in provider response.`);
+      return null;
+    }
+
+    console.log(`[LLM][${requestId}] Got ${content.length} chars back from ${options.model}`);
+    return content;
+  } catch (err) {
+    reportFailure("request failed");
+    console.error(`[LLM][${requestId}] Failed to fetch raw content from provider:`, err);
+    return null;
+  }
+}
+
 /**
  * Generic fetcher for Groq JSON outputs using the official SDK.
  */
@@ -372,4 +467,21 @@ export async function fetchStructuredJsonFromGroq<TSchema extends z.ZodTypeAny>(
   options.onSchemaFailure?.(parsed.error);
   console.error("Structured LLM validation failed", parsed.error);
   return null;
+}
+
+export async function fetchRawJsonContentFromGroq(
+  options: RawLlmCompletionOptions,
+): Promise<string | null> {
+  const llmOptions: LlmCompletionOptions = {
+    ...options,
+    model:
+      options.model ||
+      resolveAgentV2Model(
+        options.modelTier || "writing",
+        options.fallbackModel,
+      ),
+    forceJsonObject: true,
+  };
+
+  return fetchRawContentFromGroq(llmOptions);
 }

@@ -243,6 +243,9 @@ export async function executeDraftPipeline(args: {
     if (patch?.draftGuard) {
       routingTrace.draftGuard = patch.draftGuard;
     }
+    if (patch?.writerFallback) {
+      routingTrace.writerFallback = patch.writerFallback;
+    }
   };
   const loadHistoricalTextsWithTrace = async (capability: "drafting" | "planning") => {
     const result = await services.loadHistoricalTexts({
@@ -1229,6 +1232,7 @@ export async function executeDraftPipeline(args: {
             voiceTarget,
             retrievalReasons: requestConditionedAnchors.retrievalReasons,
             threadFramingStyle: args.threadFramingStyle ?? null,
+            routingTracePatch: undefined,
           };
         }
 
@@ -1263,6 +1267,7 @@ export async function executeDraftPipeline(args: {
             voiceTarget,
             retrievalReasons: requestConditionedAnchors.retrievalReasons,
             threadFramingStyle: args.threadFramingStyle ?? null,
+            routingTracePatch: writerOutput.routingTracePatch,
           };
         }
 
@@ -1278,6 +1283,7 @@ export async function executeDraftPipeline(args: {
           voiceTarget,
           retrievalReasons: requestConditionedAnchors.retrievalReasons,
           threadFramingStyle: args.threadFramingStyle ?? null,
+          routingTracePatch: writerOutput.routingTracePatch,
         };
       } finally {
         draftingMs += Date.now() - attemptStartedAt;

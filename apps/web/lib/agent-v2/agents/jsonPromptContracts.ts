@@ -1,3 +1,22 @@
+import { z } from "zod";
+
+export const StructuredThreadTweetRoleSchema = z.enum([
+  "hook",
+  "context",
+  "escalation",
+  "value",
+  "cta",
+]);
+
+export const StructuredThreadSchema = z.object({
+  tweets: z.array(
+    z.object({
+      role: StructuredThreadTweetRoleSchema,
+      content: z.string(),
+    }),
+  ),
+});
+
 export function buildPlannerJsonContract(args: {
   isThread: boolean;
 }): string {
@@ -38,7 +57,25 @@ export function buildPlannerJsonContract(args: {
 }`;
 }
 
-export function buildWriterJsonContract(): string {
+export function buildWriterJsonContract(args?: {
+  isStructuredThread?: boolean;
+}): string {
+  if (args?.isStructuredThread) {
+    return `Respond ONLY with a valid JSON matching this schema:
+{
+  "tweets": [
+    {
+      "role": "hook",
+      "content": "The actual text of the tweet."
+    },
+    {
+      "role": "context",
+      "content": "The actual text of the tweet."
+    }
+  ]
+}`;
+  }
+
   return `Respond ONLY with a valid JSON matching this schema:
 {
   "angle": "...",

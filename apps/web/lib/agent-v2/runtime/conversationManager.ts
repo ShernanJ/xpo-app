@@ -199,6 +199,13 @@ export interface RoutingTrace {
         issues: string[];
       }
     | null;
+  writerFallback?:
+    | {
+        reason: "structured_thread_parse_failed";
+        detail: string;
+        fallbackUsed: "flat_writer_json";
+      }
+    | null;
   planFailure:
     | {
         reason: string;

@@ -133,3 +133,31 @@ test("grounded draft retry resumes normally after the single story clarification
   assert.equal(result.kind, "success");
   assert.equal(attemptCalls > 0, true);
 });
+
+test("grounded draft retry preserves writer fallback trace patches on successful delivery", async () => {
+  const result = await runGroundedDraftRetry(
+    createArgs({
+      storyClarificationAsked: true,
+      attemptDraft: async () => ({
+        ...createAttemptResult(),
+        routingTracePatch: {
+          writerFallback: {
+            reason: "structured_thread_parse_failed",
+            detail: "tweets.0.role: Invalid option",
+            fallbackUsed: "flat_writer_json",
+          },
+        },
+      }),
+    }),
+  );
+
+  assert.equal(result.kind, "success");
+  assert.equal(
+    result.routingTracePatch?.writerFallback?.reason,
+    "structured_thread_parse_failed",
+  );
+  assert.equal(
+    result.routingTracePatch?.writerFallback?.fallbackUsed,
+    "flat_writer_json",
+  );
+});

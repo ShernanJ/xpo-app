@@ -50,6 +50,7 @@ export interface DraftingAttemptResult {
   voiceTarget: VoiceTarget;
   retrievalReasons: string[];
   threadFramingStyle: ThreadFramingStyle | null;
+  routingTracePatch?: RoutingTracePatch;
 }
 
 interface CheckedDraftingAttempt {
@@ -287,6 +288,12 @@ export async function runGroundedDraftRetry(
   }
 
   const firstAttempt = await args.attemptDraft();
+  if (firstAttempt.routingTracePatch) {
+    routingTracePatch = {
+      ...routingTracePatch,
+      ...firstAttempt.routingTracePatch,
+    };
+  }
   if (!firstAttempt.writerOutput) {
     return buildWriteFailure();
   }
@@ -395,6 +402,12 @@ export async function runGroundedDraftRetry(
     : firstAttempt;
   if (!secondAttempt.writerOutput) {
     return buildWriteFailure();
+  }
+  if (secondAttempt.routingTracePatch) {
+    routingTracePatch = {
+      ...routingTracePatch,
+      ...secondAttempt.routingTracePatch,
+    };
   }
   if (!secondAttempt.criticOutput || !secondAttempt.draftToDeliver) {
     return buildCritiqueFailure();

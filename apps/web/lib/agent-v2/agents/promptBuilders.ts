@@ -16,21 +16,21 @@ import {
   buildDraftPreferenceBlock,
   buildFormatPreferenceBlock,
   buildPromptHydrationEnvelope,
-} from "../prompts/promptHydrator";
+} from "../prompts/promptHydrator.ts";
 import {
   buildConcreteSceneDraftBlock,
   buildConcreteScenePlanBlock,
-} from "../grounding/draftGrounding";
+} from "../grounding/draftGrounding.ts";
 import type {
   CreatorProfileHints,
   GroundingPacket,
 } from "../grounding/groundingPacket";
-import { buildGroundingPromptBlock } from "./groundingPromptBlock";
+import { buildGroundingPromptBlock } from "./groundingPromptBlock.ts";
 import {
   buildPlannerJsonContract,
   buildWriterJsonContract,
-} from "./jsonPromptContracts";
-import { resolveWriterPromptGuardrails } from "./draftPromptGuards";
+} from "./jsonPromptContracts.ts";
+import { resolveWriterPromptGuardrails } from "./draftPromptGuards.ts";
 import {
   buildFormatIntentPromptOverride,
   buildEngagementBaitRule,
@@ -38,7 +38,7 @@ import {
   shouldSuppressGrowthFormatting,
   buildThreadFramingRequirement,
   buildVerificationProfessionalismRule,
-} from "./xPostPromptRules";
+} from "./xPostPromptRules.ts";
 
 function buildArtifactContextBlock(args: {
   activePlan?: StrategyPlan | null;
@@ -716,6 +716,7 @@ export interface BuildWriterInstructionArgs {
     lastIdeationAngles?: string[];
     activeTaskSummary?: string | null;
     replyContext?: ReplyContextCard | null;
+    structuredThreadOutput?: boolean;
   };
 }
 
@@ -732,6 +733,8 @@ export function buildWriterInstruction(args: BuildWriterInstructionArgs): string
   const formatIntent =
     args.options?.formatIntent || args.plan.formatIntent || "lesson";
   const threadFramingStyle = args.options?.threadFramingStyle ?? null;
+  const useStructuredThreadOutput =
+    formatPreference === "thread" && args.options?.structuredThreadOutput === true;
   const {
     sceneSource,
     concreteSceneMode,
@@ -877,7 +880,15 @@ This means: user-owned facts CAN make drafts more specific and "earned" when gro
                 : ""
             }`,
         )
-        .join("\n")}\n\nDraft each post to fulfill its assigned role in order. Each post separated by ---.\nKeep the serialized post count aligned with this beat plan unless a factual or safety constraint makes one beat unusable.\nUse each post's proof points in that post instead of scattering them across the thread.\nIf a transition hint is present, make the handoff felt in the wording between those beats.\nRole execution rules:\n- HOOK: open a loop with one real tension, contradiction, stake, or scene. Do NOT summarize the full thread.\n- HOOK: make Post 1 feel like a native feed opener with immediate forward pull, not a mini-essay, recap, or table of contents.\n- SETUP: frame the context or problem so the next post earns its place.\n- PROOF: introduce a new fact, example, observation, or consequence. Do NOT restate the previous post with fresher wording.\n- TURN: change the frame, reveal the catch, or sharpen the contrast.\n- PAYOFF: land the earned takeaway the reader came for. It should feel more decisive than the earlier posts.\n- CLOSE: end the thread with a new ending move - reflection, implication, challenge, CTA, or punchline. Do NOT just paraphrase the payoff.\n- CLOSE: if the thread is offering a concrete downloadable asset, prefer a specific keyword CTA over a vague "leave a comment" ending.\nDo NOT compress multiple beats into one post.\nDo NOT repeat the hook's framing in later posts.\nIf two adjacent posts could swap places without changing the thread, they are too samey - rewrite them so each beat earns its slot.`
+        .join("\n")}\n\n${
+          useStructuredThreadOutput
+            ? 'Draft each tweet to fulfill its assigned role in order. Return the thread inside the "tweets" array instead of serializing it with ---.'
+            : "Draft each post to fulfill its assigned role in order. Each post separated by ---."
+        }\n${
+          useStructuredThreadOutput
+            ? 'Keep the tweets array aligned with this beat plan unless a factual or safety constraint makes one beat unusable.'
+            : "Keep the serialized post count aligned with this beat plan unless a factual or safety constraint makes one beat unusable."
+        }\nUse each post's proof points in that post instead of scattering them across the thread.\nIf a transition hint is present, make the handoff felt in the wording between those beats.\nRole execution rules:\n- HOOK: open a loop with one real tension, contradiction, stake, or scene. Do NOT summarize the full thread.\n- HOOK: make Post 1 feel like a native feed opener with immediate forward pull, not a mini-essay, recap, or table of contents.\n- SETUP: frame the context or problem so the next post earns its place.\n- PROOF: introduce a new fact, example, observation, or consequence. Do NOT restate the previous post with fresher wording.\n- TURN: change the frame, reveal the catch, or sharpen the contrast.\n- PAYOFF: land the earned takeaway the reader came for. It should feel more decisive than the earlier posts.\n- CLOSE: end the thread with a new ending move - reflection, implication, challenge, CTA, or punchline. Do NOT just paraphrase the payoff.\n- CLOSE: if the thread is offering a concrete downloadable asset, prefer a specific keyword CTA over a vague "leave a comment" ending.\nDo NOT compress multiple beats into one post.\nDo NOT repeat the hook's framing in later posts.\nIf two adjacent posts could swap places without changing the thread, they are too samey - rewrite them so each beat earns its slot.`
     : null;
 
   const strategyLayer = `
@@ -916,6 +927,44 @@ ${threadCadenceBlock ? `${threadCadenceBlock}\n` : ""}
   const liveContextRule = args.liveContext?.trim()
     ? `CRITICAL: You have been provided with real-time information in the <live_context> tag. You MUST base your factual claims strictly on this data. Do not hallucinate external facts.`
     : null;
+  const structuredThreadOutputBlock = useStructuredThreadOutput
+    ? `
+STRUCTURED THREAD OUTPUT:
+You are writing a multi-part thread.
+You must output your response in JSON format.
+Return one JSON object with a "tweets" array.
+You must strictly follow this narrative pacing:
+- Tweet 1 (hook): High-contrast, scroll-stopping claim. No hashtags.
+- Tweet 2 (context): Introduce the problem or background.
+- Tweet 3+ (escalation/value): Deliver the core insights. One distinct idea per tweet.
+- Final Tweet (cta): A clear call to action.
+- Keep every tweet under 280 characters when possible. Treat that as a writing target, not a schema guarantee.
+  `.trim()
+    : null;
+  const lengthRequirement = useStructuredThreadOutput
+    ? `9. HARD LENGTH TARGET: Each entry in the "tweets" array should stay under 280 characters. This is a maximum writing target, not a reason to stop the response early.`
+    : `9. HARD LENGTH CAP: The "draft" field must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. This is a maximum, not a target.`;
+  const formatRequirement = useStructuredThreadOutput
+    ? `10. ${
+        shouldSuppressGrowthFormatting(formatIntent)
+          ? "Write a 4-6 tweet thread inside the \"tweets\" array. Keep the pacing native to X and let each tweet carry one clean narrative beat without turning it into a templated growth thread."
+          : "Write a 4-6 tweet thread inside the \"tweets\" array. Let each tweet carry a full beat instead of compressing the thread into chopped-essay fragments."
+      }${buildThreadFramingRequirement({ threadFramingStyle, mode: "draft" })}`
+    : `10. ${
+        shouldSuppressGrowthFormatting(formatIntent)
+          ? `If this is shortform or longform, keep it brief, native, and low-friction. If this is a thread, write 4-6 posts separated by a line containing only ---, keep every post within ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, and let each post carry a clean narrative beat without turning it into a templated growth thread.${buildThreadFramingRequirement({ threadFramingStyle, mode: "draft" })}`
+          : `If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp. If this is a thread, write 4-6 posts separated by a line containing only ---, keep every post within ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, and let each post carry a full beat instead of forcing everything into legacy 280-character tweet brevity. When the per-post limit is higher, use the room when it improves setup, proof, or transitions.${buildThreadFramingRequirement({ threadFramingStyle, mode: "draft" })}`
+      }`;
+  const artifactShapeRequirement = useStructuredThreadOutput
+    ? `10a. Return exactly one JSON object with a "tweets" array. Do NOT return a flat "draft" field, markdown, or --- separators.
+10b. Each tweets[i].content value must contain only the final text of that tweet. Do NOT include labels like "Tweet 1", numbering wrappers, or commentary outside the JSON object.
+10c. If this is a thread, make Tweet 1 read like a real thread opener: sharp, tension-first, and native to X. Do NOT use the opener to summarize the whole lesson, framework, or CTA.`
+    : `10a. If this is NOT a thread, return exactly one standalone post. Do NOT use standalone --- separators, multi-post serialization, or thread formatting in the "draft" field.
+10b. If this is NOT a thread, do NOT start with labels like "thread:", "post 1:", "tweet 1:", or any serialized thread opener.
+10c. If this is a thread, make Post 1 read like a real thread opener: sharp, tension-first, and native to X. Do NOT use the opener to summarize the whole lesson, framework, or CTA.`;
+  const outputFieldRequirement = useStructuredThreadOutput
+    ? `17. Each "tweets[i].content" value must contain only the final X post text. Do NOT include speaker labels, chat transcript lines, quoted prompt text, UI chrome, usernames/handles from a mock composer, timestamps, character counters, button labels, or commentary like "I'll drop a draft", "looks good. write this version now.", or "tightened it so it reads fast."`
+    : `17. The "draft" field must contain only the final X post text. Do NOT include speaker labels, chat transcript lines, quoted prompt text, UI chrome, usernames/handles from a mock composer, timestamps, character counters, button labels, or commentary like "I'll drop a draft", "looks good. write this version now.", or "tightened it so it reads fast."`;
 
   return `
 You are an elite ghostwriter for X (Twitter).
@@ -943,6 +992,7 @@ ${factualTruthLayer || "None"}
 ${strategyLayer}
 
 ${voiceShapeLayer}
+${structuredThreadOutputBlock ? `\n\n${structuredThreadOutputBlock}` : ""}
 
 REQUIREMENTS:
 1. Generate EXACTLY 1 draft. Not 2. Not 3. One.
@@ -960,13 +1010,9 @@ ${isEditing ? `3. IMPORTANT: Do NOT rewrite the entire post from scratch unless 
 6. Provide an idea for a "supportAsset" (image/video idea to attach).
 7. ANTI-RECYCLING: If the chat history contains a previous draft, you MUST write a COMPLETELY DIFFERENT structure, hook, and framing for the new draft. Do NOT reuse the same template, phrasing patterns, or CTA. Every draft must feel fresh.
 8. If the user gave negative feedback about a previous draft (e.g. "i don't like the emoji usage", "it's all over the place"), treat that as a HARD constraint for this draft.
-9. HARD LENGTH CAP: The "draft" field must stay at or under ${maxCharacterLimit.toLocaleString()} weighted X characters. This is a maximum, not a target.
-10. ${shouldSuppressGrowthFormatting(formatIntent)
-      ? `If this is shortform or longform, keep it brief, native, and low-friction. If this is a thread, write 4-6 posts separated by a line containing only ---, keep every post within ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, and let each post carry a clean narrative beat without turning it into a templated growth thread.${buildThreadFramingRequirement({ threadFramingStyle, mode: "draft" })}`
-      : `If this is shortform, stay tight and get to the payoff fast. If this is longform, you may use more room for setup and development, but keep it readable and sharp. If this is a thread, write 4-6 posts separated by a line containing only ---, keep every post within ${threadPostMaxCharacterLimit?.toLocaleString() || "the account's allowed"} weighted X character limit, and let each post carry a full beat instead of forcing everything into legacy 280-character tweet brevity. When the per-post limit is higher, use the room when it improves setup, proof, or transitions.${buildThreadFramingRequirement({ threadFramingStyle, mode: "draft" })}`}
-10a. If this is NOT a thread, return exactly one standalone post. Do NOT use standalone --- separators, multi-post serialization, or thread formatting in the "draft" field.
-10b. If this is NOT a thread, do NOT start with labels like "thread:", "post 1:", "tweet 1:", or any serialized thread opener.
-10c. If this is a thread, make Post 1 read like a real thread opener: sharp, tension-first, and native to X. Do NOT use the opener to summarize the whole lesson, framework, or CTA.
+${lengthRequirement}
+${formatRequirement}
+${artifactShapeRequirement}
 11. ${buildVerificationProfessionalismRule("draft")}
 12. If any Active Session Constraint starts with "Correction lock:" or "Topic grounding:", treat it as hard factual grounding. Preserve it exactly and do not drift back to the earlier assumption.
 12a. If FACTUAL GROUNDING is present, build the post from those exact product facts. Do NOT widen them into adjacent mechanics, categories, or claims that sound plausible but were never stated.
@@ -994,10 +1040,10 @@ ${liveContextRule ? `14d. ${liveContextRule}` : ""}
 16c. ${shouldSuppressGrowthFormatting(formatIntent)
       ? "If the user asked for a joke or observation, do NOT bolt on a CTA, lesson, or bulletized takeaway at the end."
       : "If the user did not ask for a joke or observation, any CTA should still feel earned by the draft."}
-17. The "draft" field must contain only the final X post text. Do NOT include speaker labels, chat transcript lines, quoted prompt text, UI chrome, usernames/handles from a mock composer, timestamps, character counters, button labels, or commentary like "I'll drop a draft", "looks good. write this version now.", or "tightened it so it reads fast."
+${outputFieldRequirement}
 17a. If the source brief is phrased as a question, treat it as the problem the post should answer, not as text to paste back into the draft. If you use it as a hook, write the full hook cleanly and answer it. Never end on an unfinished fragment of the source question.
 
-${buildWriterJsonContract()}
+${buildWriterJsonContract({ isStructuredThread: useStructuredThreadOutput })}
   `.trim();
 }
 
