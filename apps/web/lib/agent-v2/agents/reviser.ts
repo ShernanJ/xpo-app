@@ -1,46 +1,52 @@
 import { z } from "zod";
 import { fetchStructuredJsonFromGroq } from "./llm.ts";
-import type { VoiceStyleCard } from "../core/styleProfile";
+import type { VoiceStyleCard } from "../core/styleProfile.ts";
 import type {
   ConversationState,
   DraftFormatPreference,
   DraftPreference,
   SessionConstraint,
   StrategyPlan,
-} from "../contracts/chat";
+} from "../contracts/chat.ts";
 import {
   buildConversationToneBlock,
   buildDraftPreferenceBlock,
   buildFormatPreferenceBlock,
   buildPromptHydrationEnvelope,
   escapeXmlText,
-} from "../prompts/promptHydrator";
+} from "../prompts/promptHydrator.ts";
 import type {
   DraftRevisionDirective,
   DraftRevisionTargetSpan,
   DraftRevisionThreadIntent,
-} from "../capabilities/revision/draftRevision";
+} from "../capabilities/revision/draftRevision.ts";
 import {
   type CreatorProfileHints,
   type GroundingPacket,
-} from "../grounding/groundingPacket";
-import { buildGroundingPromptBlock } from "./groundingPromptBlock";
-import { buildReviserJsonContract } from "./jsonPromptContracts";
+} from "../grounding/groundingPacket.ts";
+import { buildGroundingPromptBlock } from "./groundingPromptBlock.ts";
+import { buildReviserJsonContract } from "./jsonPromptContracts.ts";
 import {
   trimToXCharacterLimit,
   type ThreadFramingStyle,
-} from "../../onboarding/draftArtifacts";
+} from "../../onboarding/draftArtifacts.ts";
 import {
   buildEngagementBaitRule,
   buildMarkdownStylingRule,
   buildThreadFramingRequirement,
   buildVerificationProfessionalismRule,
-} from "./xPostPromptRules";
+} from "./xPostPromptRules.ts";
 
 export const ReviserOutputSchema = z.object({
   revisedDraft: z.string().describe("The revised draft text"),
   supportAsset: z.string().nullable().describe("Idea for what image or video to attach"),
   issuesFixed: z.array(z.string()).describe("Short list of what changed"),
+  coach_note: z
+    .string()
+    .describe(
+      "1-2 sentence explanation of the mechanical changes and why they improve pacing, hook, or readability.",
+    )
+    .optional(),
 });
 
 export type ReviserOutput = z.infer<typeof ReviserOutputSchema>;
@@ -61,6 +67,18 @@ function cleanupEditedDraft(text: string): string {
 
 function stripEmojiCharacters(value: string): string {
   return value.replace(/[\p{Extended_Pictographic}\uFE0F]/gu, "");
+}
+
+function buildPhraseRemovalCoachNote(): string {
+  return "Cut the flagged phrase to remove clutter and keep the main point landing faster.";
+}
+
+function buildLastLineRemovalCoachNote(): string {
+  return "Snipped the last line so the post ends on the stronger beat instead of trailing into a softer close.";
+}
+
+function buildEmojiCleanupCoachNote(): string {
+  return "Removed emojis to tighten the tone and keep the read cleaner.";
 }
 
 function tryDeterministicPhraseRemoval(args: {
@@ -94,6 +112,7 @@ function tryDeterministicPhraseRemoval(args: {
     revisedDraft: nextDraft,
     supportAsset: null,
     issuesFixed: [`Removed or replaced "${args.targetText}".`],
+    coach_note: buildPhraseRemovalCoachNote(),
   };
 }
 
@@ -122,6 +141,7 @@ function tryDeterministicLastLineRemoval(args: {
     revisedDraft: nextDraft,
     supportAsset: null,
     issuesFixed: ["Removed the final line or CTA."],
+    coach_note: buildLastLineRemovalCoachNote(),
   };
 }
 
@@ -143,6 +163,7 @@ function tryDeterministicEmojiRemoval(args: {
     revisedDraft: nextDraft,
     supportAsset: null,
     issuesFixed: ["Removed emojis and kept the draft otherwise intact."],
+    coach_note: buildEmojiCleanupCoachNote(),
   };
 }
 
@@ -448,6 +469,12 @@ ${revisionChangeGuidance ? `${revisionChangeGuidance}\n` : ""}
 ${groundingBlock ? `${groundingBlock}\n` : ""}
 ${threadLocalRevisionBlock ? `${threadLocalRevisionBlock}\n` : ""}
 
+PROACTIVE COACHING:
+- You are an elite editor. You must populate the coach_note JSON field with a 1-2 sentence explanation of the mechanical changes you just made and WHY they improve the post's pacing, hook, or readability.
+- Be direct and punchy.
+- DO NOT use pleasantries.
+- Example: "I broke your wall of text into three distinct paragraphs to prevent scrolling fatigue, and sharpened the hook to create an immediate curiosity gap."
+
 REQUIREMENTS:
 1. Preserve the subject, core meaning, and overall structure unless the revision request explicitly asks for a deeper rewrite.
 2. Apply only the requested change. Prefer local edits over fresh reframing.
@@ -468,11 +495,14 @@ REQUIREMENTS:
 17. Do NOT add new metrics, results, follower spikes, experiments, timelines, named customers, product mechanics, or autobiographical usage claims unless they already exist in the <previous_draft>, <user_critique>, or grounding packet.
 18. If THREAD-LOCAL REVISION MODE is active, return only the revised target span and preserve the exact number of posts in that span.
 
+You must output your response in JSON format.
+
 ${buildReviserJsonContract()}
   `.trim();
 
   const data = await fetchStructuredJsonFromGroq({
     schema: ReviserOutputSchema,
+    forceJsonObject: true,
     modelTier: "writing",
     fallbackModel: "openai/gpt-oss-120b",
     reasoning_effort: "medium",

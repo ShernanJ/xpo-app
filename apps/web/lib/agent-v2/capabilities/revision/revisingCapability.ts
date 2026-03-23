@@ -2,7 +2,6 @@ import {
   buildRollingSummary,
 } from "../../memory/summaryManager.ts";
 import { resolveVoiceTarget } from "../../core/voiceTarget.ts";
-import { buildDraftReply } from "../../responses/draftReply.ts";
 import { appendCoachNote } from "../../responses/coachNote.ts";
 import { prependFeedbackMemoryNotice } from "../../responses/feedbackMemoryNotice.ts";
 import { buildDraftResultQuickReplies } from "../../responses/draftResultQuickReplies.ts";
@@ -30,8 +29,6 @@ import type {
   RuntimeResponseSeed,
   RuntimeWorkerExecution,
 } from "../../runtime/runtimeContracts.ts";
-
-const MAX_INTERNAL_ATTEMPTS = 2;
 import {
   resolveDraftOutputShape,
 } from "../../core/conversationHeuristics.ts";
@@ -55,6 +52,9 @@ import {
   sessionConstraintsToLegacyStrings,
 } from "../../core/sessionConstraints.ts";
 
+const MAX_INTERNAL_ATTEMPTS = 2;
+const DEFAULT_REVISION_REPLY = "Revised draft attached.";
+
 type RawOrchestratorResponse = Omit<
   OrchestratorResponse,
   "surfaceMode" | "responseShapePlan"
@@ -76,6 +76,15 @@ interface ThreadSpanRevisionPlan {
   targetSpan: DraftRevisionTargetSpan;
   previousPost: string | null;
   nextPost: string | null;
+}
+
+function normalizeCoachNote(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed || null;
 }
 
 function resolveThreadSpanReplacementPosts(args: {
@@ -304,6 +313,7 @@ function selectBestAvailableRevisionCandidate(args: {
 }): {
   draft: string;
   supportAsset: string | null;
+  coachNote: string | null;
   source:
     | "second_attempt_validated"
     | "second_attempt_critic"
@@ -326,6 +336,7 @@ function selectBestAvailableRevisionCandidate(args: {
       return {
         draft: attempt.validation.correctedDraft,
         supportAsset: attempt.reviserOutput?.supportAsset ?? null,
+        coachNote: normalizeCoachNote(attempt.reviserOutput?.coach_note),
         source:
           label === "second"
             ? "second_attempt_validated"
@@ -337,6 +348,7 @@ function selectBestAvailableRevisionCandidate(args: {
       return {
         draft: attempt.criticOutput.finalDraft,
         supportAsset: attempt.reviserOutput?.supportAsset ?? null,
+        coachNote: normalizeCoachNote(attempt.reviserOutput?.coach_note),
         source:
           label === "second"
             ? "second_attempt_critic"
@@ -348,6 +360,7 @@ function selectBestAvailableRevisionCandidate(args: {
       return {
         draft: attempt.reviserOutput.revisedDraft,
         supportAsset: attempt.reviserOutput.supportAsset ?? null,
+        coachNote: normalizeCoachNote(attempt.reviserOutput.coach_note),
         source:
           label === "second"
             ? "second_attempt_reviser"
@@ -359,6 +372,7 @@ function selectBestAvailableRevisionCandidate(args: {
   return {
     draft: args.originalDraft,
     supportAsset: null,
+    coachNote: null,
     source: "original_draft",
   };
 }
@@ -986,6 +1000,8 @@ export async function executeRevisingCapability(
       finalAttempt,
       originalDraft: context.activeDraft,
     });
+    const revisionResponse =
+      bestAvailableCandidate.coachNote || DEFAULT_REVISION_REPLY;
     const outputShape = resolveDraftOutputShape(resolvedFormatPreference);
     const issuesFixed = Array.from(
       new Set([
@@ -1007,16 +1023,7 @@ export async function executeRevisingCapability(
           outputShape,
           response: appendCoachNote({
             response: prependFeedbackMemoryNotice(
-              buildDraftReply({
-                userMessage: context.userMessage,
-                draftPreference: context.turnDraftPreference,
-                isEdit: true,
-                issuesFixed,
-                styleCard: context.styleCard,
-                revisionChangeKind: context.revision.changeKind,
-                revisionTargetFormat: context.revision.targetFormat ?? null,
-                directReturn: true,
-              }),
+              revisionResponse,
               context.feedbackMemoryNotice ?? null,
             ),
             userMessage: context.userMessage,
@@ -1173,6 +1180,9 @@ export async function executeRevisingCapability(
       ]),
   );
   const outputShape = resolveDraftOutputShape(resolvedFormatPreference);
+  const revisionResponse =
+    normalizeCoachNote(finalAttempt.reviserOutput.coach_note) ||
+    DEFAULT_REVISION_REPLY;
 
   return {
     workflow: args.workflow,
@@ -1184,16 +1194,7 @@ export async function executeRevisingCapability(
         outputShape,
         response: appendCoachNote({
           response: prependFeedbackMemoryNotice(
-            buildDraftReply({
-              userMessage: context.userMessage,
-              draftPreference: context.turnDraftPreference,
-              isEdit: true,
-              issuesFixed,
-              styleCard: context.styleCard,
-              revisionChangeKind: context.revision.changeKind,
-              revisionTargetFormat: context.revision.targetFormat ?? null,
-              directReturn: true,
-            }),
+            revisionResponse,
             context.feedbackMemoryNotice ?? null,
           ),
           userMessage: context.userMessage,

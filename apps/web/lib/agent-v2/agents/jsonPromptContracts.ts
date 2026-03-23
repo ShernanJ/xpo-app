@@ -87,11 +87,12 @@ export function buildWriterJsonContract(args?: {
 }
 
 export function buildReviserJsonContract(): string {
-  return `Respond ONLY with valid JSON:
+  return `Respond ONLY with a valid JSON matching this schema:
 {
   "revisedDraft": "...",
   "supportAsset": null,
-  "issuesFixed": ["what changed"]
+  "issuesFixed": ["what changed"],
+  "coach_note": "I cut the throat-clearing and sharpened the opening so the payoff lands faster."
 }`;
 }
 

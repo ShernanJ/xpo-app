@@ -114,6 +114,10 @@ test("critic rejection retries with critic analysis and returns the best availab
               reviserCalls.length === 1 ? "first revision draft" : "second revision draft",
             supportAsset: null,
             issuesFixed: ["tightened wording"],
+            coach_note:
+              reviserCalls.length === 1
+                ? "Trimmed the filler so the setup gets out of the way faster."
+                : "Tightened the copy and sharpened the close so the payoff hits faster.",
           };
         },
         critiqueDrafts: async () => {
@@ -136,6 +140,10 @@ test("critic rejection retries with critic analysis and returns the best availab
 
   assert.equal(result.output.kind, "revision_ready");
   assert.equal(result.output.responseSeed.data.draft, "second critic draft");
+  assert.equal(
+    result.output.responseSeed.response,
+    "Tightened the copy and sharpened the close so the payoff hits faster.",
+  );
   assert.equal(reviserCalls.length, 2);
   assert.equal(reviserCalls[0].options.userCritique, "make it punchier");
   assert.equal(reviserCalls[0].options.criticAnalysis, null);
@@ -143,6 +151,46 @@ test("critic rejection retries with critic analysis and returns the best availab
     reviserCalls[1].options.criticAnalysis,
     "Tone is cheesy. Strip adjectives and remove exclamation marks.",
   );
+});
+
+test("model-provided coach note becomes the revision reply text", async () => {
+  const result = await executeRevisingCapability(
+    createArgs({
+      services: {
+        generateRevisionDraft: async () => ({
+          revisedDraft: "changed draft text",
+          supportAsset: null,
+          issuesFixed: ["tightened wording"],
+          coach_note:
+            "Broke the draft into cleaner beats and cut the soft setup so the hook hits faster.",
+        }),
+      },
+    }),
+  );
+
+  assert.equal(result.output.kind, "revision_ready");
+  assert.equal(
+    result.output.responseSeed.response,
+    "Broke the draft into cleaner beats and cut the soft setup so the hook hits faster.",
+  );
+});
+
+test("missing or blank coach notes fall back to a neutral revision reply", async () => {
+  const result = await executeRevisingCapability(
+    createArgs({
+      services: {
+        generateRevisionDraft: async () => ({
+          revisedDraft: "changed draft text",
+          supportAsset: null,
+          issuesFixed: ["tightened wording"],
+          coach_note: "   ",
+        }),
+      },
+    }),
+  );
+
+  assert.equal(result.output.kind, "revision_ready");
+  assert.equal(result.output.responseSeed.response, "Revised draft attached.");
 });
 
 test("no-op revisions return the same fallback instead of claiming the edit landed", async () => {

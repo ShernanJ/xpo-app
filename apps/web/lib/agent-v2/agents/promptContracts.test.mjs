@@ -528,6 +528,12 @@ test("reviser prompt keeps grounded revision boundaries for edit requests", () =
   assert.equal(reviserSource.includes("TONE SHIFT MODE:"), true);
   assert.equal(reviserSource.includes("GENERIC EDIT MODE:"), true);
   assert.equal(reviserSource.includes("FULL REWRITE MODE:"), true);
+  assert.equal(reviserSource.includes("PROACTIVE COACHING:"), true);
+  assert.equal(
+    reviserSource.includes("You must output your response in JSON format."),
+    true,
+  );
+  assert.equal(reviserSource.includes("forceJsonObject: true"), true);
   assert.equal(
     reviserPromptSource.includes(
       "If a detail is not supported here, in the current draft, or in the current user note, do not add it.",
@@ -668,6 +674,10 @@ test("planner writer reviser and critic share JSON output contracts", () => {
   );
   assert.equal(
     jsonPromptContractsSource.includes(`"revisedDraft": "..."`),
+    true,
+  );
+  assert.equal(
+    jsonPromptContractsSource.includes(`"coach_note": "I cut the throat-clearing and sharpened the opening so the payoff lands faster."`),
     true,
   );
   assert.equal(
