@@ -17,6 +17,12 @@ export const StructuredThreadSchema = z.object({
   ),
 });
 
+export const DeltaAnalysisSchema = z.object({
+  has_stylistic_change: z.boolean(),
+  extracted_rule: z.string().optional(),
+  confidence_score: z.number().finite().min(1).max(100),
+});
+
 export function buildPlannerJsonContract(args: {
   isThread: boolean;
 }): string {

@@ -306,6 +306,9 @@ export const ExtensionDraftsResponseSchema = z
 
 export const ExtensionDraftPublishRequestSchema = z
   .object({
+    finalPublishedText: z
+      .string()
+      .refine((value) => value.trim().length > 0, "Final published text is required."),
     publishedTweetId: z.string().trim().min(1).nullable().optional(),
   })
   .strict();

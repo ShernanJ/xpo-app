@@ -440,15 +440,16 @@ model RequestRateLimitBucket {
 }
 
 model VoiceProfile {
-  id               String   @id @default(uuid())
-  userId           String
-  xHandle          String?
-  niche            String? // Legacy niche field; semanticClusters are the forward path.
-  primaryPersona   Persona?
-  secondaryPersona Persona?
-  styleCard        Json // Parsed CreatorStyleCard / GhostwriterStyleCard payloads
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                String   @id @default(uuid())
+  userId            String
+  xHandle           String?
+  niche             String? // Legacy niche field; semanticClusters are the forward path.
+  primaryPersona    Persona?
+  secondaryPersona  Persona?
+  styleCard         Json // Parsed CreatorStyleCard / GhostwriterStyleCard payloads
+  learnedStyleRules String[] @default([])
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   semanticClusters SemanticCluster[]
@@ -517,37 +518,40 @@ model Folder {
 }
 
 model DraftCandidate {
-  id                String               @id @default(cuid())
-  userId            String
-  xHandle           String?
-  replySourcePostId String?
-  threadId          String?
-  messageId         String?
-  runId             String?
-  title             String
-  sourcePrompt      String
-  sourcePlaybook    String?
-  outputShape       String
-  reviewStatus      DraftCandidateStatus @default(pending)
-  status            PostStatus           @default(DRAFT)
-  folderId          String?
-  publishedTweetId  String?
-  draftVersionId    String?
-  basedOnVersionId  String?
-  revisionChainId   String?
-  isLatestVersion   Boolean              @default(true)
-  artifact          Json
-  voiceTarget       Json?
-  noveltyNotes      Json?
-  retrievedAnchorIds String[]            @default([])
-  rejectionReason   String?
-  approvedAt        DateTime?
-  editedAt          DateTime?
-  postedAt          DateTime?
-  observedAt        DateTime?
-  observedMetrics   Json?
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
+  id                 String               @id @default(cuid())
+  userId             String
+  xHandle            String?
+  replySourcePostId  String?
+  threadId           String?
+  messageId          String?
+  runId              String?
+  title              String
+  sourcePrompt       String
+  sourcePlaybook     String?
+  outputShape        String
+  reviewStatus       DraftCandidateStatus @default(pending)
+  status             PostStatus           @default(DRAFT)
+  folderId           String?
+  publishedTweetId   String?
+  draftVersionId     String?
+  basedOnVersionId   String?
+  revisionChainId    String?
+  isLatestVersion    Boolean              @default(true)
+  artifact           Json
+  voiceTarget        Json?
+  noveltyNotes       Json?
+  retrievedAnchorIds String[]             @default([])
+  rejectionReason    String?
+  approvedAt         DateTime?
+  editedAt           DateTime?
+  publishedText      String?
+  publishedAt        DateTime?
+  postedAt           DateTime?
+  observedAt         DateTime?
+  observedMetrics    Json?
+  deltaAnalyzed      Boolean              @default(false)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 
   user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   thread ChatThread?    @relation(fields: [threadId], references: [id], onDelete: SetNull)

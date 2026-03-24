@@ -6,12 +6,14 @@ import {
 
 export function parseExtensionDraftPublishRequest(
   body: unknown,
-): { ok: true; data: ExtensionDraftPublishRequest } | { ok: false; message: string } {
+): { ok: true; data: ExtensionDraftPublishRequest } | { ok: false; field: string; message: string } {
   const parsed = ExtensionDraftPublishRequestSchema.safeParse(body);
   if (!parsed.success) {
+    const issue = parsed.error.issues[0];
     return {
       ok: false,
-      message: parsed.error.issues[0]?.message || "Invalid extension draft publish request.",
+      field: issue?.path?.length ? String(issue.path[0]) : "body",
+      message: issue?.message || "Invalid extension draft publish request.",
     };
   }
 

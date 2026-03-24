@@ -12,7 +12,9 @@ test("POST /api/extension/drafts/[id]/publish returns 404 when the draft is not 
         authorization: "Bearer token_123",
         "content-type": "application/json",
       },
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        finalPublishedText: "final copy",
+      }),
     }),
     { id: "draft_1" },
     {
@@ -27,10 +29,12 @@ test("POST /api/extension/drafts/[id]/publish returns 404 when the draft is not 
         xHandle: "handle_b",
       }),
       parseExtensionDraftPublishRequest,
-      findDraft: async () => null,
-      publishDraft: async () => {
-        throw new Error("should not be reached");
-      },
+      finalizeDraftPublish: async () => ({
+        ok: false,
+        status: 404,
+        field: "id",
+        message: "Draft not found.",
+      }),
     },
   );
 
@@ -48,6 +52,7 @@ test("POST /api/extension/drafts/[id]/publish passes the published tweet id thro
         "content-type": "application/json",
       },
       body: JSON.stringify({
+        finalPublishedText: "Final published post",
         publishedTweetId: "1901234567890",
       }),
     }),
@@ -64,14 +69,9 @@ test("POST /api/extension/drafts/[id]/publish passes the published tweet id thro
         xHandle: "handle_b",
       }),
       parseExtensionDraftPublishRequest,
-      findDraft: async () => ({
-        id: "draft_1",
-        status: "DRAFT",
-        publishedTweetId: null,
-      }),
-      publishDraft: async (payload) => {
+      finalizeDraftPublish: async (payload) => {
         calls.push(payload);
-        return true;
+        return { ok: true };
       },
     },
   );
@@ -83,6 +83,7 @@ test("POST /api/extension/drafts/[id]/publish passes the published tweet id thro
       id: "draft_1",
       userId: "user_1",
       xHandle: "handle_b",
+      finalPublishedText: "Final published post",
       publishedTweetId: "1901234567890",
     },
   ]);
@@ -96,7 +97,9 @@ test("POST /api/extension/drafts/[id]/publish returns 404 when the scoped publis
         authorization: "Bearer token_123",
         "content-type": "application/json",
       },
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        finalPublishedText: "final copy",
+      }),
     }),
     { id: "draft_1" },
     {
@@ -111,12 +114,12 @@ test("POST /api/extension/drafts/[id]/publish returns 404 when the scoped publis
         xHandle: "handle_b",
       }),
       parseExtensionDraftPublishRequest,
-      findDraft: async () => ({
-        id: "draft_1",
-        status: "DRAFT",
-        publishedTweetId: null,
+      finalizeDraftPublish: async () => ({
+        ok: false,
+        status: 404,
+        field: "id",
+        message: "Draft not found.",
       }),
-      publishDraft: async () => false,
     },
   );
 
@@ -135,7 +138,9 @@ test("POST /api/extension/drafts/[id]/publish rejects non-draft items from the w
         authorization: "Bearer token_123",
         "content-type": "application/json",
       },
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        finalPublishedText: "final copy",
+      }),
     }),
     { id: "draft_1" },
     {
@@ -150,14 +155,12 @@ test("POST /api/extension/drafts/[id]/publish rejects non-draft items from the w
         xHandle: "vitddnv",
       }),
       parseExtensionDraftPublishRequest,
-      findDraft: async () => ({
-        id: "draft_1",
-        status: "PUBLISHED",
-        publishedTweetId: "1901234567890",
+      finalizeDraftPublish: async () => ({
+        ok: false,
+        status: 409,
+        field: "status",
+        message: "Only draft items can be published.",
       }),
-      publishDraft: async () => {
-        throw new Error("should not be reached");
-      },
     },
   );
 
@@ -165,5 +168,43 @@ test("POST /api/extension/drafts/[id]/publish rejects non-draft items from the w
   assert.deepEqual(await response.json(), {
     ok: false,
     errors: [{ field: "status", message: "Only draft items can be published." }],
+  });
+});
+
+test("POST /api/extension/drafts/[id]/publish requires finalPublishedText", async () => {
+  const response = await handleExtensionDraftPublishPost(
+    new Request("http://localhost/api/extension/drafts/draft_1/publish", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer token_123",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        finalPublishedText: "   ",
+      }),
+    }),
+    { id: "draft_1" },
+    {
+      authenticateExtensionRequest: async () => ({
+        user: {
+          id: "user_1",
+          activeXHandle: "@StanDev",
+        },
+      }),
+      resolveExtensionHandleForRequest: async () => ({
+        ok: true,
+        xHandle: "handle_b",
+      }),
+      parseExtensionDraftPublishRequest,
+      finalizeDraftPublish: async () => {
+        throw new Error("should not be reached");
+      },
+    },
+  );
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), {
+    ok: false,
+    errors: [{ field: "finalPublishedText", message: "Final published text is required." }],
   });
 });

@@ -6,14 +6,20 @@ interface ExtensionAuthResult {
 }
 
 interface DraftPublishRequest {
+  finalPublishedText: string;
   publishedTweetId?: string | null;
 }
 
-interface PublishableDraftRecord {
-  id: string;
-  status: string;
-  publishedTweetId: string | null;
-}
+type FinalizeDraftPublishResult =
+  | {
+      ok: true;
+    }
+  | {
+      ok: false;
+      status: number;
+      field: string;
+      message: string;
+    };
 
 interface ExtensionDraftPublishHandlerDeps {
   authenticateExtensionRequest(request: Request): Promise<ExtensionAuthResult | null>;
@@ -35,18 +41,14 @@ interface ExtensionDraftPublishHandlerDeps {
   >;
   parseExtensionDraftPublishRequest(body: unknown):
     | { ok: true; data: DraftPublishRequest }
-    | { ok: false; message: string };
-  findDraft(args: {
+    | { ok: false; field: string; message: string };
+  finalizeDraftPublish(args: {
     id: string;
     userId: string;
     xHandle: string;
-  }): Promise<PublishableDraftRecord | null>;
-  publishDraft(args: {
-    id: string;
-    userId: string;
-    xHandle: string;
+    finalPublishedText: string;
     publishedTweetId?: string | null;
-  }): Promise<boolean>;
+  }): Promise<FinalizeDraftPublishResult>;
 }
 
 function jsonError(status: number, field: string, message: string) {
@@ -85,29 +87,18 @@ export async function handleExtensionDraftPublishPost(
 
   const parsed = deps.parseExtensionDraftPublishRequest(body);
   if (!parsed.ok) {
-    return jsonError(400, "body", parsed.message);
+    return jsonError(400, parsed.field, parsed.message);
   }
 
-  const draft = await deps.findDraft({
+  const result = await deps.finalizeDraftPublish({
     id: args.id,
     userId: auth.user.id,
     xHandle: handleResolution.xHandle,
+    finalPublishedText: parsed.data.finalPublishedText,
+    publishedTweetId: parsed.data.publishedTweetId,
   });
-  if (!draft) {
-    return jsonError(404, "id", "Draft not found.");
-  }
-  if (draft.status !== "DRAFT") {
-    return jsonError(409, "status", "Only draft items can be published.");
-  }
-
-  const published = await deps.publishDraft({
-    id: draft.id,
-    userId: auth.user.id,
-    xHandle: handleResolution.xHandle,
-    publishedTweetId: parsed.data.publishedTweetId ?? draft.publishedTweetId,
-  });
-  if (!published) {
-    return jsonError(404, "id", "Draft not found.");
+  if (!result.ok) {
+    return jsonError(result.status, result.field, result.message);
   }
 
   return Response.json({ ok: true });

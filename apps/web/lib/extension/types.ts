@@ -410,5 +410,6 @@ export interface ExtensionHandlesResponse {
 }
 
 export interface ExtensionDraftPublishRequest {
+  finalPublishedText: string;
   publishedTweetId?: string | null;
 }
