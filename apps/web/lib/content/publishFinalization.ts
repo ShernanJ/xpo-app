@@ -73,6 +73,25 @@ type DraftCandidatePublishClient = {
   };
 };
 
+function resolveDraftCandidatePublishClient(
+  client?: DraftCandidatePublishClient,
+): DraftCandidatePublishClient {
+  if (client) {
+    return client;
+  }
+
+  return {
+    draftCandidate: {
+      findFirst(args) {
+        return prisma.draftCandidate.findFirst(args);
+      },
+      updateMany(args) {
+        return prisma.draftCandidate.updateMany(args);
+      },
+    },
+  };
+}
+
 export interface FinalizeDraftPublishInput {
   id: string;
   userId: string;
@@ -114,7 +133,7 @@ export async function finalizeDraftPublishForWorkspace(
     client?: DraftCandidatePublishClient;
   },
 ): Promise<FinalizeDraftPublishResult> {
-  const client = options?.client ?? (prisma as DraftCandidatePublishClient);
+  const client = resolveDraftCandidatePublishClient(options?.client);
   const draft = await client.draftCandidate.findFirst({
     where: {
       id: args.id,
