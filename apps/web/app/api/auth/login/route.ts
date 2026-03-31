@@ -58,7 +58,8 @@ export async function POST(request: Request) {
   const codeRequest = await requestSupabaseEmailCode(email, { createUser: true });
   if (!codeRequest.ok) {
     const status =
-      codeRequest.error.code === "missing_configuration"
+      codeRequest.error.code === "missing_configuration" ||
+      codeRequest.error.code === "delivery_failed"
         ? 500
         : codeRequest.error.code === "rate_limited"
           ? 429
@@ -67,6 +68,9 @@ export async function POST(request: Request) {
       status,
       field: "auth",
       message: codeRequest.error.message,
+      extras: {
+        code: codeRequest.error.code,
+      },
     });
   }
 

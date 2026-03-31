@@ -98,6 +98,9 @@ export async function POST(request: Request) {
         status,
         field: "auth",
         message: authResult.error.message,
+        extras: {
+          code: authResult.error.code,
+        },
       });
     }
 

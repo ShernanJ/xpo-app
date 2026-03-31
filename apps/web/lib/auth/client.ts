@@ -21,10 +21,16 @@ interface AuthResponseSuccess {
   user?: AppSession["user"];
 }
 
+interface AuthValidationError {
+  field?: string;
+  message?: string;
+}
+
 interface AuthResponseFailure {
   ok?: false;
   error?: string;
   code?: string;
+  errors?: AuthValidationError[];
 }
 
 type AuthResponsePayload = AuthResponseSuccess | AuthResponseFailure | null;
@@ -69,6 +75,32 @@ async function parseAuthResponse(response: Response): Promise<{
   return { payload, normalizedFallback };
 }
 
+function resolveAuthFailureMessage(
+  payload: AuthResponseFailure | null,
+  normalizedFallback: string,
+  defaultClientMessage: string,
+  defaultServerMessage: string,
+  status: number,
+): string {
+  const structuredError =
+    typeof payload?.error === "string" && payload.error.trim().length > 0
+      ? payload.error.trim()
+      : typeof payload?.errors?.[0]?.message === "string" &&
+          payload.errors[0].message.trim().length > 0
+        ? payload.errors[0].message.trim()
+        : "";
+
+  if (structuredError.length > 0) {
+    return structuredError;
+  }
+
+  if (normalizedFallback.length > 0) {
+    return normalizedFallback;
+  }
+
+  return status >= 500 ? defaultServerMessage : defaultClientMessage;
+}
+
 type AuthMutationResult = {
   code?: string;
   error?: string;
@@ -96,13 +128,13 @@ export async function requestEmailCode(options: {
       : null;
 
   if (!response.ok || !payload?.ok) {
-    const resolvedError =
-      failurePayload?.error ??
-      (normalizedFallback.length > 0
-        ? normalizedFallback
-        : response.status >= 500
-          ? "Email sign-in is temporarily unavailable. Try again in a moment."
-          : "Could not send a verification code.");
+    const resolvedError = resolveAuthFailureMessage(
+      failurePayload,
+      normalizedFallback,
+      "Could not send a verification code.",
+      "Email sign-in is temporarily unavailable. Try again in a moment.",
+      response.status,
+    );
 
     return {
       ok: false,
@@ -141,13 +173,13 @@ export async function verifyEmailCode(options: {
       : null;
 
   if (!response.ok || !payload?.ok) {
-    const resolvedError =
-      failurePayload?.error ??
-      (normalizedFallback.length > 0
-        ? normalizedFallback
-        : response.status >= 500
-          ? "Email verification is temporarily unavailable. Try again in a moment."
-          : "Could not verify your code.");
+    const resolvedError = resolveAuthFailureMessage(
+      failurePayload,
+      normalizedFallback,
+      "Could not verify your code.",
+      "Email verification is temporarily unavailable. Try again in a moment.",
+      response.status,
+    );
 
     return {
       ok: false,

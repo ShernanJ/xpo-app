@@ -19,6 +19,7 @@ export type SupabaseAuthErrorCode =
   | "invalid_otp"
   | "invalid_access_token"
   | "rate_limited"
+  | "delivery_failed"
   | "missing_configuration"
   | "request_failed";
 
@@ -89,6 +90,17 @@ function deriveSupabaseError(data: unknown, fallback: string): SupabaseAuthError
     return {
       code: "rate_limited",
       message: "A verification code was just sent. Please wait a moment before requesting another one.",
+    };
+  }
+
+  if (
+    normalized.includes("error sending confirmation email") ||
+    normalized.includes("error sending magic link") ||
+    normalized.includes("error sending email")
+  ) {
+    return {
+      code: "delivery_failed",
+      message: raw,
     };
   }
 
