@@ -28,9 +28,25 @@ export async function createSessionToken(payload: SessionPayload): Promise<strin
 export async function verifySessionToken(token: string): Promise<SessionPayload | null> {
   try {
     const { payload } = await jwtVerify(token, getSecret());
+    const userId =
+      typeof payload.userId === "string" && payload.userId.trim().length > 0
+        ? payload.userId
+        : null;
+
+    if (!userId) {
+      return null;
+    }
+
+    const email =
+      typeof payload.email === "string"
+        ? payload.email
+        : payload.email === null || payload.email === undefined
+          ? null
+          : null;
+
     return {
-      userId: payload.userId as string,
-      email: payload.email ? (payload.email as string) : null,
+      userId,
+      email,
     };
   } catch {
     return null;
