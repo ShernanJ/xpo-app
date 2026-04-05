@@ -38,9 +38,9 @@ export function buildGoogleOAuthStartPath(args?: {
 
 export function resolveAppOrigin(request: Request): string {
   const configuredOrigin =
+    new URL(request.url).origin ||
     process.env.APP_URL?.trim() ||
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    new URL(request.url).origin;
+    process.env.NEXT_PUBLIC_APP_URL?.trim();
 
   return configuredOrigin.replace(/\/+$/, "");
 }
