@@ -1,5 +1,13 @@
 # xpo
 
+Created an app to try to convince Stan to hire me. Did not get the role but gained a lot of clout and connections :D
+[LinkedIn Post](https://www.linkedin.com/posts/shernanjavier_buildinpublic-hiringinpublic-stan-ugcPost-7446465824376348672-dj54)
+
+<a href="https://www.linkedin.com/posts/shernanjavier_buildinpublic-hiringinpublic-stan-ugcPost-7446465824376348672-dj54"><img width="365" height="395" alt="image" src="https://github.com/user-attachments/assets/398619d4-1cc9-4b72-ac27-d8fd1a494e6d" /></a>
+
+
+## Updating this soon
+
 This repository currently ships a single Next.js application in `apps/web`. The app is an X creator assistant and growth workflow product with onboarding, chat-based AI orchestration, reply assistance, source-material grounding, billing, and a companion extension API.
 
 This README documents the live implementation in the repo today. When the code and older planning docs disagree, treat the code in `apps/web` as the source of truth.
