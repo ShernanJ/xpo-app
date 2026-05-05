@@ -1,4 +1,4 @@
-# stanley-x-mvp
+# xpo
 
 This repository currently ships a single Next.js application in `apps/web`. The app is an X creator assistant and growth workflow product with onboarding, chat-based AI orchestration, reply assistance, source-material grounding, billing, and a companion extension API.
 
