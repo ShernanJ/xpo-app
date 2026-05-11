@@ -1,4 +1,9 @@
-# xpo
+# xpo.lol - stanley for x proof of concept
+
+<img width="1245" height="767" alt="Screenshot 2026-05-11 at 4 16 45 AM" src="https://github.com/user-attachments/assets/7691ef46-3907-40d2-83d6-868586062ac7" />
+
+<br/><br/>
+
 
 Created an app to try to convince Stan to hire me. Did not get the role but gained a lot of clout and connections :D
 [LinkedIn Post](https://www.linkedin.com/posts/shernanjavier_buildinpublic-hiringinpublic-stan-ugcPost-7446465824376348672-dj54)
